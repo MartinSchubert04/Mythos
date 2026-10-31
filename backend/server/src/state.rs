@@ -9,8 +9,8 @@ use mythos_media::Media;
 use serde::Serialize;
 
 use crate::{
-    auth::Auth, cinemeta::Cinemeta, config::Config, db::Db, images::Images, local::LocalCtx, metrics::Recorder,
-    streams::StreamCtx, subtitles::Subtitles,
+    auth::Auth, cinemeta::Cinemeta, config::Config, db::Db, images::Images, imdb::Imdb, local::LocalCtx,
+    metrics::Recorder, streams::StreamCtx, subtitles::Subtitles,
 };
 
 #[derive(Clone)]
@@ -20,6 +20,8 @@ pub struct AppState {
     pub auth: Auth,
     pub media: Media,
     pub cinemeta: Arc<Cinemeta>,
+    /// "Top rated" de los datasets de IMDb (`/api/top`).
+    pub imdb: Imdb,
     pub streams: Arc<StreamCtx>,
     pub subs: Arc<Subtitles>,
     /// Fondos y miniaturas achicados (`/api/media/img`).
@@ -50,6 +52,12 @@ pub struct Watching {
     pub session_id: String,
     /// unix s
     pub started_at: i64,
+}
+
+impl FromRef<AppState> for Imdb {
+    fn from_ref(s: &AppState) -> Self {
+        s.imdb.clone()
+    }
 }
 
 impl FromRef<AppState> for Auth {

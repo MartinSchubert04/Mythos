@@ -144,6 +144,14 @@ Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en
   tarjetas crecen 6 % con el anillo en el marco. Nada depende del hover.
 - **Cast** (detalle): avatares con iniciales sobre el acento (el catálogo no trae fotos). Debajo,
   la fila "More like this" (mismo género principal).
+- **Top rated** (`views/Top.svelte`, `#/top?type=series&genres=Crime,Drama&votes=10000`): lo
+  mejor de IMDb (`/api/top`). Arriba "Movies / Series" (`Seg`), los votos mínimos (`Select`) y
+  "Clear"; debajo, un chip por género (multi-selección, hasta 3, todos tienen que coincidir: el
+  elegido va con `--primary-bg`, los demás muestran cuántos quedarían y se apagan si no combinan).
+  Grilla de pósters con el rating fijo (`PosterCard pinRating`) que trae de a 60 al acercarse al
+  final; el filtro vive en la URL. En celular los chips van en una línea que se desliza. Se llega
+  desde la barra lateral, desde Search y desde el título de las filas "Top rated" del inicio
+  (`Row href`, con una flecha).
 - **Episodios**: en pantallas anchas van en dos o tres columnas; los especiales (temporada 0) se
   llaman "Specials" y van al final; con más de 6 temporadas, Select en vez de Seg. Visto / no visto a
   mano: el tilde al pasar el mouse por un episodio, clic derecho o mantener apretado (menú), el ⋯
@@ -157,7 +165,8 @@ Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en
 | Estado | Qué se ve |
 |---|---|
 | Cargando | Esqueletos con brillo en filas, grillas, detalle, admin; splash con la marca al abrir |
-| Vacío | Ícono + frase + acción: Library vacía ("Browse"), búsqueda sin resultados, sin "Continue watching" (la fila no aparece) |
+| Vacío | Ícono + frase + acción: Library vacía ("Browse"), búsqueda sin resultados, Top rated sin coincidencias ("Clear genres" / "Any votes"), sin "Continue watching" (la fila no aparece) |
+| Top rated sin datos | "Getting the IMDb ratings…" con el spinner mientras el server baja IMDb la primera vez (reintenta solo cada 10 s); en el server embebido de las apps, "Top rated needs the home server" |
 | Sin streams | "No streams found" con la sugerencia (muy nuevo, o los límites de Settings) y Retry |
 | Server caído | Pastilla arriba "Can't reach the server. Retrying…" con Retry; se reintenta solo cada 5 s y al volver la vista se recarga. Si pasa al abrir: pantalla de reconexión (no el login) |
 | Sesión vencida (401) | Login con el aviso "Your session expired" |
@@ -167,7 +176,7 @@ Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en
 ## 5. Layout
 
 Barra lateral a la izquierda (212 px, o 64 px plegada con solo íconos; se recuerda) con Home,
-Search, Library, Settings y Admin (solo admins), y el usuario abajo. El contenido scrollea en su
+Search, Top rated, Library, Settings y Admin (solo admins), y el usuario abajo. El contenido scrollea en su
 propio contenedor y recuerda dónde estaba al volver.
 
 Desktop: arriba una barra de 40 px (`Titlebar`) que es la barra de título de la ventana sin marco:
@@ -177,8 +186,8 @@ minimizar / maximizar / cerrar.
 El reproductor ocupa toda la ventana (sin barra lateral ni de título); en desktop sus controles de
 ventana van en su barra de arriba, que también se arrastra.
 
-Rutas con hash: `#/`, `#/search?q=`, `#/title/{type}/{id}`, `#/watch/{type}/{id}?s={stream}`,
-`#/library`, `#/settings`, `#/admin`. Cada vista se carga recién cuando hace falta.
+Rutas con hash: `#/`, `#/search?q=`, `#/top?type=&genres=&votes=`, `#/title/{type}/{id}`,
+`#/watch/{type}/{id}?s={stream}`, `#/library`, `#/settings`, `#/admin`. Cada vista se carga recién cuando hace falta.
 
 Atajos (listados en Settings → Keyboard shortcuts): `/` o `Ctrl K` buscar (lo que se escribe
 mientras la vista carga no se pierde); flechas entre pósters de una fila y entre filas; Esc cierra

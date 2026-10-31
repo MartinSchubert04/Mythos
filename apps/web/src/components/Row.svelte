@@ -4,6 +4,7 @@
   import { ChevronLeft, ChevronRight } from "@lucide/svelte";
   import { tick, type Snippet } from "svelte";
   import { scrollBehavior } from "../lib/motion";
+  import { go } from "../lib/router.svelte";
   import { tv } from "../lib/tv.svelte";
 
   let {
@@ -13,6 +14,7 @@
     card,
     wide = false,
     hideEmpty = true,
+    href,
   }: {
     title: string;
     load?: () => Promise<T[]>;
@@ -21,6 +23,8 @@
     /** Tarjetas apaisadas (seguir viendo). */
     wide?: boolean;
     hideEmpty?: boolean;
+    /** El titulo lleva a la lista entera ("Top rated movies" → #/top). Ruta sin el "#". */
+    href?: string;
   } = $props();
 
   let fetched = $state<T[] | null>(null);
@@ -153,7 +157,21 @@
 
 {#if !(hideEmpty && items && items.length === 0)}
   <section class="shelf" class:wide bind:this={root}>
-    <h2 class="row-title">{title}</h2>
+    {#if href}
+      <h2 class="row-title">
+        <a
+          class="see-all"
+          href="#{href}"
+          onclick={(e) => {
+            if (e.ctrlKey || e.metaKey || e.button !== 0) return;
+            e.preventDefault();
+            go(href);
+          }}>{title}<ChevronRight size={16} /></a
+        >
+      </h2>
+    {:else}
+      <h2 class="row-title">{title}</h2>
+    {/if}
     <div class="viewport">
       <button class="arrow left" class:show={canLeft} onclick={() => page(-1)} aria-label="Scroll left" tabindex="-1">
         <ChevronLeft size={22} />
@@ -202,6 +220,23 @@
     letter-spacing: -0.01em;
     margin: 0 0 10px;
     padding: 0 var(--gutter);
+  }
+  .see-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    border-radius: var(--radius-sm);
+  }
+  .see-all :global(svg) {
+    color: var(--text-3);
+    transition:
+      transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+      color 0.15s;
+  }
+  .see-all:hover :global(svg),
+  .see-all:focus-visible :global(svg) {
+    color: var(--accent);
+    transform: translateX(3px);
   }
   .viewport {
     position: relative;

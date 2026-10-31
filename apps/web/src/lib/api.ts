@@ -24,6 +24,7 @@ import type {
   Settings,
   SettingsUpdate,
   Stream,
+  TopRated,
   TorrentStat,
   User,
   LocalLogin,
@@ -294,6 +295,14 @@ export const api = {
       req<MetaPreview[]>("GET", `/api/catalog/${type}/${catalog}${q(o)}`),
     ),
   genres: (type: MediaType) => cached(`genres:${type}`, 60 * MIN, () => req<string[]>("GET", `/api/genres/${type}`)),
+  /** Lo mejor calificado de IMDb (todos los `genres` tienen que coincidir). Lo que no esta listo
+   *  no se cachea: se vuelve a preguntar. */
+  top: (type: MediaType, o: { genres?: string[]; min_votes?: number; skip?: number; limit?: number } = {}, signal?: AbortSignal) => {
+    const path = `/api/top/${type}${q({ genres: o.genres?.join(","), min_votes: o.min_votes, skip: o.skip, limit: o.limit })}`;
+    const p = cached(`top:${path}`, 10 * MIN, () => req<TopRated>("GET", path, undefined, { signal }));
+    p.then((r) => r.state !== "ready" && dropCache(`top:${path}`)).catch(() => {});
+    return p;
+  },
   search: (query: string, signal?: AbortSignal) =>
     req<{ movies: MetaPreview[]; series: MetaPreview[] }>("GET", `/api/search${q({ q: query })}`, undefined, { signal }),
   meta: (type: MediaType, id: string) => cached(`meta:${type}/${id}`, 15 * MIN, () => req<Meta>("GET", `/api/meta/${type}/${enc(id)}`)),

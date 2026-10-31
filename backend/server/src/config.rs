@@ -55,6 +55,9 @@ pub struct Config {
     /// Modo local: cada cuánto sincronizar solo con el remoto. `None` = solo a pedido
     /// (`POST /api/local/sync`).
     pub sync_interval: Option<Duration>,
+    /// "Top rated" (`/api/top`): bajar los datasets de IMDb (~240 MB por semana) y guardar la
+    /// versión compacta en `data_dir/imdb`. Apagado en modo local y con `MYTHOS_IMDB=0`.
+    pub imdb_top: bool,
 }
 
 impl Config {
@@ -80,12 +83,13 @@ impl Config {
             metrics: true,
             remote_url: None,
             sync_interval: None,
+            imdb_top: true,
         }
     }
 
     /// Valores para el modo embebido: solo en 127.0.0.1 con puerto libre, sin UI, sin métricas,
-    /// caché sin tope que borra cada película a las 24 h de su último uso, puerto de peers efímero
-    /// y sincronización cada 60 s si hay remoto.
+    /// caché sin tope que borra cada película a las 24 h de su último uso, puerto de peers efímero,
+    /// sincronización cada 60 s si hay remoto y sin "Top rated" (lo da el server de casa).
     /// ffmpeg/ffprobe se buscan en el PATH; si no están, solo reproducción directa.
     pub fn local(data_dir: impl Into<PathBuf>) -> Self {
         Self {
@@ -97,6 +101,7 @@ impl Config {
             peer_port: 0,
             metrics: false,
             sync_interval: Some(Duration::from_secs(60)),
+            imdb_top: false,
             ..Self::server(data_dir)
         }
     }

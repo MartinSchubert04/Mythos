@@ -24,6 +24,7 @@ mod config;
 mod db;
 mod error;
 mod images;
+mod imdb;
 mod local;
 mod metrics;
 mod score;
@@ -182,6 +183,7 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
         db: db.clone(),
         media,
         cinemeta: Arc::new(cinemeta::Cinemeta::new(http.clone())),
+        imdb: imdb::Imdb::new(&cfg.data_dir, http.clone(), cfg.imdb_top),
         streams: Arc::new(streams::StreamCtx::new(http, cfg.torrentio_url.clone())),
         subs: Arc::new(subtitles::Subtitles::new()?),
         images: images::Images::new(&cfg.data_dir, cfg.mode)?,
@@ -192,6 +194,9 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
         cfg: Arc::new(cfg.clone()),
     };
     let mut background = vec![tokio::spawn(cleanup_sessions(db))];
+    if cfg.imdb_top {
+        background.push(tokio::spawn(state.imdb.clone().keep_fresh()));
+    }
     if let (Mode::Local, Some(every)) = (cfg.mode, cfg.sync_interval) {
         background.push(tokio::spawn(local::sync_loop(state.clone(), every)));
     }
@@ -243,6 +248,7 @@ fn app(state: AppState) -> Router {
             }),
         )
         .merge(cinemeta::routes())
+        .merge(imdb::routes())
         .merge(streams::routes())
         .merge(subtitles::routes())
         .merge(user_data::routes())

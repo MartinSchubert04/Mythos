@@ -4,13 +4,14 @@ import type { Component } from "svelte";
 import { tick } from "svelte";
 import { reduceMotion } from "./motion";
 
-export type ViewName = "home" | "search" | "detail" | "player" | "library" | "settings" | "admin";
+export type ViewName = "home" | "search" | "top" | "detail" | "player" | "library" | "settings" | "admin";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Loader = () => Promise<{ default: Component<any> }>;
 const loaders: Record<ViewName, Loader> = {
   home: () => import("../views/Home.svelte"),
   search: () => import("../views/Search.svelte"),
+  top: () => import("../views/Top.svelte"),
   detail: () => import("../views/Detail.svelte"),
   player: () => import("../views/Player.svelte"),
   library: () => import("../views/Library.svelte"),
@@ -61,14 +62,16 @@ function parse(hash: string, vt = false): Route {
       view = "player";
       params = parts.slice(1, 3);
       break;
+    case "top":
     case "library":
     case "settings":
     case "admin":
       view = parts[0];
       break;
   }
-  // La busqueda no se vuelve a montar al escribir (cambia solo ?q=).
-  const key = view === "search" ? "search" : path;
+  // La busqueda no se vuelve a montar al escribir (cambia solo ?q=), ni "Top rated" al cambiar
+  // los filtros (?type=&genres=&votes=).
+  const key = view === "search" || view === "top" ? view : path;
   return { path, view, params, query, key, vt };
 }
 

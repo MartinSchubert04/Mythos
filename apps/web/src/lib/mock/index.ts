@@ -360,6 +360,31 @@ async function route(req: Request): Promise<Response> {
     }
     return json(list.slice(skip, skip + 30));
   }
+  if ((r = path.match(/^\/api\/top\/(movie|series)$/))) {
+    // Como el server (imdb.rs): por rating, con todos los generos pedidos y el conteo de cada
+    // genero sumado al filtro. Los votos son inventados (los fixtures no los traen).
+    await wait(250);
+    const want = (url.searchParams.get("genres") ?? "").split(",").filter(Boolean);
+    const minVotes = Math.max(1000, Number(url.searchParams.get("min_votes") ?? (r[1] === "movie" ? 25000 : 10000)));
+    const skip = Number(url.searchParams.get("skip") ?? 0);
+    const limit = Number(url.searchParams.get("limit") ?? 50);
+    const votes = (id: string) => (Number(id.replace(/\D/g, "")) % 97) * 9000 + 1000;
+    const all = allPreviews()
+      .filter((x) => x.type === r![1] && x.imdb_rating)
+      .sort((a, b) => Number(b.imdb_rating) - Number(a.imdb_rating));
+    const hits = all.filter((x) => votes(x.id) >= minVotes && want.every((g) => x.genres?.includes(g)));
+    const names = [...new Set(all.flatMap((x) => x.genres ?? []))].sort();
+    const genres = names.map((name) => ({ name, count: hits.filter((x) => x.genres?.includes(name)).length }));
+    return json({
+      state: "ready",
+      items: hits.slice(skip, skip + limit),
+      total: hits.length,
+      more: skip + limit < hits.length,
+      genres,
+      min_votes: minVotes,
+      updated_at: Math.floor(Date.now() / 1000) - 86400,
+    });
+  }
   if ((r = path.match(/^\/api\/genres\/(movie|series)$/)))
     return json(["Action", "Adventure", "Animation", "Comedy", "Crime", "Drama", "Fantasy", "Horror", "Sci-Fi", "Thriller"]);
   if (path === "/api/search") {

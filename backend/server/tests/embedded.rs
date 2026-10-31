@@ -16,6 +16,7 @@ fn quiet(mut c: Config) -> Config {
     c.ffmpeg = PathBuf::new();
     c.ffprobe = PathBuf::new();
     c.cache_gb = 1.0;
+    c.imdb_top = false;
     c
 }
 

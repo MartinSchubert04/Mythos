@@ -147,6 +147,21 @@ export type SettingsUpdate = Partial<Omit<Settings, "has_rd_key">> & { rd_key?: 
 
 export type ExternalSub = { id: string; lang: string; url: string };
 
+/** "Top rated" (GET /api/top/{type}): lo mejor calificado de IMDb con todos los generos pedidos. */
+export type TopRated = {
+  /** "preparing": el server todavia baja los datos de IMDb; "unavailable": este server no lo
+   *  tiene (el embebido de las apps). */
+  state: "ready" | "preparing" | "unavailable";
+  items: MetaPreview[];
+  total: number;
+  more: boolean;
+  /** Los generos del tipo; `count` = cuantos quedarian sumandolo al filtro (0: no combina). */
+  genres: { name: string; count: number }[];
+  min_votes: number;
+  /** unix s de los datos de IMDb. */
+  updated_at: number | null;
+};
+
 export type TorrentStat = {
   info_hash: string;
   name: string;

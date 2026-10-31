@@ -9,7 +9,7 @@
   import { lastNewEpisodes, newEpisodes, type NewEp } from "../lib/newEpisodes";
   import { keepScroll } from "../lib/scroll";
   import { attempt } from "../lib/toast.svelte";
-  import type { MetaPreview, Progress } from "../lib/types";
+  import type { MediaType, MetaPreview, Progress } from "../lib/types";
 
   let featured = $state<MetaPreview[] | null>(null);
   let cont = $state<Progress[] | null>(null);
@@ -51,12 +51,20 @@
     return `/watch/series/${p?.meta_id ?? `${m.id}:1:1`}`;
   }
 
-  const ROWS: { title: string; load: () => Promise<MetaPreview[]> }[] = [
+  /** Lo mejor de IMDb (GET /api/top). Si el server todavia no lo tiene (bajando, o el embebido
+   *  de las apps, o uno viejo sin la ruta), el catalogo "imdbRating" de Cinemeta. */
+  const topRated = (type: MediaType) => () =>
+    api
+      .top(type, { limit: 40 })
+      .then((r) => (r.state === "ready" && r.items.length ? r.items : Promise.reject()))
+      .catch(() => api.catalog(type, "imdbRating"));
+
+  const ROWS: { title: string; load: () => Promise<MetaPreview[]>; href?: string }[] = [
     { title: "Popular movies", load: () => api.catalog("movie", "top") },
     { title: "Popular series", load: () => api.catalog("series", "top") },
-    { title: "Top rated movies", load: () => api.catalog("movie", "imdbRating") },
+    { title: "Top rated movies", load: topRated("movie"), href: "/top" },
     { title: "Action", load: () => api.catalog("movie", "top", { genre: "Action" }) },
-    { title: "Top rated series", load: () => api.catalog("series", "imdbRating") },
+    { title: "Top rated series", load: topRated("series"), href: "/top?type=series" },
     { title: "Comedy", load: () => api.catalog("movie", "top", { genre: "Comedy" }) },
     { title: "Sci-Fi", load: () => api.catalog("movie", "top", { genre: "Sci-Fi" }) },
     { title: "Animation", load: () => api.catalog("movie", "top", { genre: "Animation" }) },
@@ -79,7 +87,7 @@
       </Row>
     {/if}
     {#each ROWS as r, ri (r.title)}
-      <Row title={r.title} load={r.load}>
+      <Row title={r.title} load={r.load} href={r.href}>
         {#snippet card(m, i)}<PosterCard item={m} {i} eager={ri === 0 && i < 6} />{/snippet}
       </Row>
     {/each}

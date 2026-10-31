@@ -18,6 +18,7 @@ iguales.
 | Android TV / TV box: 32 y 64 bits, control remoto, escala de 10 pies, perfiles, WebView mínimo | `docs/mobile.md` ("TV") |
 | Desktop: actualizaciones desde los Releases (cuándo se instala, relanzar) | `apps/desktop/src-tauri/src/updater.rs` |
 | Desktop: vidrio esmerilado (Acrylic + opacidad sobre cualquier tema) | `apps/web/src/lib/glass.svelte.ts` |
+| "Top rated": de dónde sale (datasets de IMDb), cada cuánto se baja, dónde se guarda | `backend/server/src/imdb.rs`, `docs/API.md` ("Top rated") |
 | Rendimiento: tamaño de las imágenes (`/api/media/img`), modo liviano en equipos flojos, qué evitar | `apps/web/src/lib/images.ts`, `apps/web/src/lib/perf.ts`, `DESIGN.md` (5b y 7) |
 
 ## Estructura

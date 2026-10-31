@@ -11,7 +11,18 @@
   import type { MetaPreview } from "../lib/types";
   import Img from "./Img.svelte";
 
-  let { item, i = 0, eager = false }: { item: MetaPreview; i?: number; eager?: boolean } = $props();
+  let {
+    item,
+    i = 0,
+    eager = false,
+    pinRating = false,
+  }: {
+    item: MetaPreview;
+    i?: number;
+    eager?: boolean;
+    /** El rating siempre a la vista (Top rated), no solo al pasar el mouse o con el foco. */
+    pinRating?: boolean;
+  } = $props();
 
   let flying = $state(false);
   let hoverTimer = 0;
@@ -36,6 +47,7 @@
 
 <a
   class="card-poster"
+  class:pin={pinRating}
   href="#/title/{item.type}/{item.id}"
   style="--i: {i}"
   onclick={open}
@@ -138,6 +150,11 @@
     opacity: 1;
     transform: none;
     backdrop-filter: blur(6px);
+  }
+  /* Fijo (sin desenfoque en reposo, por lo mismo de arriba). */
+  .pin .rating {
+    opacity: 1;
+    transform: none;
   }
   .meta {
     display: flex;

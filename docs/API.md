@@ -88,6 +88,19 @@ type Stream = {
   score: number;               // mayor = mejor. La lista viene ordenada por score desc.
 };
 
+type TopRated = {              // GET /api/top/{type} (ver "Top rated" más abajo)
+  state: "ready"               // hay datos
+       | "preparing"           // la primera bajada de IMDb está en camino (la UI reintenta sola)
+       | "unavailable";        // este server no lo tiene (modo local, o MYTHOS_IMDB=0)
+  items: MetaPreview[];        // por rating y después por votos, de mayor a menor
+  total: number;               // títulos que cumplen el filtro
+  more: boolean;               // hay más después de skip + items.length
+  genres: { name: string; count: number }[];  // los géneros del tipo con ese mínimo de votos;
+                               // count = cuántos quedarían sumándolo al filtro (los elegidos: total)
+  min_votes: number;           // el que se usó (con el default y el piso aplicados)
+  updated_at: number | null;   // unix s de la bajada de IMDb
+};
+
 type ClientCaps = {            // lo que el reproductor del cliente puede reproducir directo
   h264: boolean; hevc: boolean; av1: boolean; vp9: boolean;
   mkv: boolean;                // el navegador abre .mkv con <video>
@@ -189,6 +202,7 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 | PUT | `/api/me/settings` | `Settings` parcial + `rd_key?: string` (vacío = borrar). `ui` se mezcla por clave (una clave en `null` se borra); `preferred_quality`/`max_size_gb` en `null` se borran | `Settings` |
 | GET | `/api/catalog/{type}/{catalog}` | `?genre=&skip=` (`catalog`: `top`, `imdbRating`, `year`) | `MetaPreview[]` |
 | GET | `/api/genres/{type}` | | `string[]` |
+| GET | `/api/top/{type}` | `?genres=Crime,Drama` (hasta 3, todos tienen que coincidir; nombres de IMDb, sin distinguir mayúsculas) `&min_votes=` (por defecto 25000 en películas y 10000 en series; piso 1000) `&skip=&limit=` (≤ 100, def. 50) | `TopRated`; 400 con un género desconocido o más de 3. Siempre 200 aunque no haya datos (`state`) |
 | GET | `/api/search` | `?q=` | `{movies: MetaPreview[], series: MetaPreview[]}` |
 | GET | `/api/meta/{type}/{id}` | | `Meta` |
 | GET | `/api/streams/{type}/{id}` | id con episodio para series (`tt…:1:2`). `?caps=` opcional: `ClientCaps` en JSON o lista `h264,hevc,aac,mkv,…`; da bonus a lo que el cliente reproduce directo | `Stream[]` |
@@ -320,6 +334,20 @@ Rutas montadas desde el crate de media, con auth (Bearer o `?t=`):
 | GET | `/api/media/subs/external` | `?u=<url de OpenSubtitles>` → VTT (gz/srt → vtt) — lo hace el server |
 | GET | `/api/media/img` | `?u=<url https de *.metahub.space>&w=<ancho>` → la imagen achicada a 320/480/640/960/1280 px de ancho (el primero ≥ `w`, JPEG), o la original si ya es chica o tiene transparencia. Cacheada en disco (`<data>/img-cache`, tope 512 MB en server y 96 MB en local, se borran las menos usadas) con `Cache-Control: private, max-age=2592000, immutable`. 400 si no es de metahub, 502 si metahub falla |
 
+**Top rated (`/api/top`)**: lo mejor calificado de IMDb, de los datasets públicos
+(`datasets.imdbws.com`: `title.ratings.tsv.gz` ~9 MB + `title.basics.tsv.gz` ~230 MB, uso
+personal y no comercial, sin clave). Se eligieron porque el catálogo `imdbRating` de Cinemeta no
+está ordenado por rating (se parece a "popular") y acepta un solo género, y los addons de terceros
+con "IMDb Top" dependen de un server ajeno. El server los baja al arrancar si no tiene nada (a
+los ~20 s, o enseguida si alguien pide la lista) y después cada 7 días (si falla, a las 6 h, y
+sigue con lo que tenía); los procesa en streaming (nunca guarda el archivo grande) y deja solo
+películas (`movie`) y series (`tvSeries`, `tvMiniSeries`) no adultas con ≥ 1000 votos en
+`<data>/imdb/top-v1.tsv.gz` (~1,3 MB, ~50 mil películas y ~13 mil series). Pósters y fondos: los de
+metahub por id de IMDb (`/poster/small/{id}/img`, los mismos de Cinemeta); los títulos sin póster
+caen en el póster tipográfico. Páginas cacheadas 1 h. En modo local está apagado (230 MB por
+semana en un celular no): responde `state: "unavailable"` y la UI lo pide al server de casa.
+`MYTHOS_IMDB=0` lo apaga también en el server.
+
 **Imágenes achicadas (`/api/media/img`)**: metahub da los fondos en 480 px (`background/small`) o
 1920 px (`background/medium`, ~800 KB y ~8 MB decodificado). La UI (`apps/web/src/lib/images.ts`)
 pide el tamaño justo para cada lugar: hasta 480 px `small` directo de metahub; entre 480 y 1280 px
@@ -375,11 +403,12 @@ pub struct Config {
     pub metrics: bool,                 // local: false
     pub remote_url: Option<String>,    // local: server remoto por defecto
     pub sync_interval: Option<Duration>, // local: Some(60 s); None = solo a pedido
+    pub imdb_top: bool,                // "Top rated" (datasets de IMDb); local: false
 }
 impl Config {
     pub fn server(data_dir) -> Self;   // los mismos valores que el binario sin variables
     pub fn local(data_dir) -> Self;    // 127.0.0.1:0, sin UI, sin métricas, caché 20 GB,
-                                       // peers en puerto efímero, sync cada 60 s
+                                       // peers en puerto efímero, sync cada 60 s, sin Top rated
 }
 pub async fn run(cfg: Config) -> anyhow::Result<Handle>;   // vuelve cuando ya escucha
 pub struct Handle;

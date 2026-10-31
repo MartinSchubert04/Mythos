@@ -1,12 +1,12 @@
 <script lang="ts">
   // Busqueda en vivo (con debounce): peliculas y series por separado. "/" o Ctrl K vienen aca.
-  import { LoaderCircle, Search, SearchX, X } from "@lucide/svelte";
+  import { LoaderCircle, Search, SearchX, Trophy, X } from "@lucide/svelte";
   import PosterCard from "../components/PosterCard.svelte";
   import { api, errText } from "../lib/api";
   import { uniq } from "../lib/format";
   import { rise } from "../lib/motion";
   import { onMount, tick } from "svelte";
-  import { route, searchIntent, setQuery } from "../lib/router.svelte";
+  import { go, route, searchIntent, setQuery } from "../lib/router.svelte";
   import { keepScroll } from "../lib/scroll";
   import type { MetaPreview } from "../lib/types";
 
@@ -103,6 +103,10 @@
       </div>
     {:else}
       <div class="hint-line faint" in:rise>Press <kbd>/</kbd> or <kbd>Ctrl K</kbd> from anywhere to search.</div>
+      <div class="browse" in:rise>
+        <button class="btn sm" onclick={() => go("/top")}><Trophy size={14} />Top rated movies</button>
+        <button class="btn sm" onclick={() => go("/top?type=series")}><Trophy size={14} />Top rated series</button>
+      </div>
       {#if popular.length}
         <h2 class="section-title">Popular right now</h2>
         <div class="poster-grid">
@@ -167,6 +171,12 @@
   .hint-line {
     font-size: 12.5px;
     margin: -2px 0 6px;
+  }
+  .browse {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0 4px;
   }
   .ph {
     aspect-ratio: 2 / 3;

@@ -69,7 +69,10 @@ fn inline_script_hashes(html: &str) -> Vec<String> {
         let body = &rest[tag_end + 1..];
         let Some(close) = body.find("</script>") else { break };
         if !tag.contains("src=") {
-            let digest = Sha256::digest(&body.as_bytes()[..close]);
+            // El navegador calcula el hash sobre el texto ya parseado, donde CRLF y CR pasan a LF
+            // (un build en Windows deja CRLF y, sin esto, la CSP bloquea el script de arranque).
+            let text = body[..close].replace("\r\n", "\n").replace('\r', "\n");
+            let digest = Sha256::digest(text.as_bytes());
             out.push(format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(digest)));
         }
         rest = &body[close..];

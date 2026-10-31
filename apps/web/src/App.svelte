@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { House, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, ShieldCheck, WifiOff } from "@lucide/svelte";
+  import { House, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, ShieldCheck, Trophy, WifiOff } from "@lucide/svelte";
   import { flip } from "svelte/animate";
   import { fade } from "svelte/transition";
   import Avatar from "./components/Avatar.svelte";
@@ -29,6 +29,7 @@
   const nav: { id: ViewName; path: string; label: string; icon: typeof House; admin?: boolean }[] = [
     { id: "home", path: "/", label: "Home", icon: House },
     { id: "search", path: "/search", label: "Search", icon: Search },
+    { id: "top", path: "/top", label: "Top rated", icon: Trophy },
     { id: "library", path: "/library", label: "Library", icon: Library },
     { id: "settings", path: "/settings", label: "Settings", icon: Settings },
     { id: "admin", path: "/admin", label: "Admin", icon: ShieldCheck, admin: true },
@@ -529,7 +530,8 @@
       flex-direction: column;
       gap: 3px;
       height: 50px;
-      padding: 6px 10px 4px;
+      min-width: 0;
+      padding: 6px 4px 4px;
       font-size: 10.5px;
     }
     .nav.on {

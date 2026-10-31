@@ -88,6 +88,8 @@ fn config_from_env() -> anyhow::Result<Config> {
     }
     // `MYTHOS_METRICS=0` apaga las métricas de requests (por defecto prendidas).
     cfg.metrics = !var("MYTHOS_METRICS").is_some_and(|v| v == "0" || v.eq_ignore_ascii_case("false"));
+    // `MYTHOS_IMDB=0` apaga "Top rated" (no baja los datasets de IMDb).
+    cfg.imdb_top = !var("MYTHOS_IMDB").is_some_and(|v| v == "0" || v.eq_ignore_ascii_case("false"));
     Ok(cfg)
 }
 
