@@ -47,6 +47,19 @@ cd apps/web; npm run check
 cd apps/desktop; npm run tauri dev
 ```
 
+## Commits y versiones
+
+Repo: https://github.com/MartinSchubert04/Mythos (público: nada de secretos, `.env` y `data/` fuera).
+
+- Conventional commits, en español: `feat: …`, `fix: …`, `docs: …`, `refactor: …`, `chore: …`
+  (con scope si ayuda: `feat(player): …`). En el cuerpo, una línea por cambio.
+- Cada `feat` o `fix` terminado (tests y check en verde) se commitea y pushea sin esperar a que lo
+  pidan, subiendo la versión con semver (`feat` → menor, `fix` → parche; mayor solo preguntando)
+  y con tag `vX.Y.Z` sobre ese commit. `docs`/`chore` sin tag.
+- La versión está en `backend/server/Cargo.toml`, `backend/media/Cargo.toml`,
+  `apps/web/package.json`, `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.toml` y
+  `apps/desktop/src-tauri/tauri.conf.json` (todas iguales).
+
 ## Reglas
 
 - **Temas solo con variables** (igual que Ethereon): colores en `apps/web/src/styles/themes.css`,
