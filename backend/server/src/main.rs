@@ -55,6 +55,12 @@ fn config_from_env() -> anyhow::Result<Config> {
     let mut cfg = Config::server(var("MYTHOS_DATA").unwrap_or_else(|| "./data".into()));
     let bind = var("MYTHOS_BIND").unwrap_or_else(|| "127.0.0.1:7700".into());
     cfg.bind = bind.parse().with_context(|| format!("MYTHOS_BIND inválido: {bind:?}"))?;
+    // Ademas de MYTHOS_BIND (p. ej. la IP de casa: `192.168.0.100:7700`). Separadas por coma.
+    if let Some(v) = var("MYTHOS_EXTRA_BIND") {
+        for a in v.split(',').map(str::trim).filter(|a| !a.is_empty()) {
+            cfg.extra_binds.push(a.parse().with_context(|| format!("MYTHOS_EXTRA_BIND inválido: {a:?}"))?);
+        }
+    }
     cfg.hwaccel = match var("MYTHOS_HWACCEL").as_deref().map(str::to_ascii_lowercase).as_deref() {
         None | Some("none") | Some("cpu") => HwAccel::None,
         Some("nvenc") | Some("nvidia") => HwAccel::Nvenc,

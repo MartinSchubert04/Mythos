@@ -19,12 +19,14 @@ cosas que con la red aislada de Docker no andan: **UPnP** (le pide al router que
 peers; desde la red bridge el router no lo ve) y el **DHT**, que abre un puerto UDP aleatorio que no
 se puede publicar de antemano. Sin eso hay menos peers y la película tarda más en arrancar.
 
-La app no queda más expuesta: por defecto `MYTHOS_BIND=127.0.0.1:7700` (en `docker-compose.yml`)
+La app no queda más expuesta: `MYTHOS_BIND=127.0.0.1:7700` (fijo en `docker-compose.yml`)
 hace que escuche solo en localhost, y `tailscale serve` la publica a la tailnet. El healthcheck
 (`mythos health`) consulta ese mismo puerto en 127.0.0.1.
 
-**Red de casa (opcional):** con `MYTHOS_BIND=0.0.0.0:7700` en `deploy/.env` también se entra desde
-la LAN por `http://<ip-del-server>:7700`, sin Tailscale (por ejemplo, un TV box). Es `http` sin
+**Red de casa (opcional):** con `MYTHOS_EXTRA_BIND=<ip-del-server>:7700` en `deploy/.env` también
+se entra desde la LAN por `http://<ip-del-server>:7700`, sin Tailscale (por ejemplo, un TV box). No
+sirve `0.0.0.0`: `tailscale serve` ya ocupa el 7700 en la IP de la tailnet. Conviene reservar la
+IP del server en el router (DHCP fijo) para que no cambie. Es `http` sin
 cifrar y cualquiera conectado al WiFi llega a la pantalla de login (con límite de intentos). Desde
 afuera de casa sigue siendo solo por la tailnet, y `tailscale serve` funciona igual.
 

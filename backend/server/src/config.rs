@@ -21,6 +21,9 @@ pub struct Config {
     pub mode: Mode,
     /// `127.0.0.1:0` = puerto libre cualquiera (el real lo da `Handle::addr`).
     pub bind: SocketAddr,
+    /// Direcciones extra donde escuchar lo mismo (p. ej. la IP de la red de casa, ademas de
+    /// 127.0.0.1 para `tailscale serve`). Vacio = solo `bind`.
+    pub extra_binds: Vec<SocketAddr>,
     /// Base de datos (`mythos.db`) y caché de torrents.
     pub data_dir: PathBuf,
     /// UI compilada para servir en `/`. `None` = no se sirve (la app trae la UI adentro).
@@ -60,6 +63,7 @@ impl Config {
         Self {
             mode: Mode::Server,
             bind: SocketAddr::from(([127, 0, 0, 1], 7700)),
+            extra_binds: Vec::new(),
             data_dir: data_dir.into(),
             web_dir: Some("./web".into()),
             cache_gb: 60.0,

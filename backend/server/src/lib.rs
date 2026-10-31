@@ -209,10 +209,23 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
     );
 
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-    let server = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(async {
+    let server = axum::serve(listener, app.clone().into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(async {
         rx.await.ok();
     });
     let server = tokio::spawn(std::future::IntoFuture::into_future(server));
+    // Mismas rutas en las direcciones extra (la red de casa). Se cortan junto con el resto de las
+    // tareas de fondo al apagar.
+    let mut background = background;
+    for extra in &cfg.extra_binds {
+        let l = tokio::net::TcpListener::bind(extra).await.with_context(|| format!("no se pudo escuchar en {extra}"))?;
+        tracing::info!("también escuchando en http://{}", l.local_addr()?);
+        let app = app.clone();
+        background.push(tokio::spawn(async move {
+            if let Err(e) = axum::serve(l, app.into_make_service_with_connect_info::<SocketAddr>()).await {
+                tracing::warn!("listener extra: {e}");
+            }
+        }));
+    }
     Ok(Handle { addr, mode: cfg.mode, tools, stop: Some(tx), server: Some(server), background, writer, state: Some(state) })
 }
 
