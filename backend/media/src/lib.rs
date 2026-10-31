@@ -169,6 +169,47 @@ pub struct MediaStatus {
     pub buffer_target_s: Option<f64>,
 }
 
+/// Parámetros finos del motor. Los valores por defecto son los medidos como mejores (ver la
+/// cabecera de `window.rs`); el server usa `Media::new`, que toma `Tuning::default()`. Existe para
+/// los experimentos (`examples/sim.rs`) y por si hace falta ajustar algo sin recompilar el crate.
+#[derive(Clone, Debug)]
+pub struct Tuning {
+    /// Tope de bajada de toda la sesión (bytes/s). `None` = sin tope.
+    pub download_limit_bps: Option<u32>,
+    /// Pedidos de 16 KB pendientes por peer.
+    pub peer_request_window: usize,
+    /// Peers conectados por torrent.
+    pub peer_limit: usize,
+    /// Máximo de ventanas de prioridad de 32 MB por delante del lector.
+    pub max_windows: usize,
+    /// Si la bajada no llega a 1.5× el bitrate, una sola ventana (todo el ancho de banda a lo
+    /// inmediato) en vez de repartir entre varias.
+    pub focus_when_slow: bool,
+    /// Rescate de pieza trabada: si la pieza que espera el reproductor no llega mientras las de
+    /// atrás sí, se pausa y reanuda el torrent (libera las piezas en vuelo de peers lentos).
+    pub rescue_stuck: bool,
+    /// Tras un salto lejos, si la bajada no sobra (< 3× el bitrate), se descartan los pedidos en
+    /// vuelo de la posición vieja (pausa y reanuda) para que lo nuevo no espere detrás de ellos.
+    pub flush_on_seek: bool,
+    /// Solo pruebas: hace de cuenta que el disco tiene este espacio libre.
+    pub disk_free_override: Option<u64>,
+}
+
+impl Default for Tuning {
+    fn default() -> Self {
+        Self {
+            download_limit_bps: None,
+            peer_request_window: 32,
+            peer_limit: 160,
+            max_windows: 6,
+            focus_when_slow: true,
+            rescue_stuck: true,
+            flush_on_seek: true,
+            disk_free_override: None,
+        }
+    }
+}
+
 pub enum Source {
     Torrent {
         info_hash: String,
@@ -186,9 +227,19 @@ pub struct Media {
 
 impl Media {
     pub async fn new(cfg: MediaConfig) -> anyhow::Result<Self> {
+        Self::with_tuning(cfg, Tuning::default()).await
+    }
+
+    /// Extra: como `new` pero con parámetros finos.
+    pub async fn with_tuning(cfg: MediaConfig, tuning: Tuning) -> anyhow::Result<Self> {
         Ok(Self {
-            inner: engine::Engine::start(cfg).await?,
+            inner: engine::Engine::start(cfg, tuning).await?,
         })
+    }
+
+    /// Extra: cambia el tope de bajada en caliente (bytes/s; `None` = sin tope).
+    pub fn set_download_limit(&self, bps: Option<u32>) {
+        self.inner.rq.ratelimits.set_download_bps(bps.and_then(std::num::NonZeroU32::new));
     }
 
     pub async fn open(&self, src: Source, caps: ClientCaps) -> anyhow::Result<PlayInfo> {

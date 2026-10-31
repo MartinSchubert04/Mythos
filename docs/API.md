@@ -177,8 +177,21 @@ Rutas montadas desde el crate de media, con auth (Bearer o `?t=`):
 **HLS espera, no da 404**: un segmento o la playlist que ffmpeg todavía no generó se queda
 esperando a que exista (hasta 120 s la playlist y 90 s un segmento) en vez de responder 404, que
 haría que hls.js lo dé por perdido. Los timeouts del cliente (hls.js `manifestLoadingTimeOut`,
-`fragLoadingTimeOut`, etc.) tienen que ser de al menos ~120 s. Sin pedidos durante 60 s, la sesión
-mata su ffmpeg.
+`fragLoadingTimeOut`, etc.) tienen que ser de al menos ~120 s.
+
+**HLS se reanuda solo**: sin pedidos durante 60 s se mata ffmpeg pero los segmentos quedan. El
+próximo pedido de la playlist (con el mismo `start`/`audio`) o de un segmento que falta relanza
+ffmpeg desde el final de lo ya generado, con la misma numeración y timestamps continuos: la UI no
+tiene que hacer nada (ni recalcular `start`). Cambiar `start` o `audio` arranca otro trabajo; los
+segmentos llevan la clave del trabajo en el nombre (`s<ms>a<pista|d>_00012.m4s`) y uno de otro
+trabajo da 404. La playlist es EVENT y termina en `#EXT-X-ENDLIST` cuando ffmpeg llega al final;
+en hls.js hay que pasar `startPosition: 0` (si no, trata la EVENT como en vivo y arranca cerca del
+final de lo generado).
+
+**`MediaStatus.buffered_ahead_s`** es una estimación: segundos bajados desde donde arrancó la
+reproducción (o el último salto) menos lo que se supone ya reproducido desde que pasó a `ready`.
+Sirve para la pantalla de carga; durante la reproducción la UI tiene que fiarse de los eventos del
+`<video>` (`waiting`/`playing`), porque una pausa del usuario el server no la ve.
 
 Los headers expuestos por CORS son `Content-Range`, `Accept-Ranges`, `Content-Length` y
 `X-Mythos-Partial`.
@@ -206,6 +219,9 @@ impl Media {
     pub fn is_downloaded(&self, info_hash: &str, file_idx: Option<usize>) -> bool; // para Stream.cached
     pub fn status(&self, session_id: &str) -> Option<MediaStatus>; // lo mismo que GET /{session}/status
     pub async fn close(&self, session_id: &str);   // lo mismo que DELETE /{session}: mata ffmpeg
+    // Para experimentos (examples/sim.rs); el server usa `new` = `Tuning::default()`:
+    pub async fn with_tuning(cfg: MediaConfig, tuning: Tuning) -> anyhow::Result<Self>;
+    pub fn set_download_limit(&self, bps: Option<u32>); // tope de bajada en caliente
 }
 pub enum Source { Torrent { info_hash: String, file_idx: Option<usize>, trackers: Vec<String> }, Url(String) }
 ```

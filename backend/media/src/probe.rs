@@ -58,8 +58,8 @@ pub async fn run(ffprobe: &Path, input: &str, name: &str, timeout: Duration) -> 
     let mut cmd = tokio::process::Command::new(ffprobe);
     cmd.args([
         "-v", "error",
-        "-probesize", "10000000",
-        "-analyzeduration", "5000000",
+        "-probesize", "5000000",
+        "-analyzeduration", "3000000",
         "-show_format", "-show_streams",
         "-of", "json",
         input,

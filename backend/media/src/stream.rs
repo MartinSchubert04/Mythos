@@ -57,18 +57,25 @@ pub fn json_error(status: StatusCode, msg: impl Into<String>) -> Response {
 }
 
 /// Lector que avisa a la sesión dónde va (para la ventana de prioridad).
+/// Para diagnóstico deja un `debug` si espera una pieza más de 5 s (y si la pieza figuraba como
+/// presente, que sería un aviso perdido de librqbit; no se vio en las pruebas).
 struct Tracked<R> {
     inner: R,
     sess: Arc<PlaySession>,
     gen: u64,
     pos: u64,
     track: bool,
+    pending_since: Option<std::time::Instant>,
+    logged: bool,
 }
 
 impl<R: AsyncRead + Unpin> AsyncRead for Tracked<R> {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
         let before = buf.filled().len();
         let r = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let Poll::Ready(Err(e)) = &r {
+            tracing::warn!(session = %self.sess.id, pos = self.pos, "file stream error: {e}");
+        }
         if let Poll::Ready(Ok(())) = &r {
             let n = (buf.filled().len() - before) as u64;
             if n > 0 {
@@ -78,6 +85,17 @@ impl<R: AsyncRead + Unpin> AsyncRead for Tracked<R> {
                 }
                 self.sess.touch();
             }
+        }
+        if r.is_pending() {
+            let since = *self.pending_since.get_or_insert_with(std::time::Instant::now);
+            if !self.logged && since.elapsed() > Duration::from_secs(5) {
+                self.logged = true;
+                let have = self.sess.have_at(self.pos);
+                tracing::debug!(session = %self.sess.id, pos = self.pos, have, "reader waiting for a piece for more than 5 s");
+            }
+        } else {
+            self.pending_since = None;
+            self.logged = false;
         }
         r
     }
@@ -159,7 +177,7 @@ async fn torrent_body(t: &TorrentFile, sess: Arc<PlaySession>, r: ByteRange, rol
     fs.seek(SeekFrom::Start(r.start)).await?;
     let track = matches!(role, Role::Player | Role::Hls);
     let gen = if track { sess.new_reader(r.start) } else { 0 };
-    let reader = Tracked { inner: fs, sess, gen, pos: r.start, track }.take(r.len());
+    let reader = Tracked { inner: fs, sess, gen, pos: r.start, track, pending_since: None, logged: false }.take(r.len());
     Ok(Body::from_stream(tokio_util::io::ReaderStream::with_capacity(reader, CHUNK)))
 }
 

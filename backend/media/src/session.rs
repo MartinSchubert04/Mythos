@@ -32,12 +32,23 @@ pub enum Backing {
 struct BufState {
     state: MediaState,
     error: Option<String>,
-    ahead_bytes: Option<u64>,
     target_s: Option<f64>,
     ever_ready: bool,
     /// Desde cuándo se está esperando colchón (para relajar el objetivo si tarda mucho).
     waiting_since: Option<Instant>,
+    /// Byte desde donde el reproductor quiere ver (inicio del último salto). El lector HTTP se
+    /// lleva todo lo que hay apenas llega, así que el colchón no se puede medir desde el `head`:
+    /// se mide desde acá, descontando lo que ya se habría reproducido.
+    origin: u64,
+    /// Segundos reproducidos (estimados) desde `origin` antes del último `playing_since`.
+    played_base: f64,
+    /// Desde cuándo suponemos que se está reproduciendo (desde el último `ready`).
+    playing_since: Option<Instant>,
+    ahead_s: Option<f64>,
 }
+
+/// Un lector nuevo que arranca más de esto por delante del head (o antes del origen) es un salto.
+const SEEK_GAP: u64 = 8 << 20;
 
 pub struct PlaySession {
     pub id: String,
@@ -47,7 +58,7 @@ pub struct PlaySession {
     pub info: Mutex<Option<PlayInfo>>,
     pub probe: Mutex<Option<crate::probe::Probe>>,
     pub caps: Mutex<crate::ClientCaps>,
-    /// Bitrate estimado en bytes/s (tamaño/duración; antes del probe, suponiendo 2 h).
+    /// Bitrate estimado en bytes/s (tamaño/duración; sin probe, adivinado por el nombre).
     bitrate: AtomicU64,
     head: AtomicU64,
     /// Generación del lector más nuevo: solo ese mueve el `head` (los viejos se están cerrando).
@@ -60,6 +71,9 @@ pub struct PlaySession {
     url_speed: Mutex<(Instant, u64, u64)>,
     /// Segundos de HLS ya generados por delante del último segmento pedido (lo llena `hls`).
     pub hls_ahead_s: Mutex<Option<f64>>,
+    /// Última foto de las piezas que tenemos (la actualiza la ventana): el lector la usa para
+    /// detectar si está esperando una pieza que en realidad ya llegó.
+    pub haves: Mutex<Arc<Vec<bool>>>,
     pub hls: tokio::sync::Mutex<Option<crate::hls::HlsJob>>,
     pub subs: crate::subs::SubsState,
     pub tmp_dir: PathBuf,
@@ -67,6 +81,7 @@ pub struct PlaySession {
 
 impl PlaySession {
     pub fn new(id: String, backing: Backing, file_name: String, size: u64, tmp_dir: PathBuf) -> Self {
+        let bitrate = guess_bitrate(&file_name, size);
         Self {
             id,
             backing,
@@ -75,7 +90,7 @@ impl PlaySession {
             info: Mutex::new(None),
             probe: Mutex::new(None),
             caps: Mutex::new(Default::default()),
-            bitrate: AtomicU64::new((size / 7200).max(1)),
+            bitrate: AtomicU64::new(bitrate),
             head: AtomicU64::new(0),
             reader_gen: AtomicU64::new(0),
             last_activity: Mutex::new(Instant::now()),
@@ -83,17 +98,29 @@ impl PlaySession {
             buf: Mutex::new(BufState {
                 state: MediaState::Metadata,
                 error: None,
-                ahead_bytes: None,
                 target_s: None,
                 ever_ready: false,
                 waiting_since: None,
+                origin: 0,
+                played_base: 0.0,
+                playing_since: None,
+                ahead_s: None,
             }),
             url_bytes: AtomicU64::new(0),
             url_speed: Mutex::new((Instant::now(), 0, 0)),
             hls_ahead_s: Mutex::new(None),
+            haves: Mutex::new(Arc::new(Vec::new())),
             hls: tokio::sync::Mutex::new(None),
             subs: Default::default(),
             tmp_dir,
+        }
+    }
+
+    /// ¿Ya tenemos el byte `pos` del archivo? (según la última foto de la ventana)
+    pub fn have_at(&self, pos: u64) -> bool {
+        match self.torrent() {
+            Some(t) => self.haves.lock().unwrap().get(t.geom.piece_at(pos)).copied().unwrap_or(false),
+            None => false,
         }
     }
 
@@ -124,6 +151,18 @@ impl PlaySession {
     /// Un lector nuevo (petición HTTP) se registra y recibe su generación.
     pub fn new_reader(&self, start: u64) -> u64 {
         let g = self.reader_gen.fetch_add(1, Ordering::Relaxed) + 1;
+        {
+            let mut b = self.buf.lock().unwrap();
+            let head = self.head();
+            if g == 1 || start < b.origin || start > head + SEEK_GAP {
+                // Salto: el colchón se vuelve a medir desde acá y hay que llegar a `ready` de nuevo.
+                b.origin = start;
+                b.played_base = 0.0;
+                b.playing_since = None;
+                b.waiting_since = None;
+                b.ever_ready = false;
+            }
+        }
         self.head.store(start, Ordering::Relaxed);
         self.touch();
         g
@@ -165,27 +204,47 @@ impl PlaySession {
     }
 
     /// Lo llama la ventana: decide `ready`/`buffering` según el colchón adaptativo.
-    pub fn update_buffer(&self, ahead: u64, complete: bool) {
-        let br = self.bitrate();
+    /// Byte desde donde se mide el colchón (ver `BufState::origin`).
+    pub fn origin(&self) -> u64 {
+        self.buf.lock().unwrap().origin
+    }
+
+    /// Colchón estimado en segundos (lo que calculó la última vuelta de la ventana).
+    pub fn ahead_s(&self) -> f64 {
+        self.buf.lock().unwrap().ahead_s.unwrap_or(0.0)
+    }
+
+    /// Lo llama la ventana con los bytes contiguos bajados desde `origin`: estima el colchón
+    /// restando lo que ya se habría reproducido y decide `ready`/`buffering` (umbral adaptativo).
+    pub fn update_buffer(&self, from_origin: u64, complete: bool, burst_s: f64) {
+        let br = self.bitrate().max(1.0);
         let down = self.down_bps() as f64;
-        let waited_s = self.buf.lock().unwrap().waiting_since.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
-        let target = window::buffer_target_s(br, down, waited_s);
         // En HLS cuenta también lo ya convertido por delante de lo que pidió el reproductor.
         let hls = self.hls_ahead_s.lock().unwrap().unwrap_or(0.0);
-        let ahead_s = ahead as f64 / br.max(1.0) + hls;
         let mut b = self.buf.lock().unwrap();
-        b.ahead_bytes = Some(ahead);
+        let waited_s = b.waiting_since.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+        let target = window::buffer_target_s(br, down, waited_s, burst_s);
+        let played = b.played_base + b.playing_since.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+        let ahead_s = (from_origin as f64 / br - played).max(0.0) + hls;
+        b.ahead_s = Some(ahead_s);
         b.target_s = Some(target);
         if matches!(b.state, MediaState::Error | MediaState::Metadata | MediaState::Probing) {
             return;
         }
-        let at_end = self.head() + ahead >= self.size;
+        let at_end = b.origin + from_origin >= self.size;
         if complete || at_end || ahead_s >= target {
+            if b.state != MediaState::Ready || b.playing_since.is_none() {
+                b.playing_since = Some(Instant::now());
+            }
             b.state = MediaState::Ready;
             b.ever_ready = true;
             b.waiting_since = None;
         } else if !b.ever_ready || ahead_s < 1.5 {
-            // Antes del primer `ready`, o si se vació el colchón (traba en camino): buffering.
+            // Antes del primer `ready`, o si se vació el colchón (traba en camino): buffering, y
+            // el reproductor se supone parado (deja de sumar tiempo reproducido).
+            if let Some(t) = b.playing_since.take() {
+                b.played_base += t.elapsed().as_secs_f64();
+            }
             b.state = MediaState::Buffering;
             b.waiting_since.get_or_insert_with(Instant::now);
         }
@@ -213,16 +272,10 @@ impl PlaySession {
     }
 
     pub fn status(&self) -> MediaStatus {
-        let (state, error, ahead, target) = {
+        let (state, error, buffered_ahead_s, target) = {
             let b = self.buf.lock().unwrap();
-            (b.state, b.error.clone(), b.ahead_bytes, b.target_s)
+            (b.state, b.error.clone(), b.ahead_s, b.target_s)
         };
-        let br = self.bitrate().max(1.0);
-        let hls_ahead = *self.hls_ahead_s.lock().unwrap();
-        let mut buffered_ahead_s = ahead.map(|a| a as f64 / br);
-        if let Some(h) = hls_ahead {
-            buffered_ahead_s = Some(h + buffered_ahead_s.unwrap_or(0.0));
-        }
         let down_bps = self.down_bps();
         match &self.backing {
             Backing::Torrent(t) => {
@@ -262,5 +315,37 @@ impl PlaySession {
                 }
             }
         }
+    }
+}
+
+/// Bitrate (bytes/s) para cuando ffprobe no dio la duración: típico según la resolución del
+/// nombre, acotado para que la duración implícita quede entre 10 min y 4 h. Medido: suponer
+/// siempre 2 h daba 79 KB/s para un archivo de 778 KB/s, y el `ready` salía con 1 s de colchón.
+pub fn guess_bitrate(name: &str, size: u64) -> u64 {
+    let n = name.to_ascii_lowercase();
+    let typical: u64 = if n.contains("2160p") || n.contains("4k") || n.contains("uhd") {
+        2_500_000
+    } else if n.contains("1080p") {
+        750_000
+    } else if n.contains("720p") {
+        400_000
+    } else {
+        600_000
+    };
+    typical.clamp((size / (4 * 3600)).max(1), (size / 600).max(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::guess_bitrate;
+
+    #[test]
+    fn bitrate_guess() {
+        // 571 MB sin resolución en el nombre: 600 KB/s (≈ 16 min).
+        assert_eq!(guess_bitrate("Tears of Steel.webm", 571_346_576), 600_000);
+        // 40 GB 4K: el típico daría 4.4 h → se acota a 4 h.
+        assert_eq!(guess_bitrate("Movie.2160p.mkv", 40_000_000_000), 40_000_000_000 / (4 * 3600));
+        // Archivo chico: la duración implícita no baja de 10 min.
+        assert_eq!(guess_bitrate("clip.1080p.mp4", 100_000_000), 100_000_000 / 600);
     }
 }

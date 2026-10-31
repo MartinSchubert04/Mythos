@@ -11,7 +11,7 @@
 //! - **Puerto fijo** TCP + uTP (`peer_port`) con UPnP si el router lo permite; si el puerto está
 //!   ocupado o no hay IPv6, se reintenta (IPv4 solo / puerto efímero) en vez de no arrancar.
 //! - **Límites generosos**: 160 peers por torrent, timeouts de conexión cortos (4 s) para descartar
-//!   peers muertos rápido, y `max_request_window` 64 (1 MB por peer) para que una pieza urgente
+//!   peers muertos rápido, y `max_request_window` 32 (512 KB por peer) para que una pieza urgente
 //!   (tras un salto) no quede detrás de 2 MB de pedidos viejos.
 //! - **Solo el archivo elegido** (`only_files`).
 //! - **Torrents vivos un rato** después de cerrar la sesión (15 min si nadie más mira; 60 s si hay
@@ -28,7 +28,7 @@ use crate::session::{Backing, PlaySession, TorrentFile};
 use crate::stream::Role;
 use crate::util::{self, now_unix};
 use crate::window::{self, FileGeom};
-use crate::{ClientCaps, MediaConfig, MediaState, MediaStats, PlayInfo, PlayMode, Source, TorrentStat, Track};
+use crate::{ClientCaps, MediaConfig, MediaState, MediaStats, PlayInfo, PlayMode, Source, TorrentStat, Track, Tuning};
 use anyhow::{bail, Context};
 use librqbit::api::TorrentIdOrHash;
 use librqbit::dht::{DhtPersistenceConfig, Id20};
@@ -47,7 +47,6 @@ use std::time::{Duration, Instant, SystemTime};
 use tracing::{info, warn};
 
 pub const BLOCKING_PERMITS: usize = 96;
-const PEER_LIMIT: usize = 160;
 /// Torrent sin sesión: cuánto sigue vivo si nadie más está mirando.
 const KEEP_ALIVE_IDLE: u64 = 15 * 60;
 /// Torrent sin sesión mientras otra película está en curso.
@@ -58,7 +57,12 @@ const SESSION_IDLE: u64 = 3 * 3600;
 const LRU_RECENT: u64 = 30 * 60;
 /// Espacio libre mínimo que intentamos dejar en el disco.
 const MIN_FREE_DISK: u64 = 2 << 30;
-const METADATA_TIMEOUT: Duration = Duration::from_secs(120);
+/// Con menos que esto se pausan las descargas (antes de que librqbit falle al escribir).
+const DISK_HARD_MIN: u64 = 1 << 30;
+pub const DISK_FULL_MSG: &str = "the server ran out of disk space; free some space or lower the cache limit";
+/// Sin metadata en este tiempo, el torrent no tiene peers alcanzables: error claro en vez de
+/// colgar `open()` (la UI muestra el mensaje y ofrece otro stream).
+const METADATA_TIMEOUT: Duration = Duration::from_secs(75);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 const PREFETCH_MAX: Duration = Duration::from_secs(5 * 60);
 /// Cuánto principio del archivo precargar.
@@ -76,6 +80,7 @@ const FALLBACK_TRACKERS: &[&str] = &[
 
 pub struct Engine {
     pub cfg: MediaConfig,
+    pub tuning: Tuning,
     pub rq: Arc<Session>,
     pub api: Api,
     pub http: reqwest::Client,
@@ -92,7 +97,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub async fn start(cfg: MediaConfig) -> anyhow::Result<Arc<Self>> {
+    pub async fn start(cfg: MediaConfig, tuning: Tuning) -> anyhow::Result<Arc<Self>> {
         let d = &cfg.data_dir;
         let torrents_dir = d.join("torrents");
         let hls_dir = d.join("hls");
@@ -112,7 +117,7 @@ impl Engine {
             .build()?;
         let trackers = load_trackers(&cfg, &http).await;
         info!(trackers = trackers.len(), "starting torrent session");
-        let rq = build_session(&cfg, &torrents_dir, &trackers).await?;
+        let rq = build_session(&cfg, &tuning, &torrents_dir, &trackers).await?;
         let engine = Arc::new(Self {
             api: Api::new(rq.clone(), None),
             rq,
@@ -123,6 +128,7 @@ impl Engine {
             add_locks: Mutex::new(HashMap::new()),
             prefetching: Mutex::new(HashMap::new()),
             started_unix: now_unix(),
+            tuning,
             hls_dir,
             subs_dir,
             meta_dir,
@@ -152,6 +158,10 @@ impl Engine {
             Role::Passive => "subs",
         };
         format!("http://{addr}/s/{id}/file?role={r}")
+    }
+
+    fn disk_free(&self) -> u64 {
+        self.tuning.disk_free_override.unwrap_or_else(|| cache::disk_free(&self.cfg.data_dir))
     }
 
     pub fn session(&self, id: &str) -> Option<Arc<PlaySession>> {
@@ -247,7 +257,7 @@ impl Engine {
             async move {
                 let r = tokio::time::timeout(METADATA_TIMEOUT, rq.add_torrent(add, Some(opts)))
                     .await
-                    .context("timed out getting torrent metadata (no peers?)")??;
+                    .map_err(|_| anyhow::anyhow!("no peers found for this torrent (gave up after {} s); try another stream", METADATA_TIMEOUT.as_secs()))??;
                 Ok::<_, anyhow::Error>(r)
             }
         };
@@ -335,7 +345,7 @@ impl Engine {
                 let geom = tf.geom;
                 let sess = Arc::new(PlaySession::new(id.clone(), Backing::Torrent(tf), name, geom.len, tmp));
                 self.sessions.lock().unwrap().insert(id.clone(), sess.clone());
-                tokio::spawn(window::run(self.api.clone(), handle, idx, geom, sess.clone()));
+                tokio::spawn(window::run(Arc::downgrade(self), handle, idx, geom, sess.clone()));
                 sess
             }
             Source::Url(url) => {
@@ -498,7 +508,7 @@ impl Engine {
         MediaStats {
             cache_bytes,
             cache_limit_bytes: self.cfg.cache_limit_bytes,
-            disk_free_bytes: cache::disk_free(&self.cfg.data_dir),
+            disk_free_bytes: self.disk_free(),
             active_sessions: self.sessions.lock().unwrap().len() as u32,
         }
     }
@@ -525,7 +535,7 @@ impl Engine {
     async fn evict_lru(&self, extra_needed: u64) {
         let handles: Vec<ManagedTorrentHandle> = self.rq.with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
         let now = now_unix();
-        let free = cache::disk_free(&self.cfg.data_dir);
+        let free = self.disk_free();
         let want_free = MIN_FREE_DISK.max(extra_needed);
         let low_disk = free > 0 && free < want_free;
         let entries: Vec<cache::Entry> = {
@@ -554,6 +564,46 @@ impl Engine {
             info!(%hash, "cache full: removing least recently used torrent");
             if let Err(e) = self.remove_torrent(&hash, true).await {
                 warn!(%hash, "could not evict: {e:#}");
+            }
+        }
+    }
+
+    /// Disco casi lleno: primero se libera caché (LRU, también lo usado hace poco) y, si igual no
+    /// alcanza, se pausan los torrents que siguen bajando, con un error claro en sus sesiones. Así
+    /// lo ya bajado sigue reproduciéndose, en vez de que librqbit falle al escribir y el torrent
+    /// quede en error. La ventana lo llama en cada vuelta (es un `statvfs`, barato).
+    pub async fn guard_disk(&self) {
+        let free = self.disk_free();
+        if free == 0 || free >= DISK_HARD_MIN {
+            return;
+        }
+        self.evict_lru(0).await;
+        if self.disk_free() >= DISK_HARD_MIN {
+            return;
+        }
+        let handles: Vec<ManagedTorrentHandle> = self.rq.with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+        for h in handles {
+            if h.is_paused() || h.live().is_none() || h.stats().finished {
+                continue;
+            }
+            let hash = h.info_hash().as_string();
+            warn!(%hash, free, "disk almost full: pausing download");
+            let _ = self.rq.pause(&h).await;
+            for s in self.sessions.lock().unwrap().values() {
+                if s.torrent().is_some_and(|t| t.hash == hash) {
+                    s.set_error(DISK_FULL_MSG.into());
+                }
+            }
+        }
+    }
+
+    /// Pausa y reanuda un torrent: libera todas las piezas en vuelo (las retenidas por peers
+    /// lentos vuelven a la cola) y reconecta. Lo usa la ventana cuando la pieza que espera el
+    /// reproductor queda trabada.
+    pub async fn rescue(&self, h: &ManagedTorrentHandle) {
+        if self.rq.pause(h).await.is_ok() {
+            if let Err(e) = self.rq.unpause(h).await {
+                warn!("could not resume torrent after rescue: {e:#}");
             }
         }
     }
@@ -667,7 +717,7 @@ pub fn parse_trackers(text: &str) -> Vec<String> {
         .collect()
 }
 
-async fn build_session(cfg: &MediaConfig, out: &Path, trackers: &[String]) -> anyhow::Result<Arc<Session>> {
+async fn build_session(cfg: &MediaConfig, tuning: &Tuning, out: &Path, trackers: &[String]) -> anyhow::Result<Arc<Session>> {
     let tr: HashSet<url::Url> = trackers.iter().filter_map(|t| url::Url::parse(t).ok()).collect();
     // Dual-stack en el puerto fijo; si falla (sin IPv6 o puerto ocupado), IPv4; si no, efímero.
     let attempts = [(false, cfg.peer_port), (true, cfg.peer_port), (true, 0)];
@@ -697,14 +747,18 @@ async fn build_session(cfg: &MediaConfig, out: &Path, trackers: &[String]) -> an
                     connect_timeout: Some(Duration::from_secs(4)),
                     read_write_timeout: Some(Duration::from_secs(20)),
                     keep_alive_interval: None,
-                    max_request_window: Some(64),
+                    max_request_window: Some(tuning.peer_request_window.max(1)),
                 }),
                 ..Default::default()
             }),
             runtime_worker_threads: Some(BLOCKING_PERMITS),
             concurrent_init_limit: Some(4),
             trackers: tr.clone(),
-            peer_limit: Some(PEER_LIMIT),
+            peer_limit: Some(tuning.peer_limit.max(1)),
+            ratelimits: librqbit::limits::LimitsConfig {
+                download_bps: tuning.download_limit_bps.and_then(std::num::NonZeroU32::new),
+                upload_bps: None,
+            },
             ipv4_only,
             ..Default::default()
         };

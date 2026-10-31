@@ -17,10 +17,17 @@
 //! - Si ffmpeg va más de `MAX_AHEAD_S` por delante de lo que pidió el reproductor, el endpoint
 //!   interno deja de darle datos (backpressure): no llena el disco con la película entera ni
 //!   compite por ancho de banda más allá de lo útil.
-//! - `?start=<s>` arranca un ffmpeg nuevo desde ese segundo (saltos en modo transcode). Cada
-//!   arranque tiene su "generación" en el nombre de los segmentos, para que pedidos viejos no
-//!   reciban segmentos de otra posición.
-//! - Sin pedidos por 60 s, o con `DELETE`, se mata ffmpeg y se borra su carpeta.
+//! - `?start=<s>` arranca un trabajo nuevo desde ese segundo (saltos en modo transcode). Cada
+//!   (start, audio) tiene su "clave" en el nombre de los segmentos (`s125000ad_00012.m4s`), así un
+//!   pedido viejo de otra posición da 404 en vez de recibir un segmento equivocado.
+//! - **Reanudar**: sin pedidos por 60 s se mata ffmpeg pero se guardan los segmentos. El próximo
+//!   pedido de playlist (o de un segmento que todavía no existe) relanza ffmpeg solo, desde el
+//!   final de lo ya generado (`-ss` + `-output_ts_offset`, numeración continua): la playlist sigue
+//!   igual para el cliente, que no tiene que adivinar nada. Lo mismo si ffmpeg se cae a mitad de
+//!   camino. Si se cae sin producir nada, se reintenta con un plan más conservador (`degrade`).
+//! - La playlist la armamos nosotros juntando las de cada corrida de ffmpeg (un `EXT-X-MAP` por
+//!   corrida, porque cada una escribe su propio init).
+//! - `DELETE` (o cerrar la sesión) mata ffmpeg y borra la carpeta.
 
 use crate::engine::Engine;
 use crate::probe::{self, Probe};
@@ -32,7 +39,7 @@ use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncBufReadExt;
@@ -43,41 +50,98 @@ pub const MAX_AHEAD_S: f64 = 240.0;
 const IDLE_KILL: Duration = Duration::from_secs(60);
 const PLAYLIST_WAIT: Duration = Duration::from_secs(120);
 const SEGMENT_WAIT: Duration = Duration::from_secs(90);
+/// Margen al reanudar un remux (más que un frame, menos que un GOP).
+const RESUME_EPS_S: f64 = 0.2;
 
-static GEN: AtomicU64 = AtomicU64::new(1);
+/// Un segmento ya generado.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Entry {
+    pub dur: f64,
+    pub uri: String,
+    /// Init (`EXT-X-MAP`) que le corresponde: cada corrida de ffmpeg escribe el suyo.
+    pub map: String,
+}
 
+/// Una corrida de ffmpeg dentro de un trabajo.
+struct Run {
+    /// `None` si lo matamos nosotros por inactividad (no cuenta como falla).
+    child: Option<tokio::process::Child>,
+    /// Número del primer segmento de esta corrida.
+    base: u64,
+}
+
+/// Un trabajo HLS: una posición de inicio + pista de audio. Puede tener varias corridas de ffmpeg
+/// (si se mató por inactividad o se cayó) que comparten carpeta y numeración.
 pub struct Job {
-    pub gen: u64,
+    key: String,
     start: f64,
     audio: Option<usize>,
-    attempt: u32,
     dir: PathBuf,
-    child: Mutex<Option<tokio::process::Child>>,
+    /// Nivel de degradación (ver `degrade`); sube si una corrida muere sin producir nada.
+    attempt: AtomicU32,
+    run: Mutex<Option<Run>>,
+    /// Segmentos de corridas terminadas, y los de la corrida actual.
+    done: Mutex<Vec<Entry>>,
+    current: Mutex<Vec<Entry>>,
     last_touch: Mutex<Instant>,
     /// Último segmento pedido por el reproductor (-1: ninguno).
     last_req: AtomicI64,
-    produced: AtomicU64,
+    /// No hay ffmpeg corriendo (terminó, se cayó o se mató por inactividad).
     exited: AtomicBool,
-    /// ffmpeg terminó bien (playlist completa con ENDLIST): se reutiliza tal cual.
+    /// ffmpeg llegó al final del archivo: playlist completa, no hay nada que reanudar.
     finished_ok: AtomicBool,
     stderr: Mutex<VecDeque<String>>,
 }
 
 pub type HlsJob = Arc<Job>;
 
+/// Clave de un trabajo: `s<ms de inicio>a<pista|d>`.
+pub fn job_key(start: f64, audio: Option<usize>) -> String {
+    format!("s{}a{}", (start * 1000.0).round() as u64, audio.map(|a| a.to_string()).unwrap_or_else(|| "d".into()))
+}
+
 impl Job {
+    fn new(s: &PlaySession, start: f64, audio: Option<usize>) -> HlsJob {
+        let key = job_key(start, audio);
+        Arc::new(Job {
+            dir: s.tmp_dir.join(&key),
+            key,
+            start,
+            audio,
+            attempt: AtomicU32::new(0),
+            run: Mutex::new(None),
+            done: Mutex::new(Vec::new()),
+            current: Mutex::new(Vec::new()),
+            last_touch: Mutex::new(Instant::now()),
+            last_req: AtomicI64::new(-1),
+            exited: AtomicBool::new(true),
+            finished_ok: AtomicBool::new(false),
+            stderr: Mutex::new(VecDeque::new()),
+        })
+    }
+
     fn touch(&self) {
         *self.last_touch.lock().unwrap() = Instant::now();
     }
 
+    fn entries(&self) -> Vec<Entry> {
+        let mut v = self.done.lock().unwrap().clone();
+        v.extend(self.current.lock().unwrap().iter().cloned());
+        v
+    }
+
     fn ahead_s(&self) -> f64 {
-        let produced = self.produced.load(Ordering::Relaxed) as i64;
-        let next = self.last_req.load(Ordering::Relaxed) + 1;
-        (produced - next).max(0) as f64 * SEGMENT_S
+        let next = (self.last_req.load(Ordering::Relaxed) + 1).max(0) as usize;
+        self.entries().iter().skip(next).map(|e| e.dur).sum()
+    }
+
+    /// Hay que relanzar ffmpeg (no corre y no terminó el archivo).
+    fn needs_run(&self) -> bool {
+        self.exited.load(Ordering::Relaxed) && !self.finished_ok.load(Ordering::Relaxed)
     }
 
     fn kill(&self) {
-        if let Some(mut c) = self.child.lock().unwrap().take() {
+        if let Some(c) = self.run.lock().unwrap().as_mut().and_then(|r| r.child.as_mut()) {
             let _ = c.start_kill();
         }
     }
@@ -120,6 +184,7 @@ pub fn degrade(pl: &Plan, attempt: u32) -> Option<Plan> {
     if pl.copy_video && attempt > 0 {
         let mut t = pl.clone();
         t.copy_video = false;
+        t.copy_audio = false;
         t.hevc_tag = false;
         t.hw_decode = t.hw == HwAccel::Nvenc;
         return degrade(&t, attempt - 1);
@@ -149,7 +214,9 @@ pub fn plan(p: &Probe, caps: &ClientCaps, mode: PlayMode, audio_req: Option<usiz
     let v = p.video.as_ref();
     let copy_video = mode != PlayMode::Transcode && v.is_some_and(|v| probe::video_ok(v, caps));
     let audio = audio_req.and_then(|i| p.audio.iter().find(|a| a.track.index == i)).or(p.default_audio());
-    let copy_audio = audio.is_some_and(|a| matches!(a.track.codec.as_str(), "aac" | "ac3" | "eac3") && probe::audio_ok(&a.track.codec, caps));
+    // En transcode el audio se recodifica siempre (AAC es barato): con `-ss` el audio copiado no
+    // se recorta y arrancaba hasta un GOP antes que el video (medido: 10 s de solapamiento).
+    let copy_audio = copy_video && audio.is_some_and(|a| matches!(a.track.codec.as_str(), "aac" | "ac3" | "eac3") && probe::audio_ok(&a.track.codec, caps));
     Plan {
         copy_video,
         video_index: v.map(|v| v.index),
@@ -171,9 +238,11 @@ pub fn plan(p: &Probe, caps: &ClientCaps, mode: PlayMode, audio_req: Option<usiz
     }
 }
 
-/// Las rutas de salida son relativas: ffmpeg corre con la carpeta del trabajo como directorio
-/// actual (con rutas absolutas de Windows, `\`, ffmpeg calcula mal dónde va el init de fMP4).
-pub fn args(pl: &Plan, input: &str, start: f64, gen: u64) -> Vec<String> {
+/// Argumentos de ffmpeg. Las rutas de salida son relativas: ffmpeg corre con la carpeta del
+/// trabajo como directorio actual (con rutas absolutas de Windows, `\`, ffmpeg calcula mal dónde
+/// va el init de fMP4). `offset` y `base`: al reanudar, ffmpeg arranca `offset` segundos más
+/// adelante, corre los timestamps esa cantidad y numera los segmentos desde `base`.
+pub fn args(pl: &Plan, input: &str, start: f64, offset: f64, base: u64, key: &str) -> Vec<String> {
     let mut a: Vec<String> = ["-hide_banner", "-nostdin", "-loglevel", "error", "-nostats"].iter().map(|s| s.to_string()).collect();
     let mut push = |xs: &[&str]| a.extend(xs.iter().map(|s| s.to_string()));
     if !pl.copy_video && pl.hw_decode {
@@ -181,10 +250,13 @@ pub fn args(pl: &Plan, input: &str, start: f64, gen: u64) -> Vec<String> {
         // códec, ffmpeg cae a software).
         push(&["-hwaccel", "cuda"]);
     }
-    push(&["-probesize", "10000000", "-analyzeduration", "5000000", "-fflags", "+genpts"]);
-    if start > 0.0 {
-        push(&["-ss", &format!("{start:.3}")]);
+    push(&["-probesize", "5000000", "-analyzeduration", "3000000", "-fflags", "+genpts"]);
+    let from = start + offset;
+    if from > 0.0 {
+        push(&["-ss", &format!("{from:.3}")]);
     }
+    // (No `-copyts`: con timestamps absolutos el muxer HLS corta mal el primer segmento —medido:
+    // un primer segmento de 100 s con `start=100`—. Para reanudar se usa `-output_ts_offset`.)
     push(&["-i", input]);
     match pl.video_index {
         Some(i) => push(&["-map", &format!("0:{i}")]),
@@ -223,6 +295,9 @@ pub fn args(pl: &Plan, input: &str, start: f64, gen: u64) -> Vec<String> {
         }
         push(&["-force_key_frames", "expr:gte(t,n_forced*4)"]);
     }
+    if offset > 0.0 {
+        push(&["-output_ts_offset", &format!("{offset:.3}")]);
+    }
     if pl.audio_index.is_some() {
         if pl.copy_audio {
             push(&["-c:a", "copy"]);
@@ -232,7 +307,10 @@ pub fn args(pl: &Plan, input: &str, start: f64, gen: u64) -> Vec<String> {
             push(&["-c:a", "aac", "-ac", "2", "-b:a", "192k"]);
         }
     }
-    let seg = format!("g{gen}_%05d.m4s");
+    let seg = format!("{key}_%05d.m4s");
+    let init = init_name(key, base);
+    let playlist = run_playlist(base);
+    let base = base.to_string();
     push(&[
         "-max_muxing_queue_size", "4096",
         "-f", "hls",
@@ -240,13 +318,64 @@ pub fn args(pl: &Plan, input: &str, start: f64, gen: u64) -> Vec<String> {
         "-hls_playlist_type", "event",
         "-hls_list_size", "0",
         "-hls_segment_type", "fmp4",
-        "-hls_fmp4_init_filename", &format!("g{gen}_init.mp4"),
+        "-hls_fmp4_init_filename", &init,
         "-hls_flags", "temp_file+independent_segments",
-        "-start_number", "0",
+        "-start_number", &base,
         "-hls_segment_filename", &seg,
-        "index.m3u8",
+        &playlist,
     ]);
     a
+}
+
+fn init_name(key: &str, base: u64) -> String {
+    format!("{key}_r{base}_init.mp4")
+}
+
+fn run_playlist(base: u64) -> String {
+    format!("run{base}.m3u8")
+}
+
+/// Lee los segmentos de la playlist que escribe una corrida de ffmpeg.
+pub fn parse_run_playlist(text: &str, default_map: &str) -> Vec<Entry> {
+    let mut out = Vec::new();
+    let mut map = default_map.to_string();
+    let mut dur = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("#EXT-X-MAP:") {
+            if let Some((_, b)) = rest.split_once("URI=\"") {
+                if let Some((uri, _)) = b.split_once('"') {
+                    map = uri.to_string();
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("#EXTINF:") {
+            dur = rest.split(',').next().and_then(|d| d.trim().parse::<f64>().ok());
+        } else if !line.is_empty() && !line.starts_with('#') {
+            out.push(Entry { dur: dur.take().unwrap_or(SEGMENT_S), uri: line.to_string(), map: map.clone() });
+        }
+    }
+    out
+}
+
+/// Playlist EVENT con todos los segmentos de todas las corridas (un `EXT-X-MAP` cada vez que
+/// cambia el init) y `ENDLIST` si ffmpeg llegó al final.
+pub fn build_playlist(entries: &[Entry], ended: bool) -> String {
+    let target = entries.iter().map(|e| e.dur.ceil() as u64).max().unwrap_or(4).max(4);
+    let mut s = format!(
+        "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:{target}\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXT-X-INDEPENDENT-SEGMENTS\n"
+    );
+    let mut map = "";
+    for e in entries {
+        if e.map != map {
+            map = &e.map;
+            s.push_str(&format!("#EXT-X-MAP:URI=\"{map}\"\n"));
+        }
+        s.push_str(&format!("#EXTINF:{:.6},\n{}\n", e.dur, e.uri));
+    }
+    if ended {
+        s.push_str("#EXT-X-ENDLIST\n");
+    }
+    s
 }
 
 /// Agrega `?t=<token>` a cada URI de la playlist (hls.js no hereda el query de la playlist).
@@ -274,55 +403,75 @@ pub fn rewrite_playlist(text: &str, token: Option<&str>) -> String {
     out
 }
 
-/// Generación y número de un segmento: `g12_00034.m4s` → (12, Some(34)); `g12_init.mp4` → (12, None).
-pub fn parse_segment(name: &str) -> Option<(u64, Option<i64>)> {
-    let rest = name.strip_prefix('g')?;
-    let (gen, tail) = rest.split_once('_')?;
-    let gen = gen.parse().ok()?;
-    if tail == "init.mp4" {
-        return Some((gen, None));
+/// Clave y número de un segmento: `s0ad_00034.m4s` → ("s0ad", Some(34));
+/// `s0ad_r12_init.mp4` → ("s0ad", None).
+pub fn parse_segment(name: &str) -> Option<(String, Option<u64>)> {
+    if let Some(rest) = name.strip_suffix("_init.mp4") {
+        let (key, run) = rest.rsplit_once('_')?;
+        run.strip_prefix('r')?.parse::<u64>().ok()?;
+        return Some((key.to_string(), None));
     }
+    let (key, tail) = name.rsplit_once('_')?;
     let n = tail.strip_suffix(".m4s")?.parse().ok()?;
-    Some((gen, Some(n)))
+    (!key.is_empty()).then(|| (key.to_string(), Some(n)))
 }
 
-async fn start_job(e: &Engine, s: &Arc<PlaySession>, start: f64, audio: Option<usize>, attempt: u32) -> anyhow::Result<HlsJob> {
-    let gen = GEN.fetch_add(1, Ordering::Relaxed);
-    let dir = s.tmp_dir.join(format!("g{gen}"));
-    tokio::fs::create_dir_all(&dir).await?;
+/// Lanza (o relanza) ffmpeg para el trabajo, desde el final de lo ya generado. Se llama con el
+/// lock `s.hls` tomado, así no hay dos lanzamientos a la vez.
+async fn launch(e: &Engine, s: &Arc<PlaySession>, job: &HlsJob) -> anyhow::Result<()> {
+    tokio::fs::create_dir_all(&job.dir).await?;
     let (p, caps, mode) = {
         let p = s.probe.lock().unwrap().clone().unwrap_or_else(|| probe::guess(&s.file_name));
         let caps = s.caps.lock().unwrap().clone();
         let mode = s.info.lock().unwrap().as_ref().map(|i| i.mode).unwrap_or(PlayMode::Transcode);
         (p, caps, mode)
     };
-    let pl = degrade(&plan(&p, &caps, mode, audio, e.cfg.hwaccel), attempt).ok_or_else(|| anyhow::anyhow!("no more fallbacks"))?;
+    let attempt = job.attempt.load(Ordering::Relaxed);
+    let Some(pl) = degrade(&plan(&p, &caps, mode, job.audio, e.cfg.hwaccel), attempt) else {
+        anyhow::bail!("{}", job.error_text());
+    };
+    // Lo de la corrida anterior pasa a "hecho"; la nueva sigue la numeración y el tiempo.
+    {
+        let mut cur = job.current.lock().unwrap();
+        job.done.lock().unwrap().append(&mut cur);
+    }
+    let (base, first, last, sum) = {
+        let d = job.done.lock().unwrap();
+        (d.len() as u64, d.first().cloned(), d.last().cloned(), d.iter().map(|e| e.dur).sum::<f64>())
+    };
+    let mut offset = 0.0;
+    if let (Some(first), Some(last)) = (first, last) {
+        // Cuánto se generó de verdad: fin del último segmento menos inicio del primero, medidos
+        // con ffprobe (ffmpeg no arranca exactamente en 0: medido ~1 s de corrimiento en
+        // transcode, y en remux el primer segmento arranca en un keyframe). Si falla, la suma de
+        // las duraciones de la playlist.
+        let span = match (segment_bounds(&e.cfg.ffprobe, &job.dir, &first).await, segment_bounds(&e.cfg.ffprobe, &job.dir, &last).await) {
+            (Some((f, _)), Some((_, l))) if l > f => l - f,
+            _ => sum,
+        };
+        offset = span.max(0.0);
+        if pl.copy_video {
+            // En remux `-ss` (antes de `-i`) va al keyframe anterior: sin este margen, por
+            // redondeo cae en el keyframe del último segmento y lo repite (medido: duplicaba 8 s).
+            offset += RESUME_EPS_S;
+        }
+    }
     let input = e.internal_url(&s.id, Role::Hls);
-    let argv = args(&pl, &input, start, gen);
-    tracing::info!(session = %s.id, gen, start, ?pl, "starting ffmpeg (hls)");
+    let argv = args(&pl, &input, job.start, offset, base, &job.key);
+    tracing::info!(session = %s.id, key = %job.key, base, offset, attempt, ?pl, "starting ffmpeg (hls)");
     let mut child = tokio::process::Command::new(&e.cfg.ffmpeg)
         .args(&argv)
-        .current_dir(&dir)
+        .current_dir(&job.dir)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()?;
     let stderr = child.stderr.take();
-    let job = Arc::new(Job {
-        gen,
-        start,
-        audio,
-        attempt,
-        dir: dir.clone(),
-        child: Mutex::new(Some(child)),
-        last_touch: Mutex::new(Instant::now()),
-        last_req: AtomicI64::new(-1),
-        produced: AtomicU64::new(0),
-        exited: AtomicBool::new(false),
-        finished_ok: AtomicBool::new(false),
-        stderr: Mutex::new(VecDeque::new()),
-    });
+    job.stderr.lock().unwrap().clear();
+    *job.run.lock().unwrap() = Some(Run { child: Some(child), base });
+    job.exited.store(false, Ordering::Relaxed);
+    job.finished_ok.store(false, Ordering::Relaxed);
     if let Some(err) = stderr {
         let j = job.clone();
         tokio::spawn(async move {
@@ -336,38 +485,81 @@ async fn start_job(e: &Engine, s: &Arc<PlaySession>, start: f64, audio: Option<u
             }
         });
     }
-    // Monitor: cuenta segmentos producidos, publica el colchón y detecta la salida de ffmpeg.
-    let j = job.clone();
-    let sess = s.clone();
-    tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_millis(500));
-        loop {
-            tick.tick().await;
-            if let Ok(t) = tokio::fs::read_to_string(j.dir.join("index.m3u8")).await {
-                j.produced.store(t.matches("#EXTINF").count() as u64, Ordering::Relaxed);
-            }
-            let done = {
-                let mut c = j.child.lock().unwrap();
-                match c.as_mut().map(|ch| ch.try_wait()) {
-                    Some(Ok(None)) => false,
-                    Some(Ok(Some(st))) => {
-                        j.finished_ok.store(st.success(), Ordering::Relaxed);
-                        true
-                    }
-                    _ => true,
-                }
-            };
-            let current = sess.hls.lock().await.as_ref().is_some_and(|x| x.gen == j.gen);
-            if current {
-                *sess.hls_ahead_s.lock().unwrap() = Some(j.ahead_s());
-            }
-            if done {
-                j.exited.store(true, Ordering::Relaxed);
-                break;
-            }
+    tokio::spawn(monitor(job.clone(), s.clone(), base));
+    Ok(())
+}
+
+/// Inicio y fin (timestamps de salida, en s) de un segmento ya escrito: ffprobe sobre init + segmento.
+async fn segment_bounds(ffprobe: &std::path::Path, dir: &std::path::Path, e: &Entry) -> Option<(f64, f64)> {
+    let input = format!("concat:{}|{}", e.map, e.uri);
+    let out = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::process::Command::new(ffprobe)
+            .args(["-v", "error", "-show_entries", "format=start_time,duration", "-of", "csv=p=0", &input])
+            .current_dir(dir)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut it = text.trim().split(',').map(|x| x.trim().parse::<f64>().ok());
+    let (start, dur) = (it.next()??, it.next()??);
+    Some((start, fragment_end(start, dur)))
+}
+
+/// En un fragmento fMP4 suelto ffprobe informa como `duration` el timestamp final (cuenta desde
+/// 0), no la duración del fragmento (medido). Si fuera una duración real (< start), se suma.
+pub fn fragment_end(start: f64, dur: f64) -> f64 {
+    if dur >= start {
+        dur
+    } else {
+        start + dur
+    }
+}
+
+/// Vigila una corrida: lee su playlist, publica el colchón y detecta cuándo termina.
+async fn monitor(j: HlsJob, sess: Arc<PlaySession>, base: u64) {
+    let playlist = j.dir.join(run_playlist(base));
+    let init = init_name(&j.key, base);
+    let read = || async {
+        if let Ok(t) = tokio::fs::read_to_string(&playlist).await {
+            *j.current.lock().unwrap() = parse_run_playlist(&t, &init);
         }
-    });
-    Ok(job)
+    };
+    let mut tick = tokio::time::interval(Duration::from_millis(500));
+    loop {
+        tick.tick().await;
+        read().await;
+        // `Some(ok)` cuando la corrida terminó; `killed` si la matamos por inactividad.
+        let (ended, killed) = {
+            let mut r = j.run.lock().unwrap();
+            match r.as_mut().filter(|r| r.base == base) {
+                None => (Some(false), true),
+                Some(run) => match run.child.as_mut().map(|c| c.try_wait()) {
+                    Some(Ok(None)) => (None, false),
+                    Some(Ok(Some(st))) => (Some(st.success()), false),
+                    Some(Err(_)) => (Some(false), false),
+                    None => (Some(false), true),
+                },
+            }
+        };
+        if sess.hls.lock().await.as_ref().is_some_and(|x| Arc::ptr_eq(x, &j)) {
+            *sess.hls_ahead_s.lock().unwrap() = Some(j.ahead_s());
+        }
+        if let Some(ok) = ended {
+            read().await;
+            if !ok && !killed && j.current.lock().unwrap().is_empty() {
+                // Murió sin producir nada: la próxima corrida, con un plan más conservador.
+                j.attempt.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(session = %sess.id, key = %j.key, "ffmpeg failed without output: {}", j.error_text());
+            }
+            j.finished_ok.store(ok, Ordering::Relaxed);
+            j.exited.store(true, Ordering::Relaxed);
+            return;
+        }
+    }
 }
 
 /// El endpoint interno llama esto antes de darle más datos a ffmpeg (backpressure).
@@ -383,11 +575,15 @@ pub async fn stop(s: &PlaySession) {
     *s.hls_ahead_s.lock().unwrap() = None;
 }
 
+/// Sin pedidos por un rato: se mata ffmpeg pero se conservan los segmentos para reanudar.
 pub async fn reap_idle(s: &PlaySession) {
-    let idle = s.hls.lock().await.as_ref().is_some_and(|j| j.last_touch.lock().unwrap().elapsed() > IDLE_KILL);
-    if idle {
-        tracing::info!(session = %s.id, "hls idle: stopping ffmpeg");
-        stop(s).await;
+    let g = s.hls.lock().await;
+    let Some(j) = g.as_ref() else { return };
+    if !j.exited.load(Ordering::Relaxed) && j.last_touch.lock().unwrap().elapsed() > IDLE_KILL {
+        tracing::info!(session = %s.id, key = %j.key, "hls idle: stopping ffmpeg (segments kept)");
+        if let Some(mut c) = j.run.lock().unwrap().as_mut().and_then(|r| r.child.take()) {
+            let _ = c.start_kill();
+        }
     }
 }
 
@@ -400,56 +596,50 @@ fn no_cache(mut r: Response, ct: &'static str) -> Response {
 
 pub async fn index(e: &Engine, s: Arc<PlaySession>, q: &HashMap<String, String>) -> Response {
     let start = q.get("start").and_then(|x| x.parse::<f64>().ok()).filter(|x| x.is_finite() && *x >= 0.0).unwrap_or(0.0);
-    let audio = q.get("audio").and_then(|x| x.parse::<usize>().ok());
+    // Sin `?audio=` = la pista por defecto, con su índice explícito (así `?audio=1` y nada, si
+    // la 1 es la de por defecto, son el mismo trabajo y no se transcodifica dos veces).
+    let audio = q
+        .get("audio")
+        .and_then(|x| x.parse::<usize>().ok())
+        .or_else(|| s.probe.lock().unwrap().as_ref().and_then(|p| p.default_audio().map(|a| a.track.index)));
+    let key = job_key(start, audio);
     s.touch();
     let job = {
         let mut g = s.hls.lock().await;
-        let reuse = g.as_ref().is_some_and(|j| {
-            (j.start - start).abs() < 0.5 && j.audio == audio && (!j.exited.load(Ordering::Relaxed) || j.finished_ok.load(Ordering::Relaxed))
-        });
-        if !reuse {
-            if let Some(old) = g.take() {
-                old.kill();
-                let d = old.dir.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    let _ = tokio::fs::remove_dir_all(d).await;
-                });
-            }
-            match start_job(e, &s, start, audio, 0).await {
-                Ok(j) => *g = Some(j),
-                Err(err) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("could not start ffmpeg: {err:#}")),
+        if let Some(old) = g.take_if(|j| j.key != key) {
+            // Otra posición u otra pista: el trabajo viejo ya no sirve.
+            old.kill();
+            let d = old.dir.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let _ = tokio::fs::remove_dir_all(d).await;
+            });
+        }
+        let job = g.get_or_insert_with(|| Job::new(&s, start, audio)).clone();
+        if job.needs_run() {
+            if let Err(err) = launch(e, &s, &job).await {
+                return json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("could not start ffmpeg: {err:#}"));
             }
         }
-        g.as_ref().cloned()
+        job
     };
-    let Some(mut job) = job else { return json_error(StatusCode::INTERNAL_SERVER_ERROR, "hls job missing") };
     job.touch();
-    let path = job.dir.join("index.m3u8");
     let t0 = Instant::now();
     loop {
-        if let Ok(t) = tokio::fs::read_to_string(&path).await {
-            if t.contains("#EXTINF") {
-                let body = rewrite_playlist(&t, q.get("t").map(|s| s.as_str()));
-                return no_cache(body.into_response(), "application/vnd.apple.mpegurl");
-            }
+        let entries = job.entries();
+        if !entries.is_empty() {
+            let body = build_playlist(&entries, job.finished_ok.load(Ordering::Relaxed));
+            let body = rewrite_playlist(&body, q.get("t").map(|s| s.as_str()));
+            return no_cache(body.into_response(), "application/vnd.apple.mpegurl");
         }
-        if job.exited.load(Ordering::Relaxed) && !job.finished_ok.load(Ordering::Relaxed) {
-            // Murió sin producir nada: reintentar con un plan más conservador.
-            let mut g = s.hls.lock().await;
-            let same = g.as_ref().is_some_and(|j| j.gen == job.gen);
-            if same && job.produced.load(Ordering::Relaxed) == 0 {
-                tracing::warn!(session = %s.id, attempt = job.attempt, "ffmpeg failed early: {}", job.error_text());
-                match start_job(e, &s, start, audio, job.attempt + 1).await {
-                    Ok(j) => {
-                        *g = Some(j.clone());
-                        job = j;
-                        continue;
-                    }
-                    Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, job.error_text()),
+        if job.needs_run() {
+            // Murió sin producir nada: reintentar (el monitor ya subió el nivel de degradación).
+            let _g = s.hls.lock().await;
+            if job.needs_run() {
+                if let Err(err) = launch(e, &s, &job).await {
+                    return json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}"));
                 }
             }
-            return json_error(StatusCode::INTERNAL_SERVER_ERROR, job.error_text());
         }
         if t0.elapsed() > PLAYLIST_WAIT {
             return json_error(StatusCode::GATEWAY_TIMEOUT, "stream is still buffering, try again");
@@ -458,25 +648,26 @@ pub async fn index(e: &Engine, s: Arc<PlaySession>, q: &HashMap<String, String>)
     }
 }
 
-pub async fn segment(_e: &Engine, s: Arc<PlaySession>, seg: &str, _q: &HashMap<String, String>) -> Response {
-    let Some((gen, n)) = parse_segment(seg) else { return json_error(StatusCode::NOT_FOUND, "bad segment name") };
+pub async fn segment(e: &Engine, s: Arc<PlaySession>, seg: &str, _q: &HashMap<String, String>) -> Response {
+    let Some((key, n)) = parse_segment(seg) else { return json_error(StatusCode::NOT_FOUND, "bad segment name") };
     let job = s.hls.lock().await.as_ref().cloned();
-    let Some(job) = job.filter(|j| j.gen == gen) else {
+    let Some(job) = job.filter(|j| j.key == key) else {
         return json_error(StatusCode::NOT_FOUND, "segment from an old playlist");
     };
     s.touch();
     job.touch();
     if let Some(n) = n {
-        job.last_req.store(n, Ordering::Relaxed);
+        job.last_req.store(n as i64, Ordering::Relaxed);
         *s.hls_ahead_s.lock().unwrap() = Some(job.ahead_s());
     }
     let path = job.dir.join(seg);
     let t0 = Instant::now();
     loop {
-        // El init se escribe sin temp_file: lo damos por completo cuando ya hay un segmento.
+        // El init se escribe sin temp_file: lo damos por completo cuando su corrida ya tiene un
+        // segmento.
         let ready = match n {
             Some(_) => tokio::fs::try_exists(&path).await.unwrap_or(false),
-            None => job.produced.load(Ordering::Relaxed) > 0 && tokio::fs::try_exists(&path).await.unwrap_or(false),
+            None => job.entries().iter().any(|en| en.map == seg) && tokio::fs::try_exists(&path).await.unwrap_or(false),
         };
         if ready {
             if let Ok(f) = tokio::fs::File::open(&path).await {
@@ -487,8 +678,17 @@ pub async fn segment(_e: &Engine, s: Arc<PlaySession>, seg: &str, _q: &HashMap<S
                 return r;
             }
         }
-        if job.exited.load(Ordering::Relaxed) && !tokio::fs::try_exists(&path).await.unwrap_or(false) {
+        if job.finished_ok.load(Ordering::Relaxed) {
             return json_error(StatusCode::NOT_FOUND, "segment not available");
+        }
+        if job.needs_run() {
+            // ffmpeg no está (inactividad o caída): relanzar desde donde quedó.
+            let _g = s.hls.lock().await;
+            if job.needs_run() {
+                if let Err(err) = launch(e, &s, &job).await {
+                    return json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{err:#}"));
+                }
+            }
         }
         if t0.elapsed() > SEGMENT_WAIT {
             return json_error(StatusCode::GATEWAY_TIMEOUT, "segment not ready yet");
@@ -527,31 +727,33 @@ mod tests {
         assert!(pl.copy_video && !pl.copy_audio && !pl.downscale && !pl.tonemap && !pl.hw_decode);
         assert_eq!(pl.audio_index, Some(1));
         assert_eq!(pl.audio_channels, 6);
-        let a = args(&pl, "http://x", 0.0, 3).join(" ");
+        let a = args(&pl, "http://x", 0.0, 0.0, 0, "s0ad").join(" ");
         assert!(a.contains("-c:v copy"));
         assert!(a.contains("-c:a aac -ac 6"));
         assert!(!a.contains("-hwaccel"));
         assert!(!a.contains("-ss"));
-        assert!(a.contains("g3_init.mp4"));
+        assert!(a.contains("s0ad_r0_init.mp4") && a.contains("-start_number 0") && a.contains("run0.m3u8"));
         // Pista elegida a mano.
         let pl2 = plan(&p, &chrome(), PlayMode::Remux, Some(2), HwAccel::Nvenc);
         assert_eq!(pl2.audio_index, Some(2));
         assert!(pl2.copy_audio);
+        assert!(args(&pl2, "http://x", 0.0, 0.0, 0, "s0a2").join(" ").contains("-map 0:2"));
     }
 
     #[test]
     fn transcode_4k_hdr_to_1080p_sdr() {
         let p = probe_of("hevc", 3840, 2160, true, "aac", 2);
         let pl = plan(&p, &chrome(), PlayMode::Transcode, None, HwAccel::Nvenc);
-        assert!(!pl.copy_video && pl.downscale && pl.tonemap && pl.copy_audio);
-        let a = args(&pl, "http://x", 125.5, 1).join(" ");
+        assert!(!pl.copy_video && pl.downscale && pl.tonemap && !pl.copy_audio);
+        let a = args(&pl, "http://x", 125.5, 0.0, 0, "s125500ad").join(" ");
         assert!(a.contains("-hwaccel cuda"));
         assert!(a.contains("h264_nvenc"));
+        assert!(a.contains("setparams=color_primaries=bt2020:color_trc=smpte2084"));
         assert!(a.contains("tonemap=tonemap=hable"));
         assert!(a.contains("-ss 125.500"));
         assert!(a.contains("expr:gte(t,n_forced*4)"));
         let sw = plan(&p, &chrome(), PlayMode::Transcode, None, HwAccel::None);
-        assert!(args(&sw, "http://x", 0.0, 1).join(" ").contains("libx264 -preset veryfast"));
+        assert!(args(&sw, "http://x", 0.0, 0.0, 0, "s0ad").join(" ").contains("libx264 -preset veryfast"));
     }
 
     #[test]
@@ -581,20 +783,52 @@ mod tests {
         caps.hevc = true;
         let pl = plan(&probe_of("hevc", 3840, 2160, true, "aac", 2), &caps, PlayMode::Remux, None, HwAccel::Nvenc);
         assert!(pl.copy_video && pl.hevc_tag);
-        let a = args(&pl, "http://x", 0.0, 1).join(" ");
+        let a = args(&pl, "http://x", 0.0, 0.0, 0, "s0ad").join(" ");
         assert!(a.contains("-tag:v hvc1") && !a.contains("tonemap") && !a.contains("scale="));
     }
 
     #[test]
+    fn fragment_end_semantics() {
+        assert_eq!(fragment_end(487.99, 492.01), 492.01);
+        assert_eq!(fragment_end(0.0, 4.0), 4.0);
+        assert_eq!(fragment_end(100.0, 4.0), 104.0);
+    }
+
+    #[test]
     fn playlist_rewrite_and_names() {
-        let src = "#EXTM3U\n#EXT-X-MAP:URI=\"g1_init.mp4\"\n#EXTINF:4.0,\ng1_00000.m4s\n";
+        let src = "#EXTM3U\n#EXT-X-MAP:URI=\"s0ad_r0_init.mp4\"\n#EXTINF:4.0,\ns0ad_00000.m4s\n";
         let out = rewrite_playlist(src, Some("ab c"));
-        assert!(out.contains("URI=\"g1_init.mp4?t=ab%20c\""));
-        assert!(out.contains("g1_00000.m4s?t=ab%20c\n"));
+        assert!(out.contains("URI=\"s0ad_r0_init.mp4?t=ab%20c\""));
+        assert!(out.contains("s0ad_00000.m4s?t=ab%20c\n"));
         assert_eq!(rewrite_playlist(src, None), src);
-        assert_eq!(parse_segment("g12_00034.m4s"), Some((12, Some(34))));
-        assert_eq!(parse_segment("g12_init.mp4"), Some((12, None)));
+        assert_eq!(job_key(125.5, None), "s125500ad");
+        assert_eq!(job_key(0.0, Some(2)), "s0a2");
+        assert_eq!(parse_segment("s0ad_00034.m4s"), Some(("s0ad".into(), Some(34))));
+        assert_eq!(parse_segment("s0a2_r12_init.mp4"), Some(("s0a2".into(), None)));
         assert_eq!(parse_segment("index.m3u8"), None);
-        assert_eq!(parse_segment("g1_x.m4s"), None);
+        assert_eq!(parse_segment("s0ad_x.m4s"), None);
+        assert_eq!(parse_segment("s0ad_rx_init.mp4"), None);
+    }
+
+    #[test]
+    fn resume_keeps_numbering_and_time() {
+        let pl = plan(&probe_of("hevc", 1920, 1080, false, "aac", 2), &chrome(), PlayMode::Transcode, None, HwAccel::Nvenc);
+        let a = args(&pl, "http://x", 100.0, 48.0, 12, "s100000ad").join(" ");
+        assert!(a.contains("-ss 148.000"));
+        assert!(a.contains("-output_ts_offset 48.000"));
+        assert!(a.contains("-start_number 12"));
+        assert!(a.contains("s100000ad_r12_init.mp4") && a.contains("run12.m3u8"));
+        // Playlist unida de dos corridas: un MAP por corrida, numeración continua.
+        let r0 = parse_run_playlist("#EXT-X-MAP:URI=\"k_r0_init.mp4\"\n#EXTINF:4.000000,\nk_00000.m4s\n#EXTINF:3.5,\nk_00001.m4s\n", "x");
+        let r1 = parse_run_playlist("#EXTINF:4.0,\nk_00002.m4s\n", "k_r2_init.mp4");
+        assert_eq!(r0.len(), 2);
+        assert_eq!(r0[1].dur, 3.5);
+        let all: Vec<Entry> = r0.into_iter().chain(r1).collect();
+        let p = build_playlist(&all, true);
+        assert_eq!(p.matches("#EXT-X-MAP").count(), 2);
+        assert!(p.contains("#EXT-X-MAP:URI=\"k_r2_init.mp4\"\n#EXTINF:4.000000,\nk_00002.m4s"));
+        assert!(p.ends_with("#EXT-X-ENDLIST\n"));
+        assert!(p.contains("#EXT-X-TARGETDURATION:4"));
+        assert!(!build_playlist(&all, false).contains("ENDLIST"));
     }
 }

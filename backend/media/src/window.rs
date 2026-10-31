@@ -14,29 +14,84 @@
 //!    sumamos ventanas de 32 MB consecutivas solo mientras haya más peers que piezas faltantes
 //!    cubiertas (`plan_windows`). Con pocos peers queda una sola ventana pegada a la frontera, así
 //!    no se diluye la prioridad de lo inmediato; con muchos, todos bajan por delante del lector.
+//!    Si la bajada no llega a 1.5× el bitrate (o el colchón ya pasa los 120 s), una sola ventana.
 //! 3. La frontera siempre existe mientras falte algo después del lector: el resto del archivo se
 //!    sigue bajando en orden hacia adelante en segundo plano, nunca "se frena" la ventana.
 //! 4. Al abrir, un fantasma en el final del archivo (moov de MP4 / cues de MKV) hasta tenerlo.
 //! 5. El buffer inicial es adaptativo (`buffer_target_s`): si la bajada es mucho más rápida que el
 //!    bitrate alcanza con pocos segundos; si es más lenta, se espera más.
 //!
-//! Endgame: librqbit no expone "deadline" por pieza; lo que tiene es robo de piezas a peers 3x/10x
-//! más lentos, que se activa justamente con la pieza que el lector espera porque queda primera en
-//! todas las ventanas. Además bajamos `max_request_window` (ver `engine`) para que una pieza nueva
-//! se pida antes tras un salto.
+//! 6. El colchón se mide desde el **origen** (donde arrancó la reproducción o el último salto), no
+//!    desde el lector: un `<video>` se lleva todo lo que hay apenas llega, así que medido desde el
+//!    lector el colchón siempre daba 0. Se descuenta lo que se supone ya reproducido.
+//! 7. **Ráfagas** (`burst_s`): cada peer trabaja en una pieza distinta y, si el cuello de botella es
+//!    nuestra bajada, todas terminan juntas; el colchón objetivo cubre al menos una ráfaga.
+//! 8. **Rescate de pieza trabada** (`should_rescue`): si la pieza que espera el reproductor no
+//!    llega en 12 s mientras llegan otras y el colchón se acaba, se pausa y reanuda el torrent:
+//!    las piezas en vuelo de peers lentos vuelven a la cola (librqbit solo roba piezas a peers 3x
+//!    más lentos que el promedio, y con la bajada saturada el promedio es enorme).
+//!
+//! Endgame: librqbit no expone "deadline" por pieza; además del rescate, la pieza que espera el
+//! lector queda primera en todas las ventanas y `max_request_window` acotado hace que se pida
+//! antes tras un salto.
+//!
+//! ## Mediciones (`examples/sim.rs`, Tears of Steel, 571 MB, 778 KB/s de bitrate, piezas de 512 KB)
+//!
+//! El simulador consume a 1× como un `<video>` (lee hasta 60 s por delante), salta al 50 % y al
+//! 80 %, y espera `ready` tras cada salto (`--wait-ready`, lo que debería hacer la UI). 150 s por
+//! caso. "Salto" = tiempo hasta poder seguir. Valores separados por "/" = corridas repetidas.
+//!
+//! **Swarm lento** (sembradores locales con tope de subida, `examples/seed.rs`; es el caso típico
+//! de un torrent con pocos seeders):
+//!
+//! | caso | ready | trabas | salto |
+//! |---|---|---|---|
+//! | 1.5× (4×292 KB/s), cola 16 / 32 / 64 | 9.9–10 s | 0 | 9–12 / 12–13 / 11–13 s |
+//! | 1.5×, cola 128 | 10 s | 0 | 15–16 s (pedidos viejos delante de los nuevos) |
+//! | 1.5×, con descarte al saltar (`flush_on_seek`) | 9.9 s | 0 | **7.3 / 7.3 s** (sin: 12 / 12 s) |
+//! | 1.5×, 8 sembradores × 146 KB/s | 13.5 s | 0 | 12–20 s |
+//! | 1.5×, sin esperar `ready` tras saltar | 9.9 s | 0 | 8–9 s |
+//! | 0.8× (4×155 KB/s) | 33–35 s | 0 en 150 s | 34–40 s |
+//! | 0.8×, sin esperar `ready` | 33 s | 5 cortas (7 s en total) | 19 s |
+//!
+//! **Bajada propia saturada** (contenedor Linux con `tc` policing de ingreso contra el swarm
+//! público; TCP/uTP se adaptan como en una conexión lenta de verdad):
+//!
+//! | caso | ready | trabas (máx) | salto |
+//! |---|---|---|---|
+//! | 9.3 Mbit (1.2×), cola 64 | 37–55 s | 1–2 (11–34 s) | 28–56 s |
+//! | 9.3 Mbit, cola 16 | 25–30 s | 1 (6–25 s) | 27–37 s |
+//! | 9.3 Mbit, sin rescate | 76 s | 1 de 53 s | — |
+//! | 18.7 Mbit (2.4×) | 19–28 s | 1–2 (31–38 s) | 10–19 s |
+//! | 5 Mbit (0.65×) | 106 s (el probe solo tardó 50 s) | 1 (24 s) | — |
+//!
+//! Conclusiones aplicadas a los valores por defecto (`Tuning::default`):
+//! - Cola por peer **32**: con la bajada saturada 16 fue mejor que 64 (lo pedido y no recibido
+//!   tapa lo urgente); con peers lentos dio igual; 128 empeora siempre. 32 deja 512 KB por RTT
+//!   (≈ 2.5 MB/s por peer a 200 ms), para no frenar a un único seeder rápido y lejano.
+//! - **Rescate** activado (sin él, `ready` a 76 s y una traba de 53 s) y **descarte al saltar**
+//!   activado (saltos 40 % más rápidos con peers lentos; con la bajada saturada, neutro).
+//! - Colchón con **ráfaga**, medido desde el origen.
+//! - Con la bajada propia saturada las trabas no desaparecen: librqbit reparte la bajada entre
+//!   una pieza por peer y todas llegan juntas. Bajar `peer_limit` lo mejoraría en ese caso pero
+//!   empeora los swarms lentos (menos fuentes), así que queda en 160.
+//! - Errores encontrados al medir: el colchón medido desde el lector siempre daba 0 (el lector se
+//!   lleva todo apenas llega); sin ffprobe el bitrate supuesto (2 h) era 10× menor que el real y
+//!   `ready` salía con 1 s de colchón (ahora se estima por el nombre, `guess_bitrate`).
+//! - El tope de bajada interno de librqbit (`Tuning::download_limit_bps`) **no** sirve para
+//!   emular: su limitador deja esperando a algunos peers muchísimo y daba `ready` a 54 s aun con
+//!   3× del bitrate. Por eso las mediciones usan sembradores lentos y `tc`.
 
 use crate::session::PlaySession;
+use crate::engine::Engine;
 use librqbit::{api::TorrentIdOrHash, Api, ManagedTorrent};
 use std::io::SeekFrom;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::io::AsyncSeekExt;
 
 /// Ventana fija por stream dentro de librqbit (`PER_STREAM_BUF_DEFAULT`).
 pub const LIB_WINDOW: u64 = 32 * 1024 * 1024;
-/// Máximo de fantasmas de ventana por sesión (cada stream ocupa un permiso del semáforo de
-/// librqbit; ver `engine::BLOCKING_PERMITS`).
-pub const MAX_WINDOWS: usize = 6;
 
 /// Geometría del archivo dentro del torrent.
 #[derive(Clone, Copy, Debug)]
@@ -128,9 +183,10 @@ pub fn readahead_target_bytes(bitrate: f64) -> u64 {
     ((bitrate.max(0.0) * 120.0) as u64).max(64 << 20)
 }
 
-/// Segundos de buffer antes de pasar a `ready`, según velocidad vs. bitrate (ambos en bytes/s) y
-/// cuánto hace que se espera (para no esperar para siempre con un torrent lento).
-pub fn buffer_target_s(bitrate: f64, down: f64, waited_s: f64) -> f64 {
+/// Segundos de buffer antes de pasar a `ready`, según velocidad vs. bitrate (ambos en bytes/s),
+/// la "ráfaga" (`burst_s`, ver `burst_s`) y cuánto hace que se espera (para no esperar para
+/// siempre con un torrent lento).
+pub fn buffer_target_s(bitrate: f64, down: f64, waited_s: f64, burst_s: f64) -> f64 {
     let base = if bitrate <= 0.0 {
         8.0
     } else {
@@ -146,12 +202,25 @@ pub fn buffer_target_s(bitrate: f64, down: f64, waited_s: f64) -> f64 {
             (15.0 + 45.0 * (1.0 - ratio)).min(60.0)
         }
     };
+    // Si las piezas llegan en ráfagas cada `burst_s`, el colchón tiene que cubrir al menos una.
+    let base = base.max((burst_s * 1.25).min(60.0));
     // Tras 45 s esperando, se va relajando hasta un mínimo de 3 s.
     if waited_s > 45.0 {
         (base - (waited_s - 45.0) / 2.0).max(3.0)
     } else {
         base
     }
+}
+
+/// Cada peer trabaja en una pieza distinta y, si el cuello de botella es nuestra bajada, todas
+/// avanzan a la vez y terminan juntas: la pieza que sigue al lector tarda ≈ peers × pieza / bajada.
+/// Esa "ráfaga" es lo mínimo que tiene que aguantar el colchón (medido: con 30 peers, piezas de
+/// 1 MB y 1.1 MB/s son ~27 s, y un colchón de 8 s se trababa en cada ráfaga).
+pub fn burst_s(peers: u32, piece_len: u64, down: f64) -> f64 {
+    if down <= 0.0 {
+        return 0.0;
+    }
+    (peers.min(64) as f64 * piece_len as f64 / down).min(48.0)
 }
 
 type ManagedTorrentHandle = Arc<ManagedTorrent>;
@@ -178,6 +247,17 @@ impl Phantom {
     }
 }
 
+/// Mensaje legible para un torrent en error (el de librqbit es un `Debug` largo).
+pub fn friendly_error(err: &str) -> String {
+    let e = err.to_ascii_lowercase();
+    if e.contains("no space") || e.contains("enospc") || e.contains("os error 28") || e.contains("os error 112") {
+        crate::engine::DISK_FULL_MSG.to_string()
+    } else {
+        let first = err.lines().next().unwrap_or(err);
+        format!("torrent error: {}", first.chars().take(200).collect::<String>())
+    }
+}
+
 /// Lee el bitfield de piezas que ya tenemos (copia chica: piezas/8 bytes).
 pub fn haves(api: &Api, hash: librqbit::dht::Id20) -> Option<Vec<bool>> {
     let (bf, len) = api.api_dump_haves(TorrentIdOrHash::Hash(hash)).ok()?;
@@ -185,12 +265,19 @@ pub fn haves(api: &Api, hash: librqbit::dht::Id20) -> Option<Vec<bool>> {
 }
 
 /// Bucle por sesión de torrent: reubica fantasmas y actualiza el buffer de la sesión.
-pub async fn run(api: Api, handle: ManagedTorrentHandle, file_idx: usize, g: FileGeom, sess: Arc<PlaySession>) {
+pub async fn run(engine: Weak<Engine>, handle: ManagedTorrentHandle, file_idx: usize, g: FileGeom, sess: Arc<PlaySession>) {
+    let Some(e) = engine.upgrade() else { return };
+    let api = e.api.clone();
+    let tuning = e.tuning.clone();
+    drop(e);
     let hash = handle.info_hash();
     let tail_pos = g.len - tail_bytes(g.len);
     let mut tail: Option<Phantom> = None;
     let mut tail_done = false;
     let mut windows: Vec<Phantom> = Vec::new();
+    let mut stuck: Option<Stuck> = None;
+    let mut last_rescue: Option<tokio::time::Instant> = None;
+    let mut last_origin = sess.origin();
     let mut tick = tokio::time::interval(Duration::from_millis(700));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
@@ -198,12 +285,19 @@ pub async fn run(api: Api, handle: ManagedTorrentHandle, file_idx: usize, g: Fil
         if sess.is_closed() {
             break;
         }
+        match engine.upgrade() {
+            Some(e) => e.guard_disk().await,
+            None => break,
+        }
         let Some(hv) = haves(&api, hash) else {
+            tracing::debug!(session = %sess.id, "no piece bitfield yet");
             if let Some(err) = handle.stats().error {
-                sess.set_error(format!("torrent error: {err}"));
+                sess.set_error(friendly_error(&err));
             }
             continue;
         };
+        let hv = Arc::new(hv);
+        *sess.haves.lock().unwrap() = hv.clone();
         let have = |p: usize| hv.get(p).copied().unwrap_or(false);
         let head = sess.head();
 
@@ -217,12 +311,14 @@ pub async fn run(api: Api, handle: ManagedTorrentHandle, file_idx: usize, g: Fil
             }
         }
 
-        let ahead = contiguous_ahead(&g, &have, head);
         let peers = handle.live().map(|l| l.stats_snapshot().peer_stats.live).unwrap_or(0);
         // Por debajo del colchón objetivo: todas las ventanas que los peers puedan llenar.
         // Con el colchón cubierto: una sola (sigue bajando en orden hacia adelante y deja que el
         // resto de los peers rellene huecos de atrás, útil si el usuario vuelve para atrás).
-        let max_w = if ahead < readahead_target_bytes(sess.bitrate()) { MAX_WINDOWS } else { 1 };
+        let br = sess.bitrate();
+        let down = handle.live().map(|l| l.down_speed_estimator().bps()).unwrap_or(0) as f64;
+        let slow = tuning.focus_when_slow && down < 1.5 * br;
+        let max_w = if sess.ahead_s() * br < readahead_target_bytes(br) as f64 && !slow { tuning.max_windows } else { 1 };
         let plan = match first_missing_from(&g, &have, head) {
             Some(p) => plan_windows(&g, &have, g.piece_start(p).max(head.min(g.len)), peers.max(1), max_w),
             None => Vec::new(),
@@ -238,9 +334,80 @@ pub async fn run(api: Api, handle: ManagedTorrentHandle, file_idx: usize, g: Fil
             }
         }
 
+        tracing::debug!(
+            session = %sess.id,
+            head,
+            first_missing = ?first_missing_from(&g, &have, sess.origin()),
+            missing_32mb = missing_in(&g, &have, sess.origin(), LIB_WINDOW),
+            piece_len = g.piece_len,
+            ahead_s = sess.ahead_s(),
+            peers,
+            down,
+            windows = ?plan,
+            tail = tail.is_some(),
+            "priority windows"
+        );
         let complete = first_missing_from(&g, &have, 0).is_none();
-        sess.update_buffer(ahead, complete);
+        sess.update_buffer(contiguous_ahead(&g, &have, sess.origin()), complete, burst_s(peers, g.piece_len, down));
+
+        // Salto: con la bajada justa, los pedidos en vuelo de la posición vieja (cada peer tiene
+        // una pieza reservada y hasta 1 MB pedido) demoran lo nuevo; se descartan.
+        let origin = sess.origin();
+        if origin != last_origin {
+            last_origin = origin;
+            let can = last_rescue.is_none_or(|t| t.elapsed() > Duration::from_secs(10));
+            if tuning.flush_on_seek && can && down < 3.0 * br && !have(g.piece_at(origin)) && handle.live().is_some() {
+                if let Some(e) = engine.upgrade() {
+                    tracing::info!(session = %sess.id, origin, "seek: flushing in-flight requests");
+                    e.rescue(&handle).await;
+                    last_rescue = Some(tokio::time::Instant::now());
+                    stuck = None;
+                }
+            }
+        }
+
+        // Rescate: la pieza que espera el reproductor no llega mientras otras sí.
+        if tuning.rescue_stuck {
+            let have_count = hv.iter().filter(|x| **x).count();
+            let blocking = first_missing_from(&g, &have, sess.origin());
+            stuck = match (stuck, blocking) {
+                (Some(st), Some(p)) if st.piece == p => Some(st),
+                (_, Some(p)) => Some(Stuck { piece: p, since: tokio::time::Instant::now(), have_count }),
+                (_, None) => None,
+            };
+            if let Some(st) = stuck {
+                let waited = st.since.elapsed().as_secs_f64();
+                let others = have_count.saturating_sub(st.have_count) as u64 * g.piece_len;
+                let can = last_rescue.is_none_or(|t| t.elapsed() > RESCUE_EVERY);
+                if should_rescue(waited, others, sess.ahead_s(), g.piece_len) && can && handle.live().is_some() {
+                    if let Some(e) = engine.upgrade() {
+                        tracing::info!(session = %sess.id, piece = st.piece, waited, others, "head piece stuck: restarting peer connections");
+                        e.rescue(&handle).await;
+                        last_rescue = Some(tokio::time::Instant::now());
+                        stuck = None;
+                    }
+                }
+            }
+        }
     }
+}
+
+/// Estado de la pieza que bloquea al reproductor.
+#[derive(Clone, Copy)]
+struct Stuck {
+    piece: usize,
+    since: tokio::time::Instant,
+    have_count: usize,
+}
+
+const RESCUE_EVERY: Duration = Duration::from_secs(45);
+
+/// ¿Vale la pena el rescate? La pieza bloqueante lleva `waited` s sin llegar, mientras llegaron
+/// `others` bytes de otras piezas, y al reproductor le quedan `ahead_s` s. Solo si la descarga
+/// anda (llegaron al menos 8 piezas o 8 MB: no es que no haya peers), la espera ya es larga
+/// (12 s) y el colchón está por acabarse.
+pub fn should_rescue(waited: f64, others: u64, ahead_s: f64, piece_len: u64) -> bool {
+    waited >= 12.0 && others >= (8 * piece_len).min(8 << 20) && ahead_s < 5.0
 }
 
 #[cfg(test)]
@@ -248,6 +415,7 @@ mod tests {
     use super::*;
 
     const MB: u64 = 1 << 20;
+    const MAX_WINDOWS: usize = 6;
 
     fn geom() -> FileGeom {
         // Archivo de 100 MB que empieza a mitad de la pieza 0, piezas de 4 MB.
@@ -299,13 +467,37 @@ mod tests {
     #[test]
     fn buffer_target_adapts() {
         let br = 1_000_000.0;
-        assert_eq!(buffer_target_s(br, 5.0 * br, 0.0), 4.0);
-        assert_eq!(buffer_target_s(br, 1.5 * br, 0.0), 8.0);
-        assert_eq!(buffer_target_s(br, 1.1 * br, 0.0), 15.0);
-        assert!((buffer_target_s(br, 0.5 * br, 0.0) - 37.5).abs() < 1e-9);
-        assert_eq!(buffer_target_s(br, 0.0, 0.0), 60.0);
-        assert_eq!(buffer_target_s(br, 0.0, 500.0), 3.0);
-        assert_eq!(buffer_target_s(0.0, 0.0, 0.0), 8.0);
+        assert_eq!(buffer_target_s(br, 5.0 * br, 0.0, 0.0), 4.0);
+        assert_eq!(buffer_target_s(br, 1.5 * br, 0.0, 0.0), 8.0);
+        assert_eq!(buffer_target_s(br, 1.1 * br, 0.0, 0.0), 15.0);
+        assert!((buffer_target_s(br, 0.5 * br, 0.0, 0.0) - 37.5).abs() < 1e-9);
+        assert_eq!(buffer_target_s(br, 0.0, 0.0, 0.0), 60.0);
+        assert_eq!(buffer_target_s(br, 0.0, 500.0, 0.0), 3.0);
+        assert_eq!(buffer_target_s(0.0, 0.0, 0.0, 0.0), 8.0);
+        // Ráfagas de 20 s: aunque la bajada sobre, hay que aguantar 25 s.
+        assert_eq!(buffer_target_s(br, 5.0 * br, 0.0, 20.0), 25.0);
+        // 30 peers × 1 MB a 1.1 MB/s ≈ 27 s; tope 48 s.
+        assert!((burst_s(30, MB, 1.1 * MB as f64) - 27.27).abs() < 0.1);
+        assert_eq!(burst_s(500, 16 * MB, 1.0), 48.0);
+        assert_eq!(burst_s(30, MB, 0.0), 0.0);
+    }
+
+    #[test]
+    fn rescue_rules() {
+        assert!(should_rescue(15.0, 10 * MB, 1.0, MB));
+        assert!(!should_rescue(5.0, 10 * MB, 1.0, MB), "todavía no esperó bastante");
+        assert!(!should_rescue(15.0, MB, 1.0, MB), "no llegó nada más: no hay peers, no es una pieza trabada");
+        assert!(!should_rescue(15.0, 10 * MB, 30.0, MB), "hay colchón: no vale la pena cortar conexiones");
+        // Piezas de 16 MB: alcanza con 8 MB de otras piezas.
+        assert!(should_rescue(15.0, 8 * MB, 0.0, 16 * MB));
+    }
+
+    #[test]
+    fn errors_are_readable() {
+        assert!(friendly_error("FATAL: error writing chunk: pwritev: ENOSPC").contains("disk space"));
+        assert!(friendly_error("No space left on device (os error 28)").contains("disk space"));
+        assert_eq!(friendly_error("boom
+details"), "torrent error: boom");
     }
 
     #[test]

@@ -7,7 +7,8 @@
 //! curl -r 0-1023 -o NUL -D - http://127.0.0.1:7711/api/media/<session>/file
 //! ```
 //! Variables: `MYTHOS_DATA` (carpeta de datos, por defecto `./data/media-example`, ignorada por git), `MYTHOS_HWACCEL`
-//! (`nvenc`|`none`), `FFMPEG`/`FFPROBE` (rutas, por defecto se buscan en el PATH).
+//! (`nvenc`|`none`), `FFMPEG`/`FFPROBE` (rutas, por defecto se buscan en el PATH),
+//! `MYTHOS_DOWN_LIMIT_KB` (tope de bajada) y `MYTHOS_CACHE_GB` (límite de caché, 0 = sin límite).
 //! Además expone (para probar con curl) `GET /open?hash=..&idx=..` o `/open?url=..`,
 //! `/prefetch?hash=..`, `/torrents`, `/stats`, `/cached?hash=..` y `/remove?hash=..&files=1`.
 
@@ -52,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cfg = MediaConfig {
         data_dir: PathBuf::from(std::env::var("MYTHOS_DATA").unwrap_or_else(|_| "./data/media-example".into())),
-        cache_limit_bytes: 20 << 30,
+        cache_limit_bytes: std::env::var("MYTHOS_CACHE_GB").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(20) << 30,
         peer_port: 42069,
         ffmpeg: std::env::var("FFMPEG").unwrap_or_else(|_| "ffmpeg".into()).into(),
         ffprobe: std::env::var("FFPROBE").unwrap_or_else(|_| "ffprobe".into()).into(),
@@ -60,7 +61,12 @@ async fn main() -> anyhow::Result<()> {
         extra_trackers: true,
     };
     let t0 = Instant::now();
-    let media = Media::new(cfg).await?;
+    // `MYTHOS_DOWN_LIMIT_KB`: tope de bajada para pruebas (emular una conexión lenta).
+    let tuning = mythos_media::Tuning {
+        download_limit_bps: std::env::var("MYTHOS_DOWN_LIMIT_KB").ok().and_then(|v| v.parse::<u32>().ok()).map(|k| k * 1024),
+        ..Default::default()
+    };
+    let media = Media::with_tuning(cfg, tuning).await?;
     println!("media up in {:?}", t0.elapsed());
 
     let opener = Router::new()
