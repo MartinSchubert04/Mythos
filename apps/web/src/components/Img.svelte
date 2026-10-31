@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { loadedOk, retryOriginal } from "../lib/images";
   // Imagen que aparece en fade al cargar. El tamaño lo reserva el contenedor (aspect-ratio),
   // asi nada salta de lugar. Si falla, queda el fondo (o el texto de respaldo).
   let {
@@ -52,8 +53,14 @@
     fetchpriority={eager ? "high" : "auto"}
     draggable="false"
     style="object-fit: {fit}; {vt ? `view-transition-name: ${vt};` : ''} {style}"
-    onload={() => (loaded = true)}
-    onerror={() => (failed = true)}
+    onload={(e) => {
+      loaded = true;
+      loadedOk(e.currentTarget);
+    }}
+    onerror={(e) => {
+      // La achicada por el server fallo: la original de metahub; si no, el respaldo.
+      if (!retryOriginal(e.currentTarget)) failed = true;
+    }}
   />
 {:else if fallback}
   <span class="fb" style={vt ? `view-transition-name: ${vt}` : ""}>

@@ -3,6 +3,7 @@
   // spoilers), la serie, el episodio y hace cuanto salio. Clic: al reproductor.
   import { Play } from "@lucide/svelte";
   import { epCode, sized } from "../lib/format";
+  import { fit } from "../lib/images";
   import type { NewEp } from "../lib/newEpisodes";
   import { prefs } from "../lib/prefs.svelte";
   import { go, loadView } from "../lib/router.svelte";
@@ -10,7 +11,8 @@
 
   let { n, i = 0 }: { n: NewEp; i?: number } = $props();
 
-  const img = $derived(prefs.hideSpoilers || !n.ep.thumbnail ? sized(n.series.background ?? n.series.poster, "medium") : n.ep.thumbnail);
+  // Las tarjetas miden hasta 320 px: fondo o miniatura de ese tamaño (no la de 1920).
+  const img = $derived(fit(prefs.hideSpoilers || !n.ep.thumbnail ? sized(n.series.background ?? n.series.poster, "medium") : n.ep.thumbnail, 320));
   const href = $derived(`/watch/series/${n.ep.id}`);
   const ago = $derived.by(() => {
     const d = Math.floor((Date.now() - Date.parse(n.ep.released)) / 86_400_000);
@@ -129,5 +131,8 @@
   .sub {
     font-size: 11.5px;
     color: var(--on-media-2);
+  }
+  :global([data-lite]) .ne {
+    animation: none;
   }
 </style>

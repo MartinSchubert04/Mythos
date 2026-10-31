@@ -227,3 +227,9 @@
   --mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
   --display: var(--mono);
 }
+
+/* Equipos flojos (lib/perf.ts, data-lite en <html>): sin el desenfoque del vidrio, que es lo mas
+   caro de dibujar en esas GPUs. Los paneles de Warp y Haze quedan translucidos igual. */
+:root[data-lite] {
+  --blur: none;
+}

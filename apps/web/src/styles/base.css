@@ -545,6 +545,16 @@ table.list tr.click:hover td {
   animation: none !important;
 }
 
+/* Equipos flojos (lib/perf.ts): sin desenfoques detras de nada y las tarjetas aparecen sin
+   escalonar (cada una seria una animacion propia al montar una fila). El resto queda igual. */
+[data-lite] * {
+  backdrop-filter: none !important;
+}
+[data-lite] .card-poster,
+[data-lite] .stagger {
+  animation: none !important;
+}
+
 /* Tooltip propio (lib/tooltip.ts): reemplaza al del navegador, que sale demasiado rapido. */
 .hover-tip {
   position: fixed;

@@ -4,6 +4,7 @@
   import { Play, X } from "@lucide/svelte";
   import { api } from "../lib/api";
   import { clock, sized } from "../lib/format";
+  import { fit } from "../lib/images";
   import { go, loadView } from "../lib/router.svelte";
   import type { Progress } from "../lib/types";
   import Img from "./Img.svelte";
@@ -39,7 +40,7 @@
   }}
 >
   <div class="frame">
-    <Img src={sized(img, "medium")} alt="" fallback={p.name} />
+    <Img src={fit(sized(img, "medium"), 320)} alt="" fallback={p.name} />
     <div class="shade"></div>
     <span class="play"><Play size={20} fill="currentColor" /></span>
     {#if onremove}
@@ -168,5 +169,8 @@
     .rm {
       opacity: 1;
     }
+  }
+  :global([data-lite]) .cw {
+    animation: none;
   }
 </style>

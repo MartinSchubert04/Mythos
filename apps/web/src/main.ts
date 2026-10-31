@@ -12,6 +12,7 @@ import "./styles/athanor.css";
 import "./styles/app.css";
 import App from "./App.svelte";
 import { initGlass } from "./lib/glass.svelte";
+import { applyLite } from "./lib/perf";
 import { isDesktop } from "./lib/platform";
 import { initShell } from "./lib/shell.svelte";
 import { installTooltips } from "./lib/tooltip";
@@ -22,6 +23,7 @@ async function boot() {
     const { installMock } = await import("./lib/mock");
     installMock();
   }
+  applyLite();
   initShell();
   initGlass();
   mount(App, { target: document.getElementById("app")! });

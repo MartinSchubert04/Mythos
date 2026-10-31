@@ -22,6 +22,7 @@ mod cinemeta;
 mod config;
 mod db;
 mod error;
+mod images;
 mod local;
 mod metrics;
 mod score;
@@ -182,6 +183,7 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
         cinemeta: Arc::new(cinemeta::Cinemeta::new(http.clone())),
         streams: Arc::new(streams::StreamCtx::new(http, cfg.torrentio_url.clone())),
         subs: Arc::new(subtitles::Subtitles::new()?),
+        images: images::Images::new(&cfg.data_dir, cfg.mode)?,
         watching: Default::default(),
         recorder,
         changes: Default::default(),
@@ -223,7 +225,7 @@ fn app(state: AppState) -> Router {
         .route(
             "/health",
             get(move || async move {
-                axum::Json(json!({ "ok": true, "version": env!("CARGO_PKG_VERSION"), "mode": mode, "transcode": tools.ffmpeg }))
+                axum::Json(json!({ "ok": true, "version": env!("CARGO_PKG_VERSION"), "mode": mode, "transcode": tools.ffmpeg, "images": true }))
             }),
         )
         .merge(cinemeta::routes())
@@ -245,6 +247,7 @@ fn app(state: AppState) -> Router {
         .with_state(state.clone());
 
     let media = subtitles::media_routes()
+        .merge(images::media_routes())
         .with_state(state.clone())
         .merge(state.media.router())
         .layer(middleware::from_fn_with_state(state.auth.clone(), auth::media_auth));

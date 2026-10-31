@@ -155,6 +155,10 @@
     font-size: 11.5px;
     color: var(--text-3);
   }
+  /* Equipos flojos: la sombra aparece de una (animarla es redibujarla en cada cuadro). */
+  :global([data-lite]) .poster-frame {
+    transition-property: transform, border-color;
+  }
   :global([data-theme="poolsuite"]) .card-poster:hover .poster-frame {
     box-shadow: 5px 5px 0 var(--line);
     transform: translate(-2px, -3px);

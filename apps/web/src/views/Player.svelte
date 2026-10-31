@@ -1521,7 +1521,9 @@
   const VolIcon = $derived(prefs.muted || prefs.volume === 0 ? VolumeX : prefs.volume < 0.5 ? Volume1 : Volume2);
   const subSize = $derived(`calc(clamp(18px, 2.4vw, 40px) * ${prefs.subSize / 100})`);
   const subPreview = $derived(stylePeek && !!subSel);
-  const bgImg = $derived(sized(meta?.background, "medium"));
+  // Va desenfocado detras de la pantalla de carga: el de 480 px alcanza (el de 1920 son ~800 KB
+  // que competirian con el video justo al arrancar).
+  const bgImg = $derived(sized(meta?.background, "small"));
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 </script>
 

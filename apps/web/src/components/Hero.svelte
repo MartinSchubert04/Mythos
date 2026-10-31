@@ -5,6 +5,7 @@
   import { onMount } from "svelte";
   import { sized } from "../lib/format";
   import { handOff } from "../lib/handoff";
+  import { coverWidth, fit, retryOriginal } from "../lib/images";
   import { fadeQuick, fadeSlow, rise } from "../lib/motion";
   import { go, loadView } from "../lib/router.svelte";
   import type { MetaPreview } from "../lib/types";
@@ -16,6 +17,10 @@
   let logoOk = $state<Record<string, boolean>>({});
   let bgReady = $state<Record<string, boolean>>({});
   let timer = 0;
+  // El fondo cubre todo el ancho y clamp(400px, 66vh, 720px) de alto: el tamaño justo para eso
+  // (se calcula una vez; un cambio de ventana no vale otra descarga).
+  const bgWidth = coverWidth(innerWidth, Math.min(720, Math.max(400, innerHeight * 0.66)));
+  const bgSrc = (m: MetaPreview) => fit(sized(m.background, "medium"), bgWidth);
   /** Con el mouse sobre el texto o los botones no rota (se esta por apretar algo). */
   let holding = false;
 
@@ -41,7 +46,7 @@
     const im = new Image();
     im.onload = () => (bgReady[m.id] = true);
     im.onerror = () => (bgReady[m.id] = true);
-    im.src = sized(m.background, "medium")!;
+    im.src = bgSrc(m)!;
   }
 
   $effect(() => {
@@ -77,7 +82,7 @@
     {#key cur.id}
       <div class="bg" in:fadeSlow={{ duration: 900 }} out:fadeSlow={{ duration: 900 }}>
         {#if cur.background}
-          <img class="kb" src={sized(cur.background, "medium")} alt="" fetchpriority="high" decoding="async" />
+          <img class="kb" src={bgSrc(cur)} alt="" fetchpriority="high" decoding="async" onerror={(e) => retryOriginal(e.currentTarget)} />
         {/if}
       </div>
     {/key}
@@ -160,10 +165,15 @@
     object-fit: cover;
     object-position: center 22%;
   }
-  /* Zoom lento (Ken Burns): da vida sin distraer. */
+  /* Zoom lento (Ken Burns): da vida sin distraer. En equipos flojos (lib/perf.ts) queda quieto:
+     escalar un fondo de pantalla entera en cada cuadro es caro para esas GPUs. */
   .kb {
     animation: kb 12s ease-out both;
     will-change: transform;
+  }
+  :global([data-lite]) .kb {
+    animation: none;
+    will-change: auto;
   }
   @keyframes kb {
     from {
