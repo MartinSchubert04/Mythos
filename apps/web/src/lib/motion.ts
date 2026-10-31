@@ -20,7 +20,12 @@ export const slideOut = (node: Element) => fly(node, { x: 32, duration: ms(160),
 export const pop = (node: Element, o: { start?: number } = {}) =>
   scale(node, { start: o.start ?? 0.95, duration: ms(160), easing: cubicOut });
 
-export const fadeQuick = (node: Element) => fade(node, { duration: ms(140) });
+/** Un paso de un menu por pasos (idiomas → versiones): entra de costado, segun para donde se va
+ *  (dir 1 = hacia adentro, -1 = volver). Solo entrada: el paso anterior se va sin animar. */
+export const step = (node: Element, o: { dir?: number } = {}) =>
+  fly(node, { x: 22 * (o.dir ?? 1), duration: ms(190), easing: cubicOut });
+
+export const fadeQuick =(node: Element) => fade(node, { duration: ms(140) });
 /** Fundido largo: el crossfade del hero y la pantalla de carga del reproductor. */
 export const fadeSlow = (node: Element, o: { duration?: number } = {}) => fade(node, { duration: ms(o.duration ?? 700) });
 

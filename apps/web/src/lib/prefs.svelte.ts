@@ -10,6 +10,10 @@ export type UiPrefs = {
   subLang: string;
   /** Tamaño de los subtitulos en % (100 = normal). */
   subSize: number;
+  /** Opacidad del fondo detras de cada linea, en % (0 = sin fondo, solo sombra). */
+  subBg: number;
+  /** Altura de los subtitulos: margen desde abajo en % del alto del video. */
+  subPos: number;
   /** Al terminar un episodio, cuenta regresiva y el siguiente. */
   autoplayNext: boolean;
   reduceMotion: boolean;
@@ -22,6 +26,8 @@ const KEY = "mythos.prefs";
 const defaults = (): UiPrefs => ({
   subLang: "eng",
   subSize: 100,
+  subBg: 35,
+  subPos: 8,
   autoplayNext: true,
   reduceMotion: false,
   sidebarCollapsed: false,
@@ -32,7 +38,7 @@ const defaults = (): UiPrefs => ({
 export const prefs = $state<UiPrefs>(readJson(KEY, defaults()));
 
 /** Las que viajan al server. */
-const SYNCED = ["subLang", "subSize", "autoplayNext", "reduceMotion"] as const;
+const SYNCED = ["subLang", "subSize", "subBg", "subPos", "autoplayNext", "reduceMotion"] as const;
 
 function applyMotion() {
   document.documentElement.toggleAttribute("data-reduce-motion", prefs.reduceMotion);
@@ -117,6 +123,8 @@ const BCP: Record<string, string> = {
   hr: "hr", srp: "sr", sr: "sr", bul: "bg", bg: "bg", ukr: "uk", uk: "uk", ind: "id", id: "id", vie: "vi", vi: "vi",
   tha: "th", th: "th", per: "fa", fas: "fa", fa: "fa", hin: "hi", hi: "hi", slo: "sk", slk: "sk", sk: "sk", slv: "sl",
   sl: "sl", est: "et", lav: "lv", lit: "lt", cat: "ca", ca: "ca", baq: "eu", eus: "eu", glg: "gl", may: "ms", msa: "ms",
+  mac: "mk", mkd: "mk", mk: "mk", alb: "sq", sqi: "sq", sq: "sq", ice: "is", isl: "is", is: "is", bos: "bs", bs: "bs",
+  geo: "ka", kat: "ka", arm: "hy", hye: "hy", ben: "bn", tam: "ta", tel: "te", urd: "ur", mal: "ml", sin: "si",
 };
 
 /** "Español (Latinoamérica)", "Português (Brasil)", "English"... (el nombre en ese idioma). */

@@ -12,10 +12,13 @@
   // - Al 85 % de un episodio precarga el siguiente; al terminar, cuenta regresiva de 10 s.
   // - Progreso cada 10 s y al salir; al volver ofrece retomar.
   import {
+    ArrowDown,
     ArrowLeft,
+    ArrowUp,
     AudioLines,
     Captions,
     Check,
+    ChevronLeft,
     ChevronRight,
     FastForward,
     Gauge,
@@ -23,8 +26,10 @@
     LoaderCircle,
     Maximize,
     Minimize,
+    Minus,
     Pause,
     Play,
+    Plus,
     RotateCcw,
     RotateCw,
     SkipForward,
@@ -34,7 +39,7 @@
     VolumeX,
   } from "@lucide/svelte";
   import type HlsType from "hls.js";
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import PlayerLoading from "../components/PlayerLoading.svelte";
   import SeekBar from "../components/SeekBar.svelte";
   import StreamList from "../components/StreamList.svelte";
@@ -42,12 +47,13 @@
   import { api, dropCache, errText, mediaUrl, withToken } from "../lib/api";
   import { degrade, detectCaps } from "../lib/caps";
   import { bytes, clock, epCode, sized } from "../lib/format";
-  import { expand, fadeQuick, pop, rise } from "../lib/motion";
+  import { fadeQuick, pop, rise, step } from "../lib/motion";
   import { isDesktop, isFullscreen, setFullscreen } from "../lib/platform";
   import { langName, nativeLangName, normLang, prefs, savePrefs } from "../lib/prefs.svelte";
   import { back, go, setQuery } from "../lib/router.svelte";
   import { toast } from "../lib/toast.svelte";
   import type { ClientCaps, Episode, MediaStatus, MediaType, Meta, PlayInfo, Progress, Stream } from "../lib/types";
+  import { loadDelays, saveDelays } from "../lib/subdelay";
   import { cuesAt, parseVtt, type Cue } from "../lib/vtt";
 
   let { params, query }: { params: string[]; query: URLSearchParams } = $props();
@@ -98,17 +104,20 @@
   let fs = $state(false);
   let ended = $state(false);
 
+  type FlashIcon = "play" | "pause" | "fwd" | "back" | "vol" | "subs";
   let ui = $state(true); // controles visibles
   let menu = $state<"" | "subs" | "audio" | "speed" | "streams">("");
   let dragging = $state(false);
-  let flash = $state<{ k: number; icon: "play" | "pause" | "fwd" | "back" | "vol"; text?: string } | null>(null);
+  let flash = $state<{ k: number; icon: FlashIcon; text?: string } | null>(null);
 
   let askResume = $state<Progress | null>(null);
   let resolveResume: ((at: number) => void) | null = null;
   let countdown = $state<number | null>(null);
 
-  /** Una pista de subtitulos. `group` junta las versiones del mismo idioma (o variante, como
-   *  es-419 o pt-BR) que vienen de OpenSubtitles; `version` es su numero dentro del grupo. */
+  /** Una pista de subtitulos. `group` es el idioma tal como se muestra ("Español (Latinoamérica)"):
+   *  junta las internas y las de OpenSubtitles de ese idioma o variante. `label` es el titulo de la
+   *  pista interna (puede ir vacio) y `version` su numero dentro del grupo (internas y externas por
+   *  separado). El `id` es estable para recordar el retraso: `i{indice}` o `e:{id de OpenSubtitles}`. */
   type Sub = { id: string; label: string; lang: string; url: string; ext: boolean; group: string; version: number };
   let extSubs = $state<Sub[]>([]);
   let subSel = $state("");
@@ -135,17 +144,21 @@
   });
   const epLabel = $derived(ep ? `${epCode(ep.season, ep.episode)}${ep.name ? ` · ${ep.name}` : ""}` : "");
   const alternatives = $derived(streams.filter((s) => s.key !== stream?.key).slice(0, 6));
-  const intSubs = $derived<Sub[]>(
-    (info?.subtitle_tracks ?? []).map((s) => ({
-      id: `i${s.index}`,
-      label: s.title || nativeLangName(s.lang),
-      lang: normLang(s.lang),
-      url: `/api/media/${info!.session_id}/subs/${s.index}.vtt`,
-      ext: false,
-      group: `i${s.index}`,
-      version: 1,
-    })),
-  );
+  const intSubs = $derived.by<Sub[]>(() => {
+    const per: Record<string, number> = {};
+    return (info?.subtitle_tracks ?? []).map((s) => {
+      const group = groupName(s.lang);
+      return {
+        id: `i${s.index}`,
+        label: s.title ?? "",
+        lang: normLang(s.lang),
+        url: `/api/media/${info!.session_id}/subs/${s.index}.vtt`,
+        ext: false,
+        group,
+        version: (per[group] = (per[group] ?? 0) + 1),
+      };
+    });
+  });
   const subs = $derived([...intSubs, ...extSubs]);
   const remaining = $derived(duration ? duration - t : 0);
   const showNextPill = $derived(!!nextEp && started && duration > 120 && remaining > 0 && remaining < 40 && countdown === null);
@@ -190,13 +203,17 @@
     api
       .subtitles(type, id)
       .then((l) => {
-        // Agrupadas por variante de idioma (spa y spl son grupos distintos), hasta 6 versiones
+        // Agrupadas por variante de idioma (spa y spl son grupos distintos), hasta 12 versiones
         // por grupo: la lista de OpenSubtitles puede ser enorme.
         const per: Record<string, number> = {};
+        const seen = new Set<string>();
         extSubs = l.flatMap((s, i) => {
-          const g = (s.lang || "und").toLowerCase();
+          const g = groupName(s.lang);
+          const sid = `e:${s.id || i}`;
+          if (seen.has(sid)) return [];
+          seen.add(sid);
           const v = (per[g] = (per[g] ?? 0) + 1);
-          return v > 6 ? [] : [{ id: `e${i}`, label: nativeLangName(s.lang), lang: normLang(s.lang), url: s.url, ext: true, group: g, version: v }];
+          return v > 12 ? [] : [{ id: sid, label: "", lang: normLang(s.lang), url: s.url, ext: true, group: g, version: v }];
         });
         autoSub();
       })
@@ -559,6 +576,8 @@
     // Sin fuente (entre una sesion y otra) el video dice 0: no pisar la posicion real.
     if (!video || video.readyState === 0) return;
     t = offset + video.currentTime;
+    // En pausa el rAF no corre: un salto tiene que cambiar la linea igual.
+    if (paused) renderSub();
     readBuffered();
     if (!prefetchedNext && nextEp && duration && t / duration > 0.85) prefetchNext();
   }
@@ -660,7 +679,7 @@
   }
 
   let flashK = 0;
-  function bump(icon: "play" | "pause" | "fwd" | "back" | "vol", text?: string) {
+  function bump(icon: FlashIcon, text?: string) {
     flash = { k: ++flashK, icon, text };
   }
 
@@ -713,6 +732,12 @@
 
   // ---- subtitulos
 
+  /** Nombre del grupo: el idioma en ese idioma ("Español (Latinoamérica)"); sin idioma, "Unknown". */
+  function groupName(code?: string | null): string {
+    const c = (code ?? "").toLowerCase();
+    return !c || c === "und" ? "Unknown" : nativeLangName(c);
+  }
+
   let subAuto = false;
   function autoSub() {
     if (subAuto || subSel || !info) return;
@@ -733,9 +758,9 @@
     }
   }
 
-  async function pickSub(sid: string, close = true) {
-    if (close) menu = "";
-    if (sid !== subSel) subDelay = 0;
+  /** Activa una pista (o ninguna con ""). `manual`: elegida a mano, se avisa si falla. */
+  async function pickSub(sid: string, manual = true) {
+    if (sid === subSel) return;
     subSel = sid;
     cues = [];
     subHtml = "";
@@ -745,65 +770,223 @@
     try {
       const r = await fetch(mediaUrl(s.url));
       if (!r.ok) throw new Error(String(r.status));
+      const text = await r.text();
       if (subSel !== sid) return;
-      cues = parseVtt(await r.text());
-      subHtml = cuesAt(cues, t - subDelay);
+      cues = parseVtt(text);
+      renderSub();
       // El server todavia esta extrayendo la pista: se vuelve a pedir y se reemplaza.
-      if (r.headers.get("X-Mythos-Partial") === "true" && !destroyed) {
-        setTimeout(() => subSel === sid && !destroyed && refreshSub(sid), 5000);
-      }
+      if (r.headers.get("X-Mythos-Partial") === "true") laterRefresh(sid);
     } catch {
       if (subSel === sid) {
         subSel = "";
         // Elegidos a mano: se avisa. Los automaticos fallan en silencio.
-        if (close) toast("Couldn't load those subtitles", true);
+        if (manual) toast("Couldn't load those subtitles", true);
       }
     }
   }
 
+  function laterRefresh(sid: string) {
+    setTimeout(() => subSel === sid && !destroyed && refreshSub(sid), 5000);
+  }
+
   async function refreshSub(sid: string) {
     const s = subs.find((x) => x.id === sid);
-    if (!s) return;
+    // Entre una sesion y otra (fallback a HLS) la pista no esta en la lista: se espera.
+    if (!s) return laterRefresh(sid);
     try {
       const r = await fetch(mediaUrl(s.url));
-      if (!r.ok || subSel !== sid) return;
-      cues = parseVtt(await r.text());
-      if (r.headers.get("X-Mythos-Partial") === "true") setTimeout(() => subSel === sid && !destroyed && refreshSub(sid), 5000);
-    } catch {}
+      if (!r.ok) return laterRefresh(sid);
+      const text = await r.text();
+      if (subSel !== sid) return;
+      cues = parseVtt(text);
+      renderSub();
+      if (r.headers.get("X-Mythos-Partial") === "true") laterRefresh(sid);
+    } catch {
+      laterRefresh(sid);
+    }
   }
 
-  // ---- sincronia fina: positivo = los subtitulos salen mas tarde
-
-  let subDelay = $state(0);
-  function shiftSubs(d: number) {
-    if (!subSel) return;
-    subDelay = Math.round((subDelay + d) * 10) / 10;
-    subHtml = cuesAt(cues, t - subDelay);
-    toast(`Subtitle delay ${subDelay > 0 ? "+" : ""}${subDelay.toFixed(1)} s`);
+  /** La linea de ahora (en pausa el rAF no corre, asi que se llama al cambiar algo). */
+  function renderSub() {
+    subHtml = cues.length ? cuesAt(cues, t - subDelay) : "";
   }
 
-  /** El menu: los del archivo primero; despues un grupo por idioma, con el preferido y el del
-   *  audio arriba y el resto en orden alfabetico. */
-  const subGroups = $derived.by(() => {
+  // ---- retraso por pista: positivo = los subtitulos salen mas tarde. Se recuerda por archivo
+  // (info_hash + archivo, o la URL) y pista: volver a ese subtitulo lo deja como estaba.
+
+  let delays = $state<Record<string, number>>(loadDelays());
+  const fileKey = $derived(
+    stream ? (stream.info_hash ? `${stream.info_hash.toLowerCase()}:${stream.file_idx ?? 0}` : (stream.url ?? stream.key)) : "",
+  );
+  const delayOf = (sid: string) => (sid && fileKey ? (delays[`${fileKey}|${sid}`] ?? 0) : 0);
+  const subDelay = $derived(delayOf(subSel));
+  const fmtDelay = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)} s`;
+
+  function setSubDelay(v: number, show = false) {
+    if (!subSel || !fileKey) return;
+    const k = `${fileKey}|${subSel}`;
+    v = Math.max(-120, Math.min(120, Math.round(v * 10) / 10));
+    // Borrar y volver a poner: queda al final (el recorte olvida primero las mas viejas).
+    delete delays[k];
+    if (v) delays[k] = v;
+    saveDelays(delays);
+    renderSub();
+    if (show) bump("subs", `Delay ${fmtDelay(v)}`);
+  }
+  function shiftSubs(d: number, show = false) {
+    if (!subSel) {
+      if (show) bump("subs", "Subtitles are off");
+      return;
+    }
+    setSubDelay(subDelay + d, show);
+  }
+
+  // ---- aspecto (global: va en las preferencias y viaja al server)
+
+  const SIZE_STEPS = [75, 90, 100, 125, 150, 175, 200];
+  const BG_STEPS = [
+    { value: 0, label: "None" },
+    { value: 35, label: "Light" },
+    { value: 65, label: "Dark" },
+    { value: 90, label: "Solid" },
+  ];
+  const POS_MIN = 2;
+  const POS_MAX = 40;
+
+  function stepSize(d: 1 | -1, show = false) {
+    const cur = prefs.subSize;
+    // Desde un valor que no es de la lista (los de Settings): al siguiente de la lista.
+    const next = d > 0 ? SIZE_STEPS.find((v) => v > cur) : [...SIZE_STEPS].reverse().find((v) => v < cur);
+    if (next !== undefined) {
+      prefs.subSize = next;
+      savePrefs();
+    }
+    peekStyle();
+    if (show) bump("subs", `Subtitles ${prefs.subSize}%`);
+  }
+  function setBg(v: number) {
+    prefs.subBg = v;
+    savePrefs();
+    peekStyle();
+  }
+  function stepPos(d: 1 | -1) {
+    prefs.subPos = Math.max(POS_MIN, Math.min(POS_MAX, prefs.subPos + d * 2));
+    savePrefs();
+    peekStyle();
+  }
+
+  // Al cambiar el aspecto sin ninguna linea en pantalla, una de muestra por un momento.
+  let stylePeek = $state(false);
+  let peekTimer = 0;
+  function peekStyle() {
+    stylePeek = true;
+    clearTimeout(peekTimer);
+    peekTimer = window.setTimeout(() => (stylePeek = false), 2500);
+  }
+
+  // ---- el menu: primero idiomas; despues las opciones de ese idioma, el retraso y el aspecto
+
+  type SubGroup = { name: string; list: Sub[] };
+  /** Un grupo por idioma: el preferido y el del audio arriba, despues los que vienen en el
+   *  archivo y el resto en orden alfabetico. Adentro, primero las internas. */
+  const subGroups = $derived.by<SubGroup[]>(() => {
     const audioLang = normLang(info?.audio_tracks.find((a) => a.index === audioSel)?.lang);
     const map = new Map<string, Sub[]>();
-    for (const s of extSubs) map.set(s.group, [...(map.get(s.group) ?? []), s]);
-    const rank = (l: Sub[]) => (l[0].lang === prefs.subLang ? 0 : l[0].lang === audioLang ? 1 : 2);
-    return [...map.values()].sort((a, b) => rank(a) - rank(b) || a[0].label.localeCompare(b[0].label));
+    for (const s of subs) map.set(s.group, [...(map.get(s.group) ?? []), s]);
+    const rank = (l: Sub[]) =>
+      l.some((x) => x.lang === prefs.subLang) ? 0 : l.some((x) => x.lang === audioLang) ? 1 : l.some((x) => !x.ext) ? 2 : 3;
+    return [...map.entries()]
+      .map(([name, list]) => ({ name, list }))
+      .sort((a, b) => rank(a.list) - rank(b.list) || a.name.localeCompare(b.name));
   });
-  let openGroup = $state("");
+  const activeGroup = $derived(subs.find((x) => x.id === subSel)?.group ?? "");
+  const subName = (s: Sub) => s.label || (s.ext ? `Version ${s.version}` : `Track ${s.version}`);
+
+  let subView = $state(""); // "" = lista de idiomas; si no, el idioma abierto
+  let subDir = $state(1);
+  let subPanel = $state<HTMLDivElement>();
+  const viewGroup = $derived(subView ? subGroups.find((g) => g.name === subView) : undefined);
+
+  function toggleSubsMenu() {
+    if (menu === "subs") {
+      menu = "";
+      return;
+    }
+    // Con un subtitulo puesto se abre directo en su idioma (retraso y tamaño a mano).
+    subView = activeGroup;
+    subDir = 1;
+    menu = "subs";
+    focusMenu();
+  }
+  function openGroup(g: SubGroup) {
+    subDir = 1;
+    subView = g.name;
+    // Como Stremio: elegir el idioma ya pone su primera opcion.
+    if (!g.list.some((x) => x.id === subSel)) pickSub(g.list[0].id);
+    focusMenu();
+  }
+  function backToLangs() {
+    const from = subView;
+    subDir = -1;
+    subView = "";
+    focusMenu(from);
+  }
+  function subsOff() {
+    pickSub("");
+    menu = "";
+  }
+
+  /** Foco adentro del menu al cambiar de paso: el idioma del que se volvio, o lo elegido. */
+  async function focusMenu(group?: string) {
+    await tick();
+    const p = subPanel;
+    if (!p) return;
+    const el =
+      (group ? [...p.querySelectorAll<HTMLElement>("[data-group]")].find((x) => x.dataset.group === group) : undefined) ??
+      p.querySelector<HTMLElement>(".mi.sel") ??
+      p.querySelector<HTMLElement>("button");
+    el?.focus({ preventScroll: true });
+    el?.scrollIntoView({ block: "nearest" });
+  }
+
+  /** Teclas dentro de un menu del reproductor: flechas para moverse, ← para volver un paso,
+   *  → para entrar a un idioma. Devuelve true si la tecla es del menu (el reproductor no la usa). */
+  function menuKey(e: KeyboardEvent, panel: HTMLElement): boolean {
+    const k = e.key;
+    if (k === " " || k === "Enter") return true; // el boton enfocado se activa solo
+    if (k === "ArrowDown" || k === "ArrowUp" || k === "Home" || k === "End") {
+      const items = [...panel.querySelectorAll<HTMLElement>("button:not(:disabled)")];
+      const i = items.indexOf(document.activeElement as HTMLElement);
+      const n = k === "Home" ? 0 : k === "End" ? items.length - 1 : (i + (k === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items[n]?.focus();
+      items[n]?.scrollIntoView({ block: "nearest" });
+      e.preventDefault();
+      return true;
+    }
+    if (k === "ArrowLeft" || k === "ArrowRight") {
+      if (menu === "subs") {
+        const name = (document.activeElement as HTMLElement | null)?.dataset.group;
+        const g = name ? subGroups.find((x) => x.name === name) : undefined;
+        if (k === "ArrowLeft" && subView) backToLangs();
+        else if (k === "ArrowRight" && g) openGroup(g);
+      }
+      e.preventDefault();
+      return true;
+    }
+    return false;
+  }
 
   let lastSub = "";
   function toggleSubs() {
     if (subSel) {
       lastSub = subSel;
       pickSub("", false);
-      bump("vol", "Subtitles off");
+      bump("subs", "Subtitles off");
     } else {
       const s = subs.find((x) => x.id === lastSub) ?? subs.find((x) => x.lang === prefs.subLang) ?? subs[0];
       if (s) {
         pickSub(s.id, false);
-        bump("vol", s.label);
+        bump("subs", subs.filter((x) => x.group === s.group).length > 1 ? `${s.group} · ${subName(s)}` : s.group);
       }
     }
   }
@@ -880,6 +1063,7 @@
     clearInterval(cdTimer);
     clearTimeout(hideTimer);
     clearTimeout(waitTimer);
+    clearTimeout(peekTimer);
     cancelAnimationFrame(raf);
     pollCtl?.abort();
     saveProgress(keepalive);
@@ -918,6 +1102,8 @@
   function onKey(e: KeyboardEvent) {
     if ((e.target as HTMLElement).closest("input, textarea")) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const panel = (e.target as HTMLElement).closest<HTMLElement>(".pmenu");
+    if (panel && menuKey(e, panel)) return activity();
     const k = e.key.toLowerCase();
     let handled = true;
     if (askResume) {
@@ -934,12 +1120,20 @@
     else if (k === "arrowup") (setVolume(prefs.volume + 0.05), (prefs.muted = false), bump("vol", `${Math.round(prefs.volume * 100)}%`));
     else if (k === "arrowdown") (setVolume(prefs.volume - 0.05), bump("vol", `${Math.round(prefs.volume * 100)}%`));
     else if (k === "c") toggleSubs();
-    else if (k === "g") shiftSubs(-0.5);
-    else if (k === "h") shiftSubs(0.5);
+    // G/H: el subtitulo puesto 0,5 s antes/despues (con Shift, 0,1 s); se recuerda por pista.
+    else if (k === "g") shiftSubs(e.shiftKey ? -0.1 : -0.5, true);
+    else if (k === "h") shiftSubs(e.shiftKey ? 0.1 : 0.5, true);
+    // - / =: tamaño de los subtitulos (como Stremio).
+    else if (k === "-" || k === "_") stepSize(-1, true);
+    else if (k === "=" || k === "+") stepSize(1, true);
     else if (k === "n") nextEp && playNext();
     else if (k === "escape") {
-      if (menu) menu = "";
-      else if (countdown !== null) cancelCountdown();
+      if (menu) {
+        // Si el foco estaba en el menu, vuelve al boton que lo abrio.
+        const opener = panel ? root?.querySelector<HTMLElement>(`[data-menu="${menu}"]`) : null;
+        menu = "";
+        opener?.focus();
+      } else if (countdown !== null) cancelCountdown();
       else if (fs) toggleFs();
       else exit();
     } else handled = false;
@@ -951,6 +1145,7 @@
 
   const VolIcon = $derived(prefs.muted || prefs.volume === 0 ? VolumeX : prefs.volume < 0.5 ? Volume1 : Volume2);
   const subSize = $derived(`calc(clamp(18px, 2.4vw, 40px) * ${prefs.subSize / 100})`);
+  const subPreview = $derived(stylePeek && !!subSel);
   const bgImg = $derived(sized(meta?.background, "medium"));
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 </script>
@@ -988,10 +1183,23 @@
     ondblclick={toggleFs}
   ></video>
 
-  {#if subHtml && started}
-    <div class="subs" class:lift={ui} style="--sub-size: {subSize}">
-      <!-- El VTT viene escapado por lib/vtt.ts (solo quedan <i>, <b>, <u> y <br>). -->
-      <span class="subs-line">{@html subHtml}</span>
+  <!-- Subtitulos dibujados por la app (no <track> ni ::cue): siguen al tiempo real tambien en HLS
+       con ?start=, el retraso de cada pista es solo restar, y tamaño, fondo y altura se ven igual
+       en Chrome, WebView2 y el WebView de Android. Al cambiar el aspecto sin nada en pantalla,
+       una linea de muestra por un momento. -->
+  {#if started && (subHtml || subPreview)}
+    <div
+      class="subs"
+      class:lift={ui}
+      class:nobg={prefs.subBg === 0}
+      style="--sub-size: {subSize}; --sub-bg: {prefs.subBg}%; --sub-pos: {prefs.subPos}%"
+    >
+      {#if subHtml}
+        <!-- El VTT viene escapado por lib/vtt.ts (solo quedan <i>, <b>, <u> y <br>). -->
+        <span class="subs-line">{@html subHtml}</span>
+      {:else}
+        <span class="subs-line sample">This is how subtitles will look.</span>
+      {/if}
     </div>
   {/if}
 
@@ -1003,6 +1211,7 @@
           {:else if flash.icon === "pause"}<Pause size={34} fill="currentColor" />
           {:else if flash.icon === "fwd"}<RotateCw size={30} />
           {:else if flash.icon === "back"}<RotateCcw size={30} />
+          {:else if flash.icon === "subs"}<Captions size={30} />
           {:else}<VolIcon size={30} />{/if}
         </span>
         {#if flash.text}<span class="flash-text">{flash.text}</span>{/if}
@@ -1086,60 +1295,95 @@
         {#if nextEp}
           <button class="pbtn" onclick={playNext} title="Next episode (N)"><SkipForward size={21} /></button>
         {/if}
-        <div class="menu-anchor">
-          <button class="pbtn" class:on={!!subSel} onclick={() => (menu = menu === "subs" ? "" : "subs")} title="Subtitles (C)" disabled={!subs.length}>
+        <div class="menu-anchor subs-anchor">
+          <button
+            class="pbtn"
+            class:on={!!subSel}
+            data-menu="subs"
+            onclick={toggleSubsMenu}
+            title="Subtitles (C)"
+            aria-haspopup="true"
+            aria-expanded={menu === "subs"}
+            disabled={!subs.length}
+          >
             <Captions size={22} />
           </button>
           {#if menu === "subs"}
-            <div class="pmenu subs-menu" transition:pop={{ start: 0.94 }}>
-              <div class="mh">Subtitles</div>
-              <button class="mi" class:sel={!subSel} onclick={() => pickSub("")}><span class="ck">{#if !subSel}<Check size={14} />{/if}</span>Off</button>
-              {#each intSubs as s (s.id)}
-                <button class="mi" class:sel={subSel === s.id} onclick={() => pickSub(s.id)}>
-                  <span class="ck">{#if subSel === s.id}<Check size={14} />{/if}</span>
-                  <span class="ellipsis">{s.label}</span>
-                  <span class="tag">Embedded</span>
-                </button>
-              {/each}
-              {#each subGroups as g (g[0].group)}
-                {@const inGroup = g.some((x) => x.id === subSel)}
-                <div class="sub-group">
-                  <button class="mi" class:sel={inGroup} onclick={() => pickSub(inGroup ? subSel : g[0].id)}>
-                    <span class="ck">{#if inGroup}<Check size={14} />{/if}</span>
-                    <span class="ellipsis">{g[0].label}</span>
-                    {#if inGroup && g.length > 1}<span class="tag">v{g.find((x) => x.id === subSel)?.version}</span>{/if}
-                  </button>
-                  {#if g.length > 1}
-                    <button
-                      class="more"
-                      class:open={openGroup === g[0].group}
-                      aria-expanded={openGroup === g[0].group}
-                      onclick={() => (openGroup = openGroup === g[0].group ? "" : g[0].group)}
-                      title="Other versions"
-                    >
-                      Other versions ({g.length - 1})<ChevronRight size={13} />
-                    </button>
+            <!-- Como Stremio: idioma → opciones de ese idioma, con el retraso de la elegida y el
+                 aspecto. Un paso a la vez (entra de costado), asi entra igual en un celular. -->
+            <div class="pmenu subs-menu" bind:this={subPanel} transition:pop={{ start: 0.94 }} role="dialog" aria-label="Subtitles">
+              {#key subView}
+                <div class="sv" in:step={{ dir: subDir }}>
+                  {#if !viewGroup}
+                    <div class="mh">Subtitles</div>
+                    <div class="sv-body">
+                      <button class="mi" class:sel={!subSel} aria-current={!subSel} onclick={subsOff}>
+                        <span class="ck">{#if !subSel}<Check size={14} />{/if}</span>Off
+                      </button>
+                      {#each subGroups as g (g.name)}
+                        {@const on = g.name === activeGroup}
+                        <button class="mi" class:sel={on} aria-current={on} data-group={g.name} onclick={() => openGroup(g)}>
+                          <span class="ck">{#if on}<Check size={14} />{/if}</span>
+                          <span class="ellipsis">{g.name}</span>
+                          {#if g.list.some((x) => !x.ext)}<span class="tag">Embedded</span>{/if}
+                          <span class="count" class:solo={!g.list.some((x) => !x.ext)}>{g.list.length}</span>
+                          <span class="chev"><ChevronRight size={15} /></span>
+                        </button>
+                      {/each}
+                    </div>
+                  {:else}
+                    <div class="sv-head">
+                      <button class="back" onclick={backToLangs} title="Languages" aria-label="Back to languages"><ChevronLeft size={18} /></button>
+                      <span class="ellipsis">{viewGroup.name}</span>
+                      <span class="faint">{viewGroup.list.length} {viewGroup.list.length === 1 ? "option" : "options"}</span>
+                    </div>
+                    <div class="sv-body">
+                      {#each viewGroup.list as s (s.id)}
+                        {@const d = delayOf(s.id)}
+                        <button class="mi" class:sel={subSel === s.id} aria-current={subSel === s.id} onclick={() => pickSub(s.id)}>
+                          <span class="ck">{#if subSel === s.id}<Check size={14} />{/if}</span>
+                          <span class="ellipsis">{subName(s)}</span>
+                          {#if d}<span class="tag accent" title="Remembered delay">{fmtDelay(d)}</span>{/if}
+                          <span class="tag">{s.ext ? "OpenSubtitles" : "Embedded"}</span>
+                        </button>
+                      {/each}
+                    </div>
+                    <div class="sv-foot">
+                      {#if viewGroup.list.some((x) => x.id === subSel)}
+                        <div class="row" role="group" aria-label="Delay">
+                          <span class="rl">Delay</span>
+                          <button class="sbtn" onclick={() => shiftSubs(-0.5)} title="0.5 s earlier (G)" aria-label="0.5 seconds earlier">−0.5</button>
+                          <button class="sbtn" onclick={() => shiftSubs(-0.1)} title="0.1 s earlier (Shift G)" aria-label="0.1 seconds earlier">−0.1</button>
+                          <span class="val" class:off={subDelay !== 0} aria-live="polite">{fmtDelay(subDelay)}</span>
+                          <button class="sbtn" onclick={() => shiftSubs(0.1)} title="0.1 s later (Shift H)" aria-label="0.1 seconds later">+0.1</button>
+                          <button class="sbtn" onclick={() => shiftSubs(0.5)} title="0.5 s later (H)" aria-label="0.5 seconds later">+0.5</button>
+                          <button class="sbtn icon" onclick={() => setSubDelay(0)} disabled={subDelay === 0} title="Reset delay" aria-label="Reset delay"><RotateCcw size={14} /></button>
+                        </div>
+                      {/if}
+                      <div class="row" role="group" aria-label="Size">
+                        <span class="rl">Size</span>
+                        <button class="sbtn icon" onclick={() => stepSize(-1)} disabled={prefs.subSize <= SIZE_STEPS[0]} title="Smaller (-)" aria-label="Smaller"><Minus size={14} /></button>
+                        <span class="val" aria-live="polite">{prefs.subSize}%</span>
+                        <button class="sbtn icon" onclick={() => stepSize(1)} disabled={prefs.subSize >= SIZE_STEPS[SIZE_STEPS.length - 1]} title="Larger (=)" aria-label="Larger"><Plus size={14} /></button>
+                      </div>
+                      <div class="row" role="group" aria-label="Position">
+                        <span class="rl">Position</span>
+                        <button class="sbtn icon" onclick={() => stepPos(-1)} disabled={prefs.subPos <= POS_MIN} title="Lower" aria-label="Lower"><ArrowDown size={14} /></button>
+                        <span class="val" aria-live="polite">{prefs.subPos}%</span>
+                        <button class="sbtn icon" onclick={() => stepPos(1)} disabled={prefs.subPos >= POS_MAX} title="Higher" aria-label="Higher"><ArrowUp size={14} /></button>
+                      </div>
+                      <div class="row" role="radiogroup" aria-label="Background">
+                        <span class="rl">Background</span>
+                        <div class="chips">
+                          {#each BG_STEPS as b (b.value)}
+                            <button class="chip" class:sel={prefs.subBg === b.value} role="radio" aria-checked={prefs.subBg === b.value} onclick={() => setBg(b.value)}>{b.label}</button>
+                          {/each}
+                        </div>
+                      </div>
+                    </div>
                   {/if}
                 </div>
-                {#if openGroup === g[0].group}
-                  <div class="versions" transition:expand>
-                    {#each g as v (v.id)}
-                      <button class="mi sub" class:sel={subSel === v.id} onclick={() => pickSub(v.id)}>
-                        <span class="ck">{#if subSel === v.id}<Check size={13} />{/if}</span>Version {v.version}
-                      </button>
-                    {/each}
-                  </div>
-                {/if}
-              {/each}
-              {#if subSel}
-                <div class="sync">
-                  <span>Sync</span>
-                  <button class="sbtn" onclick={() => shiftSubs(-0.5)} title="Earlier (G)">−0.5 s</button>
-                  <span class="delay" class:off={subDelay !== 0}>{subDelay > 0 ? "+" : ""}{subDelay.toFixed(1)} s</span>
-                  <button class="sbtn" onclick={() => shiftSubs(0.5)} title="Later (H)">+0.5 s</button>
-                  {#if subDelay !== 0}<button class="sbtn" onclick={() => shiftSubs(-subDelay)}>Reset</button>{/if}
-                </div>
-              {/if}
+              {/key}
             </div>
           {/if}
         </div>
@@ -1303,7 +1547,7 @@
     position: absolute;
     left: 6%;
     right: 6%;
-    bottom: 7%;
+    bottom: var(--sub-pos, 8%);
     z-index: 3;
     display: flex;
     justify-content: center;
@@ -1312,7 +1556,7 @@
     transition: bottom 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .subs.lift {
-    bottom: max(7%, 120px);
+    bottom: max(var(--sub-pos, 8%), 120px);
   }
   .subs-line {
     font-family: var(--font-sub);
@@ -1322,12 +1566,20 @@
     color: var(--on-media);
     padding: 0.1em 0.4em;
     border-radius: 6px;
-    background: color-mix(in srgb, var(--media-bg) 35%, transparent);
+    background: color-mix(in srgb, var(--media-bg) var(--sub-bg, 35%), transparent);
     text-shadow:
       0 0 3px var(--media-bg),
       0 2px 6px var(--media-bg);
     -webkit-box-decoration-break: clone;
     box-decoration-break: clone;
+  }
+  /* Sin fondo: un contorno mas marcado para que se lea sobre cualquier imagen. */
+  .nobg .subs-line {
+    text-shadow:
+      0 0 2px var(--media-bg),
+      0 0 2px var(--media-bg),
+      0 0 4px var(--media-bg),
+      0 2px 6px var(--media-bg);
   }
 
   /* ---- barras ---- */
@@ -1572,81 +1824,181 @@
     border: 1px solid var(--media-line);
     color: var(--on-media-2);
   }
+  /* Menu de subtitulos por pasos: alto fijo-ish con la lista que scrollea y los controles abajo. */
   .subs-menu {
-    min-width: 340px;
-    max-width: min(380px, calc(100vw - 24px));
+    display: flex;
+    flex-direction: column;
+    width: 360px;
+    min-width: 0;
+    max-width: calc(100vw - 24px);
+    max-height: min(540px, calc(100vh - 150px));
+    overflow: hidden;
+    padding: 0;
   }
-  .sub-group {
+  .sv {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .sv > .mh {
+    padding: 12px 16px 4px;
+  }
+  .sv-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 4px 6px 6px;
+  }
+  .sv-head {
     display: flex;
     align-items: center;
+    gap: 6px;
+    padding: 6px 14px 6px 4px;
+    border-bottom: 1px solid var(--media-line);
+    font-weight: 650;
+    font-size: 14px;
   }
-  .sub-group .mi {
+  .sv-head .faint {
+    margin-left: auto;
+    flex: none;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--on-media-2);
+  }
+  .back {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    color: var(--on-media);
+    transition: background 0.1s;
+  }
+  .back:hover {
+    background: var(--media-line);
+  }
+  .count {
+    flex: none;
+    min-width: 20px;
+    text-align: right;
+    font: 600 11.5px var(--mono);
+    color: var(--on-media-2);
+  }
+  .count.solo {
+    margin-left: auto;
+  }
+  .tag.accent + .tag {
+    margin-left: 0;
+  }
+  .tag.accent {
+    margin-left: auto;
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    font-family: var(--mono);
+  }
+  .chev {
+    display: grid;
+    flex: none;
+    color: var(--on-media-2);
+  }
+  .sv-foot {
+    flex: none;
+    padding: 6px 10px 10px;
+    border-top: 1px solid var(--media-line);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 40px;
+    font-size: 12.5px;
+    color: var(--on-media-2);
+  }
+  .rl {
     flex: 1;
     min-width: 0;
+    padding-left: 4px;
   }
-  .more {
+  .sbtn {
     flex: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    padding: 4px 6px 4px 8px;
+    min-width: 40px;
+    height: 32px;
+    padding: 0 6px;
+    border-radius: 7px;
+    font: 600 11.5px var(--mono);
+    color: var(--on-media);
+    border: 1px solid var(--media-line);
+    transition:
+      background 0.1s,
+      transform 0.12s;
+  }
+  .sbtn.icon {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+  }
+  .sbtn:hover {
+    background: var(--media-line);
+  }
+  .sbtn:active {
+    transform: scale(0.94);
+  }
+  .sbtn:disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  .val {
+    flex: none;
+    min-width: 58px;
+    text-align: center;
+    font: 600 12px var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--on-media);
+  }
+  .val.off {
+    color: var(--accent);
+  }
+  .chips {
+    display: flex;
+    gap: 3px;
+    padding: 2px;
+    border-radius: 8px;
+    border: 1px solid var(--media-line);
+  }
+  .chip {
+    height: 28px;
+    padding: 0 8px;
     border-radius: 6px;
-    font-size: 11px;
+    font-size: 11.5px;
+    font-weight: 600;
     color: var(--on-media-2);
     transition:
       background 0.1s,
       color 0.1s;
   }
-  .more:hover {
+  .chip:hover {
+    color: var(--on-media);
+  }
+  .chip.sel {
     background: var(--media-line);
     color: var(--on-media);
   }
-  .more :global(svg) {
-    transition: transform 0.2s;
-  }
-  .more.open :global(svg) {
-    transform: rotate(90deg);
-  }
-  .versions {
-    margin: 0 0 4px 26px;
-    border-left: 1px solid var(--media-line);
-  }
-  .mi.sub {
-    padding: 6px 10px 6px 6px;
-    font-size: 12.5px;
-  }
-  .sync {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 6px;
-    padding: 8px 6px 2px 10px;
-    border-top: 1px solid var(--media-line);
-    font-size: 12.5px;
-    color: var(--on-media-2);
-  }
-  .sync > span:first-child {
-    flex: 1;
-  }
-  .sbtn {
-    padding: 3px 8px;
-    border-radius: 6px;
-    font: 600 11.5px var(--mono);
-    color: var(--on-media);
-    border: 1px solid var(--media-line);
-    transition: background 0.1s;
-  }
-  .sbtn:hover {
-    background: var(--media-line);
-  }
-  .delay {
-    min-width: 46px;
-    text-align: center;
-    font: 600 12px var(--mono);
-    font-variant-numeric: tabular-nums;
-  }
-  .delay.off {
-    color: var(--accent);
+  /* Ventanas bajas (celular acostado): todo el paso scrollea junto. */
+  @media (max-height: 520px) {
+    .subs-menu {
+      overflow: auto;
+    }
+    .sv {
+      flex: none;
+    }
+    .sv-body {
+      overflow: visible;
+    }
   }
   .menu-scrim {
     position: absolute;
@@ -1943,6 +2295,37 @@
     }
     .nc-thumb {
       width: 100px;
+    }
+    /* El menu de subtitulos pasa a ser una hoja abajo, de lado a lado (sobre .bottom). */
+    .subs-anchor {
+      position: static;
+    }
+    .subs-menu {
+      left: 8px;
+      right: 8px;
+      bottom: calc(100% - 34px);
+      width: auto;
+      max-width: none;
+      transform-origin: bottom center;
+    }
+  }
+  /* Dedos: filas y botones de al menos 44 px. */
+  @media (max-width: 700px), (pointer: coarse) {
+    .subs-menu .mi {
+      min-height: 44px;
+    }
+    .subs-menu .sbtn,
+    .subs-menu .back {
+      height: 40px;
+    }
+    .subs-menu .sbtn.icon {
+      width: 40px;
+    }
+    .subs-menu .chip {
+      height: 36px;
+    }
+    .subs-menu .row {
+      min-height: 46px;
     }
   }
 </style>

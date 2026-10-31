@@ -301,6 +301,10 @@ async function route(req: Request): Promise<Response> {
       { id: "os-1", lang: "eng", url: "/api/media/subs/external?u=mock-eng" },
       { id: "os-2", lang: "spa", url: "/api/media/subs/external?u=mock-spa" },
       { id: "os-3", lang: "por", url: "/api/media/subs/external?u=mock-por" },
+      // Mas de una version por idioma (y una variante): para probar el menu por pasos.
+      { id: "os-4", lang: "eng", url: "/api/media/subs/external?u=mock-eng" },
+      { id: "os-5", lang: "eng", url: "/api/media/subs/external?u=mock-eng" },
+      { id: "os-6", lang: "spl", url: "/api/media/subs/external?u=mock-spa" },
     ]);
   if (path === "/api/prefetch") return none(202);
   if (path === "/api/play" && m === "POST") {
