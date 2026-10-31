@@ -1,0 +1,10 @@
+[package]
+name = "mythos"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mythos-media = { path = "../media" }
+anyhow = "1"
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }

@@ -1,0 +1,9 @@
+# Workspace del backend: el binario `mythos` (server) y el crate de media.
+[workspace]
+resolver = "2"
+members = ["server", "media"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
+strip = true
