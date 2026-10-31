@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::Context;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{ApiError, ApiResult};
 
@@ -159,6 +159,14 @@ CREATE TABLE avatars (
     created_at INTEGER NOT NULL                 -- unix s
 );
 ALTER TABLE users ADD COLUMN avatar_id INTEGER REFERENCES avatars(id) ON DELETE SET NULL;
+"#, r#"
+-- Datos sueltos de este server. `server_id`: identidad estable (aleatoria, se crea la primera vez)
+-- que devuelve GET /api/health; las apps la comparan para saber que varias direcciones (Tailscale,
+-- la red de casa) llevan al mismo server.
+CREATE TABLE server_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+-- Modo local: el server_id del remoto vinculado. Cambiar a otra direccion del mismo server no
+-- reinicia la sincronizacion (local.rs, save_link).
+ALTER TABLE local_link ADD COLUMN remote_server_id TEXT;
 "#];
 
 #[derive(Clone)]
@@ -192,6 +200,21 @@ impl Db {
             tracing::info!("migración de base de datos {} aplicada", i + 1);
         }
         Ok(Self { conn: Arc::new(Mutex::new(conn)) })
+    }
+
+    /// Identidad de este server (`GET /api/health` → `server_id`): 16 bytes aleatorios en hex, creada
+    /// la primera vez y guardada en la base (sobrevive a reinicios y actualizaciones; una base
+    /// nueva es otro server).
+    pub fn server_id(&self) -> anyhow::Result<String> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(id) = c.query_row("SELECT value FROM server_meta WHERE key = 'server_id'", [], |r| r.get::<_, String>(0)).optional()? {
+            return Ok(id);
+        }
+        let mut buf = [0u8; 16];
+        getrandom::fill(&mut buf).map_err(|e| anyhow::anyhow!("getrandom: {e}"))?;
+        let id = crate::auth::hex(&buf);
+        c.execute("INSERT OR IGNORE INTO server_meta (key, value) VALUES ('server_id', ?1)", [&id])?;
+        Ok(c.query_row("SELECT value FROM server_meta WHERE key = 'server_id'", [], |r| r.get(0))?)
     }
 
     /// Corre `f` con la conexión en un hilo bloqueante.
@@ -272,9 +295,15 @@ mod tests {
         assert_eq!(current_seq(&c).unwrap(), 1);
         assert_eq!(next_seq(&c).unwrap(), 2);
         drop(c);
+        // Reabrir no vuelve a migrar, y la identidad del server queda igual.
+        let id = db.server_id().unwrap();
+        assert_eq!(id.len(), 32);
+        assert_eq!(db.server_id().unwrap(), id);
         drop(db);
-        // Reabrir no vuelve a migrar.
-        Db::open(&path).unwrap();
+        let db = Db::open(&path).unwrap();
+        assert_eq!(db.server_id().unwrap(), id, "sobrevive al reinicio");
+        assert_ne!(Db::open_in_memory().unwrap().server_id().unwrap(), id, "otra base, otro server");
+        drop(db);
         for ext in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{ext}", path.display()));
         }

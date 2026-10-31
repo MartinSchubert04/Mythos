@@ -1,13 +1,15 @@
 <script lang="ts">
   // Login: centrado, con la marca que brilla. Contraseña incorrecta: la tarjeta tiembla.
   // En desktop y en la pagina del APK de Android se elige ademas el server (campo desplegable,
-  // abierto la primera vez). En Android con la interfaz del server, "Change server" vuelve a la
+  // abierto la primera vez), con una o mas direcciones del mismo server (Tailscale, la red de
+  // casa: lib/servers.svelte.ts). En Android con la interfaz del server, "Change server" vuelve a la
   // pagina del APK.
-  import { ChevronDown, LoaderCircle, Server } from "@lucide/svelte";
+  import { ChevronDown, LoaderCircle, Plus, Server, X } from "@lucide/svelte";
   import Logo from "../components/Logo.svelte";
   import { api, ApiError, errText } from "../lib/api";
   import { expand } from "../lib/motion";
-  import { checkServer, isRemoteShell, needsServer, normalizeServer, pickServer, serverSetting, setServer } from "../lib/platform";
+  import { checkServer, DEFAULT_SERVER, isAddress, isRemoteShell, needsServer, normalizeServer, pickServer } from "../lib/platform";
+  import { isOurs, servers, setAddresses } from "../lib/servers.svelte";
   import { viaLocal } from "../lib/local.svelte";
   import { login, session } from "../lib/session.svelte";
   import { profiles } from "../lib/profiles.svelte";
@@ -16,7 +18,13 @@
 
   let username = $state("");
   let password = $state("");
-  let server = $state(serverSetting());
+  // Las direcciones del server (la primera es la principal; las demas, opcionales).
+  let addrs = $state<string[]>(servers.list.length ? servers.list.map((a) => a.url) : [DEFAULT_SERVER]);
+  const shownAddr = $derived.by(() => {
+    const filled = addrs.map((a) => a.trim()).filter(Boolean);
+    if (!filled.length) return "Choose a server";
+    return filled[0].replace(/^https?:\/\//, "") + (filled.length > 1 ? ` +${filled.length - 1}` : "");
+  });
   // Abierto si falta, o si se vino a cambiarlo (#/server).
   let showServer = $state(needsServer() || location.hash.startsWith("#/server"));
   let error = $state("");
@@ -35,27 +43,13 @@
     error = "";
     busy = true;
     if (pickServer) {
-      const url = normalizeServer(server);
-      if (!url && needsServer()) {
-        error = "Enter the address of your Mythos server.";
+      const bad = await checkAddrs();
+      if (bad) {
+        error = bad;
         showServer = true;
         busy = false;
         return wobble();
       }
-      if (url) {
-        // Antes de mandar la contraseña: ¿hay un Mythos en esa direccion?
-        // Desktop y APK con Auto / Solo local: sin server se puede entrar igual, contra la copia
-        // de la cuenta que guarda el dispositivo (si ya se entro una vez con el server).
-        const bad = await checkServer(url);
-        if (bad && !(url === normalizeServer(serverSetting()) && (await viaLocal()))) {
-          error = bad;
-          showServer = true;
-          busy = false;
-          return wobble();
-        }
-      }
-      server = url;
-      setServer(url);
     }
     try {
       await login(username.trim(), password);
@@ -75,6 +69,29 @@
     } finally {
       busy = false;
     }
+  }
+
+  /** Antes de mandar la contraseña: ¿hay un Mythos en esas direcciones, y es el mismo en todas? Las
+   *  que no contestan se guardan igual (p. ej. la de casa estando afuera): se prueban cuando
+   *  contesten. Devuelve el error para mostrar, o "". */
+  async function checkAddrs(): Promise<string> {
+    const urls = [...new Set(addrs.map(normalizeServer).filter(Boolean))];
+    if (!urls.length) return needsServer() ? "Enter the address of your Mythos server." : "";
+    const wrong = urls.find((u) => !isAddress(u));
+    if (wrong) return (await checkServer(wrong)).error;
+    const checks = await Promise.all(urls.map((u) => checkServer(u)));
+    const ok = checks.filter((c) => c.probe);
+    if (!ok.length) {
+      // Desktop y APK con Auto / Solo local: sin server se puede entrar igual, contra la copia de
+      // la cuenta que guarda el dispositivo (si ya se entro una vez con el server).
+      if (urls.every(isOurs) && (await viaLocal())) return "";
+      // "Es el server de una app" dice mas que "no contesta".
+      return checks.find((c) => !c.error.startsWith("Can't"))?.error ?? checks[0].error;
+    }
+    if (new Set(ok.map((c) => c.probe!.id).filter(Boolean)).size > 1) return "These addresses lead to different Mythos servers. Keep only the addresses of your server.";
+    setAddresses(urls.map((url, i) => ({ url, probe: checks[i].probe })));
+    addrs = urls;
+    return "";
   }
 
   function wobble() {
@@ -116,16 +133,36 @@
       {:else if pickServer}
         <button type="button" class="srv-toggle" class:open={showServer} onclick={() => (showServer = !showServer)}>
           <Server size={13} />
-          <span class="ellipsis">{server.trim() ? server.replace(/^https?:\/\//, "") : "Choose a server"}</span>
+          <span class="ellipsis">{shownAddr}</span>
           <ChevronDown size={14} />
         </button>
         {#if showServer}
-          <div transition:expand>
-            <label class="field">
-              Server URL
-              <input bind:value={server} inputmode="url" placeholder="https://your-server.ts.net:7700" spellcheck="false" autocapitalize="off" />
-              <span class="hint">The address of your Mythos server, for example https://my-server.ts.net:7700</span>
-            </label>
+          <div class="addrs" transition:expand>
+            {#each addrs as _, i (i)}
+              <label class="field">
+                {i === 0 ? "Server URL" : "Another address of the same server"}
+                <span class="addr">
+                  <input
+                    bind:value={addrs[i]}
+                    inputmode="url"
+                    placeholder={i === 0 ? "https://your-server.ts.net:7700" : "http://192.168.1.20:7700"}
+                    spellcheck="false"
+                    autocapitalize="off"
+                  />
+                  {#if addrs.length > 1}
+                    <button type="button" class="icon-btn" title="Remove this address" aria-label="Remove this address" onclick={() => addrs.splice(i, 1)}><X size={14} /></button>
+                  {/if}
+                </span>
+                {#if i === addrs.length - 1}
+                  <span class="hint">
+                    {addrs.length > 1
+                      ? "Mythos uses whichever address answers fastest. You can change them later in Settings → Account."
+                      : "The address of your Mythos server, for example https://my-server.ts.net:7700"}
+                  </span>
+                {/if}
+              </label>
+            {/each}
+            <button type="button" class="btn ghost sm add" onclick={() => addrs.push("")}><Plus size={13} />Add another address</button>
           </div>
         {/if}
       {/if}
@@ -252,6 +289,25 @@
   .small {
     font-size: 11.5px;
     text-align: center;
+  }
+  .addrs {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .addr {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .addr input {
+    flex: 1;
+    min-width: 0;
+  }
+  .add {
+    align-self: flex-start;
+    margin: -4px 0 0 -9px;
+    color: var(--text-3);
   }
   .srv-toggle {
     display: flex;

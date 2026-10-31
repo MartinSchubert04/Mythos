@@ -13,7 +13,8 @@
   import Switch from "../components/Switch.svelte";
   import { api, ApiError, errText } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
-  import { checkServer, isAndroid, isDesktop, isRemoteShell, normalizeServer, pickServer, serverSetting, setServer } from "../lib/platform";
+  import { isAndroid, isDesktop, isRemoteShell, pickServer, remoteBase } from "../lib/platform";
+  import ServerAddresses from "../components/ServerAddresses.svelte";
   import { LANGS, prefs, savePrefs } from "../lib/prefs.svelte";
   import { ALL_KEYS as KEYS } from "../lib/shortcuts";
   import { AUDIO_LANGS } from "../lib/streamlang";
@@ -121,26 +122,6 @@
     if (await ask({ title: "Switch account?", body: "You'll sign out here and can sign in with another account on the same server.", confirm: "Switch" })) logout();
   }
 
-  let server = $state(serverSetting());
-  let serverErr = $state("");
-  let serverBusy = $state(false);
-  async function saveServerUrl() {
-    const url = normalizeServer(server);
-    serverErr = "";
-    if (url) {
-      serverBusy = true;
-      serverErr = await checkServer(url);
-      serverBusy = false;
-      if (serverErr) return;
-    }
-    server = url;
-    setServer(url);
-    if (await ask({ title: "Switch server?", body: "Mythos will sign you out to connect to the new address.", confirm: "Switch" })) {
-      await logout();
-      location.reload();
-    }
-  }
-
   // ---- Android y desktop: actualizaciones desde los Releases de GitHub
   let checking = $state(false);
   let upToDate = $state(false);
@@ -157,7 +138,7 @@
   }
   let useServerUi = $state(remoteUi.on);
   async function toggleServerUi(on: boolean) {
-    if (!(await setRemoteUi(on, normalizeServer(serverSetting())))) {
+    if (!(await setRemoteUi(on, remoteBase()))) {
       useServerUi = false;
       toast("This server can't provide the interface. Update it and try again.", true);
     }
@@ -347,11 +328,7 @@
         </div>
       {:else if pickServer}
         <div class="sub"><Server size={12} /> Server</div>
-        <div class="row">
-          <input bind:value={server} placeholder="https://your-server.ts.net:7700" spellcheck="false" />
-          <button class="btn" disabled={serverBusy || server.trim() === serverSetting()} onclick={saveServerUrl}>{serverBusy ? "Checking…" : "Save"}</button>
-        </div>
-        {#if serverErr}<div class="srv-err">{serverErr}</div>{/if}
+        <ServerAddresses />
       {/if}
       <div class="sub"><MonitorSmartphone size={12} /> Signed-in devices</div>
       <Devices />
@@ -583,10 +560,6 @@
   .what {
     color: var(--text-2);
     font-size: 13px;
-  }
-  .srv-err {
-    color: var(--danger);
-    font-size: 12.5px;
   }
   .sep {
     height: 1px;

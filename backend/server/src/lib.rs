@@ -179,7 +179,9 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
         Mode::Server => None,
     };
     let http = state::http_client()?;
+    let server_id: Arc<str> = db.server_id()?.into();
     let state = AppState {
+        server_id,
         auth: auth::Auth::with_recorder(db.clone(), recorder.clone()),
         db: db.clone(),
         media,
@@ -241,11 +243,15 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
 fn app(state: AppState) -> Router {
     let mode = state.cfg.mode;
     let tools = state.media.tools();
+    let server_id = state.server_id.clone();
     let mut api = Router::new()
         .route(
             "/health",
             get(move || async move {
-                axum::Json(json!({ "ok": true, "version": env!("CARGO_PKG_VERSION"), "mode": mode, "transcode": tools.ffmpeg, "images": true }))
+                axum::Json(json!({
+                    "ok": true, "version": env!("CARGO_PKG_VERSION"), "mode": mode, "transcode": tools.ffmpeg, "images": true,
+                    "server_id": &*server_id,
+                }))
             }),
         )
         .merge(cinemeta::routes())

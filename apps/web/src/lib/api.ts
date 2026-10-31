@@ -72,7 +72,7 @@ export function useLocal(on: boolean) {
 }
 
 /** Lo registra lib/local.svelte.ts: un pedido al server de casa no llego. Devuelve `true` si ya se
- *  paso al server local (y el pedido se repite ahi). */
+ *  paso a otra direccion del mismo server o al server local (y el pedido se repite ahi). */
 let unreachable: () => Promise<boolean> = async () => false;
 export function onUnreachable(f: () => Promise<boolean>) {
   unreachable = f;
@@ -117,7 +117,8 @@ async function req<T>(method: string, path: string, body?: unknown, o: Opts = {}
   // navegador; lo demas, JSON.
   const raw = body instanceof FormData;
   if (body !== undefined && !raw) headers["Content-Type"] = "application/json";
-  // Server de casa caido con Auto: se pasa al local y el mismo pedido se repite ahi.
+  // Server de casa caido: otra direccion suya que conteste o, con Auto, el local; el mismo pedido
+  // se repite ahi.
   const retry = async () => !o.to && !o.retried && !wasLocal && !o.signal?.aborted && (await unreachable());
   let r: Response;
   try {
@@ -381,12 +382,13 @@ export const api = {
   localLogin: (b: { username: string; password: string; device?: string; remote_url?: string }) =>
     req<LocalLogin>("POST", "/api/auth/login", b, { to: { base: localBase, token: null }, noAuthRedirect: true }),
   localStatus: () => req<LocalStatus>("GET", "/api/local/status", undefined, { to: { base: localBase, token: localToken } }),
-  /** Sincroniza ya. Con `token` (la sesion del server de casa) el local la verifica y la guarda. */
-  localSync: (remote?: string | null) =>
+  /** Sincroniza ya. Con `token` (la sesion del server de casa) el local la verifica y la guarda;
+   *  con `url` ademas pasa a sincronizar por esa direccion (otra del mismo server, o otro server). */
+  localSync: (remote?: string | null, url?: string) =>
     req<{ pushed: number; pulled: number; last_sync_at: number | null }>(
       "POST",
       "/api/local/sync",
-      remote ? { token: remote } : undefined,
+      remote ? { token: remote, ...(url ? { remote_url: url } : {}) } : undefined,
       { to: { base: localBase, token: localToken } },
     ),
   /** Cierra una sesion puntual (la del server de casa o la del local), sin tocar la activa. */

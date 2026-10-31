@@ -37,6 +37,13 @@ acá primero.
 - Hay dos modos (`GET /api/health` → `mode`): **`server`** (el de casa, Docker) y **`local`** (el
   server embebido en la app desktop/Android, ver `docs/local-mode.md`). Las diferencias están
   marcadas en cada ruta.
+- **Identidad del server** (`GET /api/health` → `server_id`): 32 caracteres hex aleatorios que el
+  server crea la primera vez y guarda en su base (`server_meta`); sobrevive a reinicios y
+  actualizaciones, una base nueva es otro server. Las apps la comparan para saber que varias
+  direcciones (Tailscale, la red de casa con `MYTHOS_EXTRA_BIND`) llevan al **mismo** server: las
+  mismas sesiones sirven en todas (`docs/local-mode.md`, "Varias direcciones del server"). Un server
+  viejo no la manda: la app lo acepta sin poder comparar. El server embebido (modo local) tiene la
+  suya, distinta.
 
 ## Tipos
 
@@ -186,7 +193,7 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 
 | Método | Ruta | Cuerpo / query | Respuesta |
 |---|---|---|---|
-| GET | `/api/health` | | `{ok:true, version, mode: "server"\|"local", transcode: boolean, images: boolean}` (sin auth; `transcode` = hay ffmpeg; `images` = existe `/api/media/img`) |
+| GET | `/api/health` | | `{ok:true, version, mode: "server"\|"local", transcode: boolean, images: boolean, server_id: string}` (sin auth; `transcode` = hay ffmpeg; `images` = existe `/api/media/img`; `server_id` = identidad estable de este server, ver abajo) |
 | POST | `/api/auth/login` | `{username, password, device?, persistent?}` (`device`: etiqueta para la lista de sesiones, ≤ 64; `persistent: true`: sesión que no vence, ver Generalidades) | `{token, user}`; 401 si falla o está deshabilitado. Rate limit por IP: 10 fallos / 5 min → 429. En modo local cambia: ver "Modo local" |
 | POST | `/api/auth/logout` | | 204 (revoca la sesión) |
 | GET | `/api/me` | | `User` |
@@ -297,7 +304,7 @@ Detalle de flujos y seguridad en `docs/local-mode.md`. Cambios respecto del modo
 | POST | `/api/auth/login` | `{username, password, device?, remote_url?, offline?}` | `{token, user, offline: boolean, remote: {url, token, user} \| null}`. Con server remoto (de `remote_url`, del vínculo de esa cuenta o de la config) y sin `offline: true`, valida **contra el remoto**: si acepta, enrola/actualiza la cuenta local y devuelve también la sesión del remoto (`remote.token`, para que la UI le hable directo al server). Si el remoto rechaza → 401/429 con su mensaje (no se prueba la local; si dice "This account is disabled", se deshabilita también acá). Si no se alcanza → login offline contra la verificación local (`offline: true`, `remote: null`). Cuenta nunca logueada online en este dispositivo → 401 "… sign in once while the server is reachable" |
 | POST | `/api/auth/logout` | | 204. Si era la última sesión local de esa cuenta, cierra también la sesión del remoto guardada (deja de sincronizar hasta otro login online) |
 | GET | `/api/local/status` | | `LocalStatus` |
-| POST | `/api/local/sync` | opcional `{remote_url?, token?}` | `{pushed, pulled, last_sync_at}`: sincroniza ya. Con `token` (una sesión del remoto, p. ej. de un login hecho directo contra el server) la verifica (`GET /api/me` del remoto: tiene que ser la misma cuenta —por el id del remoto ya vinculado, o por el nombre si todavía no hay vínculo—, si no 409) y la guarda para las próximas. 409 si la cuenta nunca se vinculó, 401 si la sesión del remoto venció (hace falta login online), 502 si no se pudo |
+| POST | `/api/local/sync` | opcional `{remote_url?, token?}` | `{pushed, pulled, last_sync_at}`: sincroniza ya. Con `token` (una sesión del remoto, p. ej. de un login hecho directo contra el server) la verifica (`GET /api/me` del remoto: tiene que ser la misma cuenta —por el id del remoto ya vinculado, o por el nombre si todavía no hay vínculo—, si no 409) y la guarda para las próximas. Con `remote_url` además (requiere `token`) pasa a sincronizar por esa dirección: si es otra dirección del mismo server (mismo `server_id`), sigue donde estaba; si es otro server, sincronización completa. 409 si la cuenta nunca se vinculó, 401 si la sesión del remoto venció (hace falta login online), 502 si no se pudo |
 | `*` | `/api/admin/**` | | 403 |
 | PUT | `/api/me/password` | | 403 |
 | PUT | `/api/me/username` | | 403. Si renombran la cuenta en el server, cada sincronización (`GET {remoto}/api/me`) le pone el nombre nuevo a la cuenta local vinculada (por el id del remoto, no por el nombre): el login sin conexión acepta el nuevo y un login online con el nuevo vuelve a la misma cuenta local |

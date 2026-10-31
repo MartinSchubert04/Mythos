@@ -251,6 +251,60 @@ async fn embedded_run_and_shutdown_on_port_zero() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Varias direcciones del mismo server (Tailscale y la red de casa): `/api/health` trae un
+/// `server_id` estable, y el dispositivo en modo local que pasa a otra dirección del mismo server
+/// sigue la sincronización donde estaba (otro server, en cambio, empieza de cero).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn same_server_by_another_address() {
+    let (rdir, odir, ldir) = (tmp("addr-remote"), tmp("addr-other"), tmp("addr-local"));
+    let remote = remote_server(&rdir).await;
+    let r = Api::new(&remote);
+    let id = r.call("GET", "/api/health", None, None).await.1["server_id"].as_str().unwrap().to_string();
+    assert_eq!(id.len(), 32);
+    // La misma base por otro nombre: el mismo server.
+    let alt = format!("http://localhost:{}", remote.port());
+    let h: Value = reqwest::get(format!("{alt}/api/health")).await.unwrap().json().await.unwrap();
+    assert_eq!(h["server_id"], id.as_str());
+    let other = remote_server(&odir).await;
+    let o = Api::new(&other);
+    assert_ne!(o.call("GET", "/api/health", None, None).await.1["server_id"], id.as_str(), "otra base, otro server");
+
+    let local = local_server(&ldir, Some(remote.base_url())).await;
+    let l = Api::new(&local);
+    let (st, v) = l.call("POST", "/api/auth/login", None, Some(json!({"username": "ana", "password": "secret123"}))).await;
+    assert_eq!(st, 200, "{v}");
+    let ltok = v["token"].as_str().unwrap().to_string();
+    let rtok = v["remote"]["token"].as_str().unwrap().to_string();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(l.call("PUT", "/api/library/movie/tt0111161", Some(&ltok), Some(movie("tt0111161"))).await.0, 204);
+    let (_, rep) = l.call("POST", "/api/local/sync", Some(&ltok), None).await;
+    assert_eq!(rep["pushed"], 1, "{rep}");
+
+    // --- la app pasa a la otra dirección: no se vuelve a subir nada, y lo nuevo baja por ahí ---
+    assert_eq!(r.call("PUT", "/api/library/movie/tt0068646", Some(&rtok), Some(movie("tt0068646"))).await.0, 204);
+    let (st, rep) = l.call("POST", "/api/local/sync", Some(&ltok), Some(json!({"token": rtok, "remote_url": alt}))).await;
+    assert_eq!(st, 200, "{rep}");
+    assert_eq!((rep["pushed"].as_i64(), rep["pulled"].as_i64()), (Some(0), Some(1)), "sigue donde estaba: {rep}");
+    assert_eq!(l.call("GET", "/api/local/status", Some(&ltok), None).await.1["remote_url"], alt.as_str());
+    assert_eq!(r.call("GET", "/api/me", Some(&rtok), None).await.0, 200, "la sesión del server sigue");
+
+    // --- otro server (misma cuenta por id): sincronización completa ---
+    let (_, v) = o.call("POST", "/api/auth/login", None, Some(json!({"username": "ana", "password": "secret123"}))).await;
+    let otok = v["token"].as_str().unwrap().to_string();
+    let (st, rep) = l.call("POST", "/api/local/sync", Some(&ltok), Some(json!({"token": otok, "remote_url": other.base_url()}))).await;
+    assert_eq!(st, 200, "{rep}");
+    assert!(rep["pushed"].as_i64().unwrap() >= 2, "de cero: {rep}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(r.call("GET", "/api/me", Some(&rtok), None).await.0, 200, "la sesión del otro server no se toca");
+
+    local.shutdown().await.unwrap();
+    other.shutdown().await.unwrap();
+    remote.shutdown().await.unwrap();
+    for d in [&rdir, &odir, &ldir] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
 /// Cambiar el nombre: el admin a otro (con auditoría), cada uno el suyo, y el dispositivo en modo
 /// local lo sigue: la misma cuenta local (no una nueva), y el login sin conexión con el nombre nuevo.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -2,14 +2,17 @@
   // A que server le habla la app: el de casa ("Server") o el que va adentro del dispositivo
   // ("Local", modo local). Siempre a la vista en desktop (barra de titulo) y en Android (arriba a
   // la derecha, `floating`); en la web no existe. El detalle (cambios sin sincronizar, ultima
-  // sincronizacion) va en el tooltip; un clic lleva a Settings.
+  // sincronizacion) va en el tooltip; un clic lleva a Settings. Con varias direcciones del server
+  // dice cual se usa: "Server · Home network" (lib/servers.svelte.ts).
   import { Cloud, HardDrive } from "@lucide/svelte";
   import { conn, connDetail } from "../lib/local.svelte";
   import { go } from "../lib/router.svelte";
+  import { activeLabel } from "../lib/servers.svelte";
 
   let { floating = false }: { floating?: boolean } = $props();
   const local = $derived(conn.on === "local");
   const pending = $derived(local ? (conn.status?.pending_changes ?? 0) : 0);
+  const via = $derived(local ? "" : activeLabel());
 </script>
 
 {#if conn.available}
@@ -24,6 +27,7 @@
   >
     {#if local}<HardDrive size={13} />{:else}<Cloud size={13} />{/if}
     <span>{local ? "Local" : "Server"}</span>
+    {#if via}<span class="via ellipsis">· {via}</span>{/if}
     {#if pending > 0}<span class="count">{pending}</span>{/if}
   </button>
 {/if}
@@ -63,6 +67,11 @@
   }
   .conn.warn :global(svg) {
     color: var(--danger);
+  }
+  .via {
+    max-width: 140px;
+    font-weight: 500;
+    color: var(--text-3);
   }
   .count {
     font-family: var(--mono);

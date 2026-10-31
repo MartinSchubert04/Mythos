@@ -12,13 +12,15 @@
 // - Solo en TV. En el celular, la PC y la web "Switch account" sigue siendo salir y entrar (con el
 //   modo local hay dos sesiones por cuenta y no se guardan perfiles).
 import { api, getToken, setToken } from "./api";
-import { pickServer, remoteBase, setServer } from "./platform";
+import { pickServer, remoteBase } from "./platform";
+import { isOurs, useServer } from "./servers.svelte";
 import { readJson, write } from "./store";
 import { tv } from "./tv.svelte";
 import type { User } from "./types";
 
 export type Profile = {
-  /** El server de casa de esa cuenta ("" = el mismo origen). */
+  /** El server de casa de esa cuenta ("" = el mismo origen): la direccion con la que se entro
+   *  (si el server tiene varias, cualquiera de ellas es el mismo server). */
   server: string;
   userId: number;
   username: string;
@@ -45,7 +47,11 @@ function persist() {
   write(KEY, JSON.stringify({ list: profiles.list }));
 }
 
-const same = (p: Profile, server: string, userId: number) => p.server === server && p.userId === userId;
+/** El mismo server (por cualquiera de sus direcciones) y la misma cuenta. */
+const sameServer = (a: string, b: string) => a === b || (isOurs(a) && isOurs(b));
+const same = (p: Profile, server: string, userId: number) => sameServer(p.server, server) && p.userId === userId;
+/** Donde hablarle al server de un perfil (avatares, logout): la direccion en uso si es el de casa. */
+export const profileBase = (p: Profile) => (isOurs(p.server) ? remoteBase() : p.server);
 
 /** El perfil de la sesion activa. */
 export function currentProfile(): Profile | undefined {
@@ -115,7 +121,7 @@ export function switchTo(p: Profile) {
     profiles.picking = false;
     return;
   }
-  if (pickServer && p.server) setServer(p.server);
+  if (pickServer && p.server) useServer(p.server);
   setToken(p.token);
   try {
     // Caches de la cuenta anterior (episodios nuevos, etc.).
@@ -128,7 +134,7 @@ export function switchTo(p: Profile) {
 /** Quitar un perfil del aparato: cierra su sesion en el server (si se puede) y lo borra. Si era
  *  el activo, queda sin sesion. */
 export async function removeProfile(p: Profile) {
-  await api.logoutAt(p.server, p.token).catch(() => {});
+  await api.logoutAt(profileBase(p), p.token).catch(() => {});
   profiles.list = profiles.list.filter((x) => x !== p && x.token !== p.token);
   persist();
   if (p.token === getToken()) setToken(null);

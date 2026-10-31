@@ -1,6 +1,6 @@
 // Web, desktop o Android (las dos ultimas con Tauri). En desktop la diferencia visible es la barra
 // de titulo; en Android, el boton atras, la pantalla completa nativa y las actualizaciones
-// (lib/shell.svelte.ts). Aca esta lo demas: la URL del server y los controles de la ventana.
+// (lib/shell.svelte.ts). Aca esta lo demas: las direcciones del server y los controles de la ventana.
 // @tauri-apps/api se importa solo dentro de Tauri (import dinamico): en la web nunca se descarga.
 import { back, route } from "./router.svelte";
 import { read, write } from "./store";
@@ -20,7 +20,50 @@ export const pickServer = isTauri && !isRemoteShell;
 /** Server por defecto para probar en la PC (VITE_DEFAULT_SERVER en apps/web/.env.local). El repo
  *  y los builds publicos no lo llevan: el login pide la direccion la primera vez y la guarda. */
 export const DEFAULT_SERVER = (import.meta.env.VITE_DEFAULT_SERVER ?? "").trim();
+/** Una sola direccion (lo que guardaban las versiones anteriores). Se sigue escribiendo con la que
+ *  se usa, por si se vuelve a una version vieja. */
 const SERVER_KEY = "mythos.server";
+/** Las direcciones del server de casa en este dispositivo (lib/servers.svelte.ts). */
+const SERVERS_KEY = "mythos.servers";
+
+/** Una direccion del server de casa. Todas las de la lista llevan al MISMO server (Tailscale, la
+ *  red de casa...): misma base, mismas sesiones. */
+export type ServerAddr = {
+  url: string;
+  /** Nombre que le puso el usuario (vacio = se deduce de la direccion, `addrLabel`). */
+  label?: string;
+  /** `server_id` que contesto en esa direccion (GET /api/health), si alguna vez contesto. */
+  id?: string;
+};
+export type SavedServers = {
+  list: ServerAddr[];
+  /** La preferida: se usa si contesta, aunque otra sea mas rapida. */
+  preferred?: string | null;
+  /** La ultima que se uso (con esa se arranca mientras se prueban las demas). */
+  active?: string | null;
+};
+
+const trimUrl = (u: string) => u.trim().replace(/\/+$/, "");
+const activeOf = (s: SavedServers) => (s.active && s.list.some((a) => a.url === s.active) ? s.active : (s.list[0]?.url ?? ""));
+
+/** Lo guardado (la direccion unica de antes queda como lista de una). */
+export function loadServers(): SavedServers {
+  try {
+    const s = JSON.parse(read(SERVERS_KEY) ?? "null") as SavedServers | null;
+    if (s && Array.isArray(s.list)) return { ...s, list: s.list.filter((a) => a && typeof a.url === "string" && a.url) };
+  } catch {}
+  const one = trimUrl(read(SERVER_KEY) ?? "");
+  return { list: one ? [{ url: one }] : [] };
+}
+
+/** La direccion del server de casa que se esta usando (la elige lib/servers.svelte.ts). */
+let remote = activeOf(loadServers());
+
+export function saveServers(s: SavedServers) {
+  remote = activeOf(s);
+  write(SERVERS_KEY, JSON.stringify(s));
+  write(SERVER_KEY, remote || null);
+}
 
 /** Server activo en esta sesion, sin guardarlo (para el modo local: el server embebido en
  *  http://127.0.0.1:<puerto>). Gana sobre el guardado; null vuelve a ese. Cambia en caliente: todo
@@ -43,19 +86,32 @@ export function serverBase(): string {
 export function remoteBase(): string {
   // En modo mock el "server" vive en esta misma pagina.
   if (!pickServer || (import.meta.env.DEV && import.meta.env.VITE_MOCK === "1")) return "";
-  const s = read(SERVER_KEY);
-  return (s ?? DEFAULT_SERVER).trim().replace(/\/+$/, "");
-}
-
-/** Lo que se muestra en el campo "Server URL" (paginas locales de Tauri). */
-export function serverSetting(): string {
-  return read(SERVER_KEY) ?? DEFAULT_SERVER;
+  return trimUrl(remote || DEFAULT_SERVER);
 }
 
 /** En Tauri hace falta saber a que server ir antes de poder entrar. */
 export function needsServer(): boolean {
   // En `tauri dev` vacio sirve (mismo origen, con el proxy de Vite); en el build no.
-  return pickServer && !(read(SERVER_KEY) ?? DEFAULT_SERVER).trim() && !import.meta.env.DEV;
+  return pickServer && !(remote || DEFAULT_SERVER).trim() && !import.meta.env.DEV;
+}
+
+/** Nombre deducido de una direccion: "Tailscale" (*.ts.net o 100.64.0.0/10), "Home network" (IP
+ *  privada, *.local, *.lan, *.home), "This computer" (loopback); si no, el host. */
+export function addrLabel(url: string): string {
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return url;
+  }
+  if (host.endsWith(".ts.net")) return "Tailscale";
+  const ip = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
+  const [a, b] = ip ? [Number(ip[1]), Number(ip[2])] : [-1, -1];
+  if (a === 100 && b >= 64 && b < 128) return "Tailscale";
+  if (a === 127 || host === "localhost" || host === "::1") return "This computer";
+  if (a === 10 || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || /\.(local|lan|home|internal)$/.test(host) || /^f[cd][0-9a-f]{2}:/.test(host))
+    return "Home network";
+  return host;
 }
 
 /** Etiqueta de este dispositivo para la lista de sesiones (Settings → Account): "Mythos Desktop ·
@@ -80,23 +136,38 @@ export function normalizeServer(u: string): string {
   return /^https?:\/\//i.test(t) ? t : `https://${t}`;
 }
 
-/** ¿Hay un Mythos en esa direccion? Devuelve el error para mostrar, o "" si contesta. */
-export async function checkServer(url: string): Promise<string> {
-  if (!/^https?:\/\/[^/\s]+$/.test(url)) return "That doesn't look like an address. Example: https://my-server.ts.net:7700";
-  const ok = () =>
-    fetch(url + "/api/health", { signal: AbortSignal.timeout(6000) })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => !!j?.ok)
-      .catch(() => false);
-  if (await ok()) return "";
-  // Android 17 corta la red local sin permiso (un server con IP de la casa): se pide y se
-  // prueba de nuevo. Si ya estaba dado (o no existe), no se repite.
-  if (isAndroid && (await shellInvoke<boolean>("request_network").catch(() => true)) === true && (await ok())) return "";
-  return `Can't reach a Mythos server at ${url.replace(/^https?:\/\//, "")}. Check the address and that the server is running.`;
+/** Lo que contesto GET /api/health en una direccion, y cuanto tardo. */
+export type Probe = { ms: number; id: string | null; mode: string };
+
+/** GET /api/health con tiempo maximo. `null` si ahi no hay un Mythos (o no contesto a tiempo). */
+export async function probeServer(url: string, timeoutMs = 2500): Promise<Probe | null> {
+  const t0 = performance.now();
+  try {
+    const r = await fetch(url + "/api/health", { signal: AbortSignal.timeout(timeoutMs), cache: "no-store" });
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j?.ok) return null;
+    const id = typeof j.server_id === "string" && j.server_id ? j.server_id : null;
+    return { ms: Math.max(1, Math.round(performance.now() - t0)), id, mode: typeof j.mode === "string" ? j.mode : "server" };
+  } catch {
+    return null;
+  }
 }
 
-export function setServer(url: string) {
-  write(SERVER_KEY, url.trim());
+const hostOf = (url: string) => url.replace(/^https?:\/\//, "");
+/** Parece una direccion de server (http(s)://host[:puerto], sin camino). */
+export const isAddress = (url: string) => /^https?:\/\/[^/\s]+$/.test(url);
+
+/** ¿Hay un Mythos en esa direccion? `error` vacio si contesta (con lo que contesto en `probe`). */
+export async function checkServer(url: string, timeoutMs = 6000): Promise<{ probe: Probe | null; error: string }> {
+  if (!isAddress(url)) return { probe: null, error: "That doesn't look like an address. Example: https://my-server.ts.net:7700" };
+  let p = await probeServer(url, timeoutMs);
+  // Android 17 corta la red local sin permiso (un server con IP de la casa): se pide y se
+  // prueba de nuevo. Si ya estaba dado (o no existe), no se repite.
+  if (!p && isAndroid && (await shellInvoke<boolean>("request_network").catch(() => true)) === true) p = await probeServer(url, timeoutMs);
+  if (p?.mode === "local") return { probe: null, error: `${hostOf(url)} is the server inside a Mythos app, not your server.` };
+  if (p) return { probe: p, error: "" };
+  return { probe: null, error: `Can't reach a Mythos server at ${hostOf(url)}. Check the address and that the server is running.` };
 }
 
 type TauriWindow = import("@tauri-apps/api/window").Window;

@@ -12,7 +12,7 @@
   import { getToken } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
   import { rise } from "../lib/motion";
-  import { profiles, removeProfile, switchTo, type Profile } from "../lib/profiles.svelte";
+  import { profileBase, profiles, removeProfile, switchTo, type Profile } from "../lib/profiles.svelte";
   import { focusEl } from "../lib/spatial.svelte";
   import { session } from "../lib/session.svelte";
 
@@ -101,7 +101,7 @@
     {@const p = editing}
     <div class="edit card" bind:this={panel} data-nav-scope role="dialog" aria-label="Edit {p.username}" in:rise>
       <div class="head">
-        <Avatar name={p.username} id={p.avatarId} size={56} to={{ base: p.server, token: p.token }} />
+        <Avatar name={p.username} id={p.avatarId} size={56} to={{ base: profileBase(p), token: p.token }} />
         <h2 class="ellipsis">{p.username}</h2>
       </div>
       <div class="sub">Avatar</div>
@@ -118,7 +118,7 @@
     {#each profiles.list as p (p.server + p.userId)}
       <button class="pf" class:cur={p.token === active} class:managing onclick={() => choose(p)} aria-label={managing ? `Edit ${p.username}` : p.username}>
         <span class="pic">
-          <Avatar name={p.username} id={p.avatarId} size={112} to={{ base: p.server, token: p.token }} />
+          <Avatar name={p.username} id={p.avatarId} size={112} to={{ base: profileBase(p), token: p.token }} />
           {#if managing}<span class="rm"><Pencil size={30} /></span>{/if}
         </span>
         <span class="name ellipsis">{p.username}</span>

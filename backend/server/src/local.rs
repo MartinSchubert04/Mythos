@@ -91,6 +91,14 @@ impl LocalCtx {
         self.set_reachable(url, ok);
         ok
     }
+
+    /// `server_id` del remoto en esa dirección (`GET /api/health`, 3 s). `None` si no contesta o
+    /// es un server viejo que no lo manda.
+    async fn remote_server_id(&self, url: &str) -> Option<String> {
+        let res = self.http.get(format!("{url}/api/health")).timeout(Duration::from_secs(3)).send().await.ok()?;
+        let v: Value = res.error_for_status().ok()?.json().await.ok()?;
+        v.get("server_id").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
+    }
 }
 
 /// `https://host:7700/` → `https://host:7700`. Solo http(s), sin query ni credenciales.
@@ -291,28 +299,36 @@ async fn load_link(st: &AppState, uid: i64) -> ApiResult<Option<Link>> {
 }
 
 /// Guarda (o actualiza) el vínculo. Si cambia el server o la cuenta remota, los cursores vuelven
-/// a 0 (sincronización completa, que por last-write-wins no pisa nada más nuevo).
-async fn save_link(st: &AppState, uid: i64, url: &str, token: &str, remote_user_id: i64) -> ApiResult<()> {
+/// a 0 (sincronización completa, que por last-write-wins no pisa nada más nuevo). Otra dirección
+/// del mismo server (mismo `server_id`: Tailscale o la red de casa) no cuenta como cambio.
+async fn save_link(st: &AppState, uid: i64, url: &str, token: &str, remote_user_id: i64, server_id: Option<String>) -> ApiResult<()> {
     let (url, token) = (url.to_string(), token.to_string());
     let old = st
         .db
         .call(move |c| {
-            let old: Option<String> = c
-                .query_row("SELECT remote_token FROM local_link WHERE user_id = ?1 AND remote_url = ?2", params![uid, url], |r| r.get(0))
-                .optional()?
-                .flatten();
+            let old: Option<(String, Option<String>, Option<String>)> = c
+                .query_row("SELECT remote_url, remote_token, remote_server_id FROM local_link WHERE user_id = ?1", [uid], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })
+                .optional()?;
+            // La sesión anterior es del mismo server: se cierra (en la dirección nueva).
+            let old = old.and_then(|(u, t, sid)| t.filter(|_| u == url || (sid.is_some() && sid == server_id)));
             c.execute(
-                "INSERT INTO local_link (user_id, remote_url, remote_token, remote_user_id) VALUES (?1, ?2, ?3, ?4)
+                "INSERT INTO local_link (user_id, remote_url, remote_token, remote_user_id, remote_server_id) VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(user_id) DO UPDATE SET
-                   remote_cursor = CASE WHEN local_link.remote_url = excluded.remote_url
+                   remote_cursor = CASE WHEN (local_link.remote_url = excluded.remote_url
+                                              OR local_link.remote_server_id = excluded.remote_server_id)
                                          AND local_link.remote_user_id IS excluded.remote_user_id
                                         THEN local_link.remote_cursor ELSE 0 END,
-                   pushed_seq = CASE WHEN local_link.remote_url = excluded.remote_url
+                   pushed_seq = CASE WHEN (local_link.remote_url = excluded.remote_url
+                                           OR local_link.remote_server_id = excluded.remote_server_id)
                                       AND local_link.remote_user_id IS excluded.remote_user_id
                                      THEN local_link.pushed_seq ELSE 0 END,
+                   remote_server_id = COALESCE(excluded.remote_server_id,
+                                               CASE WHEN local_link.remote_url = excluded.remote_url THEN local_link.remote_server_id END),
                    remote_url = excluded.remote_url, remote_token = excluded.remote_token,
                    remote_user_id = excluded.remote_user_id, last_error = NULL",
-                params![uid, url, token, remote_user_id],
+                params![uid, url, token, remote_user_id, server_id],
             )?;
             Ok(old.filter(|o| *o != token).map(|o| (url, o)))
         })
@@ -329,13 +345,20 @@ async fn save_link(st: &AppState, uid: i64, url: &str, token: &str, remote_user_
 /// Cuenta local con la contraseña ya validada por el remoto: verificación propia (sal nueva). Si
 /// esa cuenta del remoto ya estaba vinculada a una local, es esa (aunque le hayan cambiado el
 /// nombre en el server: toma el nuevo); si no, la del mismo nombre o una nueva.
-async fn enroll(st: &AppState, url: &str, remote: &RemoteUser, password: &str) -> ApiResult<User> {
+async fn enroll(st: &AppState, url: &str, server_id: Option<&str>, remote: &RemoteUser, password: &str) -> ApiResult<User> {
     let (name, pw, url, rid) = (remote.username.clone(), password.to_string(), url.to_string(), remote.id);
+    let sid = server_id.map(str::to_string);
     st.db
         .call(move |c| {
             let hash = hash_password(&pw)?;
+            // El mismo server por cualquiera de sus direcciones.
             let linked: Option<i64> = c
-                .query_row("SELECT user_id FROM local_link WHERE remote_url = ?1 AND remote_user_id = ?2", params![url, rid], |r| r.get(0))
+                .query_row(
+                    "SELECT user_id FROM local_link WHERE (remote_url = ?1 OR remote_server_id = ?3) AND remote_user_id = ?2
+                     ORDER BY remote_url = ?1 DESC LIMIT 1",
+                    params![url, rid, sid],
+                    |r| r.get(0),
+                )
                 .optional()?;
             if let Some(uid) = linked {
                 follow_remote_name(c, uid, &name)?;
@@ -414,8 +437,9 @@ async fn login(State(st): State<AppState>, ClientIp(ip): ClientIp, headers: Head
         match remote_login(&ctx, url, &username, &b.password, meta.device.as_deref()).await {
             Ok(r) => {
                 ctx.set_reachable(url, true);
-                let user = enroll(&st, url, &r.user, &b.password).await?;
-                save_link(&st, user.id, url, &r.token, r.user.id).await?;
+                let server_id = ctx.remote_server_id(url).await;
+                let user = enroll(&st, url, server_id.as_deref(), &r.user, &b.password).await?;
+                save_link(&st, user.id, url, &r.token, r.user.id, server_id).await?;
                 let token = st.auth.open_session(&user, ip, meta).await?;
                 // Primera sincronización enseguida.
                 let (st2, uid) = (st.clone(), user.id);
@@ -730,7 +754,8 @@ async fn sync_now(State(st): State<AppState>, u: AuthUser, body: axum::body::Byt
         if !same {
             return Err(ApiError::conflict("That server session belongs to a different account"));
         }
-        save_link(&st, u.user.id, &url, &token, remote.id).await?;
+        let server_id = ctx.remote_server_id(&url).await;
+        save_link(&st, u.user.id, &url, &token, remote.id, server_id).await?;
     } else if b.remote_url.is_some() {
         return Err(ApiError::bad_request("token is required to change the server"));
     }

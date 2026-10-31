@@ -13,10 +13,15 @@
 // En la web (navegador) nada de esto existe: `conn.available` queda en false. En un TV box o un
 // Android con menos de 2 GB el shell no corre el server embebido (`conn.unavailable`): siempre
 // solo server.
+//
+// Con varias direcciones del server de casa (lib/servers.svelte.ts), "el server no contesta" es
+// "no contesta ninguna": antes de pasar al local se prueba el resto, y para volver alcanza con que
+// conteste una. El server del dispositivo sincroniza por la que se este usando.
 import { api, ApiError, getLocalToken, onUnreachable, remoteToken, setLocalBase, setLocalToken, setToken, useLocal } from "./api";
 import { markUp, net } from "./net.svelte";
 import { deviceLabel, isRemoteShell, isTauri, remoteBase } from "./platform";
 import { prefs } from "./prefs.svelte";
+import { activeLabel, choose, multi, onAddrSwitch } from "./servers.svelte";
 import { read, write } from "./store";
 import { toast } from "./toast.svelte";
 import type { LocalLogin, LocalStatus, User } from "./types";
@@ -118,22 +123,24 @@ function goRemote(notice: boolean) {
   net.epoch++;
 }
 
-/** El server de casa contesta /api/health. */
+/** El server de casa contesta /api/health (con varias direcciones: alguna, y pasa a esa). */
 async function remoteAlive(): Promise<boolean> {
-  try {
-    const r = await fetch(remoteBase() + "/api/health", { signal: AbortSignal.timeout(4000), cache: "no-store" });
-    return r.ok;
-  } catch {
-    return false;
-  }
+  return (await choose("check")) !== null;
 }
 
 let switching: Promise<boolean> | null = null;
-// Un pedido al server de casa no llego: ¿pasar al local? (varios a la vez comparten la decision).
+// Un pedido al server de casa no llego: ¿otra direccion del mismo server, o pasar al local?
+// (varios a la vez comparten la decision). `true` = el pedido se repite (en la nueva direccion o
+// en el local).
 onUnreachable(() => {
-  if (conn.mode !== "auto" || !isTauri || isRemoteShell) return Promise.resolve(false);
-  if (conn.on === "local") return Promise.resolve(true);
+  if (conn.on === "local") return Promise.resolve(conn.mode === "auto" && isTauri && !isRemoteShell);
   switching ??= (async () => {
+    if (multi()) {
+      const before = remoteBase();
+      const url = await choose("failure");
+      if (url) return url !== before;
+    }
+    if (conn.mode !== "auto" || !isTauri || isRemoteShell) return false;
     if (!(await loadLocal()) || !getLocalToken() || conn.error) return false;
     if (await remoteAlive()) return false;
     goLocal(true);
@@ -141,6 +148,26 @@ onUnreachable(() => {
   })().finally(() => (switching = null));
   return switching;
 });
+
+/** El server del dispositivo sincroniza por la direccion que se usa (sin esto, con la de la red
+ *  de casa guardada, fuera de casa no sincronizaria de fondo). Otra direccion del mismo server no
+ *  reinicia la sincronizacion (docs/API.md, `server_id`). */
+function relinkTo(url: string) {
+  if (conn.on !== "server" || conn.mode === "server" || !localUrl || !getLocalToken() || !remoteToken()) return;
+  api.localSync(remoteToken(), url).catch(() => {});
+}
+onAddrSwitch(relinkTo);
+
+/** Al tener el local (unos segundos despues de abrir): si sincroniza por otra direccion que la de
+ *  ahora, pasarlo a esta. */
+async function relink() {
+  if (!multi() || conn.on !== "server" || conn.mode === "server" || !getLocalToken() || !remoteToken()) return;
+  try {
+    conn.status = await api.localStatus();
+    const linked = conn.status.remote_url?.toLowerCase();
+    if (linked && linked !== remoteBase().toLowerCase()) relinkTo(remoteBase());
+  } catch {}
+}
 
 // ---- mientras se usa el local: estado y vuelta al server
 
@@ -156,8 +183,11 @@ async function tick() {
   try {
     conn.status = await api.localStatus();
     const s = conn.status;
-    conn.needsSignIn = s.remote_reachable === true && (!s.remote_signed_in || (conn.mode === "auto" && !remoteToken()));
-    if (conn.mode === "auto" && s.remote_reachable && !conn.needsSignIn && !syncing) await back();
+    // Con varias direcciones lo prueba la interfaz (el local solo conoce la que tiene guardada, que
+    // puede ser la de casa estando afuera).
+    const reachable = multi() ? (await choose("check")) !== null : s.remote_reachable === true;
+    conn.needsSignIn = reachable && (!s.remote_signed_in || (conn.mode === "auto" && !remoteToken()));
+    if (conn.mode === "auto" && reachable && !conn.needsSignIn && !syncing) await back();
   } catch (e) {
     // El local dice que su sesion ya no sirve: al login.
     if (e instanceof ApiError && e.status === 401) return expire();
@@ -169,7 +199,8 @@ async function tick() {
 async function back() {
   syncing = true;
   try {
-    await api.localSync(remoteToken());
+    // Por la direccion que contesto (y el local queda sincronizando por ahi).
+    await api.localSync(remoteToken(), multi() ? remoteBase() : undefined);
     // Por las dudas: la sesion del server de casa tiene que seguir sirviendo.
     if (!(await remoteAlive())) return;
     goRemote(true);
@@ -203,7 +234,7 @@ export async function startConn() {
     // pasar a el sin esperar si el server no contesta), despues del primer render: preguntar
     // ya lo arrancaria y en un equipo flojo compite con la interfaz (el shell tambien espera,
     // apps/local-server). Si el server no contesta antes, `onUnreachable` lo pide en el momento.
-    setTimeout(() => loadLocal(), 8000);
+    setTimeout(() => loadLocal().then((ok) => void (ok && relink())), 8000);
     return;
   }
   if (conn.mode === "local" || (conn.mode === "auto" && !remoteToken() && getLocalToken())) goLocal(false);
@@ -265,8 +296,10 @@ export async function setMode(mode: ConnMode): Promise<"ok" | "signin"> {
 
 /** Para el indicador y Settings: el texto de ayuda del estado actual. */
 export function connDetail(): string {
-  if (conn.on === "server")
-    return conn.mode === "auto" ? "Connected to your server. Switches to this device if the server goes down." : "Connected to your server.";
+  if (conn.on === "server") {
+    const via = activeLabel() ? ` (${activeLabel()})` : "";
+    return conn.mode === "auto" ? `Connected to your server${via}. Switches to this device if the server goes down.` : `Connected to your server${via}.`;
+  }
   const s = conn.status;
   const parts = ["Running on this device"];
   if (conn.needsSignIn) parts.push("sign in again to sync with your server");
@@ -289,7 +322,7 @@ export async function refreshStatus() {
 
 /** "Sync now": sube y baja ya (y, si el server de casa volvio, vuelve a el en Auto). */
 export async function syncNow() {
-  const r = await api.localSync(remoteToken());
+  const r = await api.localSync(remoteToken(), multi() && conn.on === "server" ? remoteBase() : undefined);
   await refreshStatus();
   if (conn.mode === "auto" && conn.on === "local" && remoteToken() && (await remoteAlive())) goRemote(true);
   return r;

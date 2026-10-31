@@ -2,6 +2,7 @@
 import { api, ApiError, dropCache, getLocalToken, getToken, onUnauthorized, remoteToken, setToken } from "./api";
 import { conn, loginLocal, logoutAll, onLocalExpired, startConn, viaLocal } from "./local.svelte";
 import { remoteBase, serverBase } from "./platform";
+import { choose, multi } from "./servers.svelte";
 import { applyRemoteUi } from "./prefs.svelte";
 import { currentProfile, dropCurrentProfile, profiles, rememberProfile, removeProfile, shouldPick, syncProfile } from "./profiles.svelte";
 import { go } from "./router.svelte";
@@ -44,6 +45,12 @@ async function loadSettings() {
 }
 
 export async function start() {
+  // Varias direcciones del server de casa (lib/servers.svelte.ts): con cual arrancar (la
+  // preferida si contesta, si no la mas rapida). En Solo local no hace falta esperar.
+  if (multi()) {
+    const pick = choose("start");
+    if (conn.mode !== "local") await pick;
+  }
   // Android, pagina del APK con "interfaz del server" prendida: si el server contesta, a su
   // interfaz (mientras, el splash).
   if (await toServer(serverBase())) return;

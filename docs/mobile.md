@@ -19,6 +19,7 @@ apps/mobile/
     gen/android/      proyecto de Gradle (de `tauri android init`, con firma y MainActivity propios)
 apps/web/src/lib/
   platform.ts         isTauri / isAndroid / isDesktop, serverBase(), setActiveServer(), pantalla completa
+  servers.svelte.ts   varias direcciones del mismo server: cual usar, latencia, Settings → Server
   shell.svelte.ts     todo lo de Android del lado de la interfaz
   tv.svelte.ts        modo TV: deteccion, escala de 10 pies (viewport de 960 px)
   spatial.svelte.ts   navegacion con el control remoto (flechas, centro, menu)
@@ -30,6 +31,11 @@ apps/web/src/lib/
 El repo y los Releases son públicos: ni el APK ni el instalador de escritorio llevan la dirección
 del tailnet. La primera vez el login muestra **Server URL** (sin `https://` se le agrega), se
 valida con `GET /api/health` y se guarda. Después se cambia en Settings → Account → Server.
+Puede tener **varias direcciones del mismo server** (p. ej. Tailscale y la red de casa, `http://` con
+`MYTHOS_EXTRA_BIND`): se cargan en el login ("Add another address") o en Settings, se comprueba
+que sean el mismo server (`server_id` de `/api/health`) y la app usa la preferida si contesta, si no
+la más rápida, y cambia sola al cambiar de red. Ver `docs/local-mode.md`, "Varias direcciones del
+server".
 `VITE_DEFAULT_SERVER` (`apps/web/.env.local`) queda solo para probar en la PC; los workflows lo
 dejan vacío a propósito.
 

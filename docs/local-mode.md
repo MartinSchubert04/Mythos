@@ -96,6 +96,47 @@ deshabilitada en el server, también se deshabilita en el dispositivo.
 El server local además sincroniza solo en segundo plano: aunque la UI no haga nada, los cambios
 llegan al remoto en cuanto se lo alcanza.
 
+### Varias direcciones del server
+
+El mismo server de casa se puede alcanzar por más de una dirección: por Tailscale
+(`https://<tu-server>.ts.net:7700`, desde cualquier lado) y por la red de casa
+(`http://192.168.x.x:7700` con `MYTHOS_EXTRA_BIND`, más rápida, solo en casa). Desktop y la página
+del APK guardan una **lista de direcciones del mismo server** (`lib/servers.svelte.ts`, en
+`localStorage` de este dispositivo: no se sube al server ni se sincroniza).
+
+- **Cargarlas**: en el login ("Add another address") o después en Settings → Account → Server
+  (agregar, quitar, ponerle nombre, marcar la preferida con la estrella, "Test" con la latencia de
+  cada una). Sin nombre se deduce: "Tailscale" (`*.ts.net`, `100.64.0.0/10`), "Home network" (IP
+  privada, `*.local`, `*.lan`), "This computer" (loopback).
+- **Mismo server**: cada una se valida con `GET /api/health` y se compara el `server_id`
+  (`docs/API.md`). Una dirección que no contesta al cargarla (la de casa estando afuera) se guarda
+  igual y se verifica cuando conteste; si contesta con otro `server_id` no se usa ("Different
+  server"). Agregar en Settings una dirección de otro server ofrece cambiar de server (sale de la
+  cuenta y queda solo esa). Como es la misma base, **el mismo token sirve en todas**.
+- **Cuál se usa**: se prueban todas en paralelo (`/api/health`, 2,5 s). Gana la preferida si
+  contesta (se la espera hasta 0,7 s más si otra contestó antes); si no, la que contesta primero.
+  Se elige al arrancar (con una sola dirección no se prueba nada de más), al volver de segundo
+  plano (más de 15 s), cuando cambia la red (`online`, `navigator.connection`), cuando un pedido no
+  llega (antes de pasar al local se prueban las demás) y, mientras no conteste ninguna, cada pocos
+  segundos (la reconexión de `net.svelte.ts`, o el chequeo de 20 s del modo local).
+- **Indicador**: "Server · Home network" / "Server · Tailscale" (el nombre de la que se usa) en
+  `ConnBadge`, y en el detalle de Settings → Connection.
+- **Si no contesta ninguna**: el failover al modo local de siempre (arriba). Para volver alcanza con
+  que conteste cualquiera: la UI las prueba ella misma (el local solo conoce la que tiene guardada)
+  y hace `POST /api/local/sync {token, remote_url}` con la que contestó.
+- **El server del dispositivo** sincroniza por la dirección en uso: al cambiar, la UI le manda
+  `POST /api/local/sync {token, remote_url}`, y unos segundos después de abrir revisa
+  `/api/local/status` → `remote_url`. Como el vínculo guarda el `server_id` del remoto
+  (`local_link.remote_server_id`), otra dirección del mismo server no reinicia la sincronización
+  (sigue en el mismo cursor); otro server sí.
+- **Media**: las URLs (`?t=` del `<video>`, `/api/media/img`, avatares) se arman con la dirección
+  activa en el momento. Cada sesión de video queda en la dirección donde se abrió: cambiar de
+  dirección en medio de una película no la corta; si se traba, el reproductor la reabre en la
+  activa en el mismo segundo (igual que al pasar al local). Si se cambió porque la anterior dejó de
+  contestar, las vistas se recargan (`net.epoch`) para que imágenes y listas se pidan en la nueva.
+- **Perfiles de la TV**: un perfil guardado con cualquiera de las direcciones es del mismo server;
+  sus avatares y su logout van por la dirección en uso.
+
 ### Cambio de nombre de usuario
 
 El nombre se cambia en el server (`PUT /api/me/username` o el admin); en el dispositivo da 403. La
@@ -268,8 +309,8 @@ build` pone estas variables solo.
   del desktop y arriba a la derecha en Android (`components/ConnBadge.svelte`).
 - Dos tokens en `localStorage`: `mythos.token` (server de casa) y `mythos.localToken` (local).
   `lib/api.ts` usa el del server activo. Logout y "Switch account" cierran los dos.
-- Caída: un pedido al de casa que no llega (o 502/503/504) y `GET /api/health` que tampoco →
-  pasa al local, repite ese pedido ahí y avisa. En el local mira `/api/local/status` cada 20 s;
+- Caída: un pedido al de casa que no llega (o 502/503/504) y `GET /api/health` que tampoco (en
+  ninguna de sus direcciones, `lib/servers.svelte.ts`) → pasa al local, repite ese pedido ahí y avisa. En el local mira `/api/local/status` cada 20 s;
   con `remote_reachable` → `POST /api/local/sync {token}` → vuelve al de casa ("Back on the server ·
   synced") y recarga la vista. Sin sesión del remoto (`remote_signed_in: false` o un login hecho
   sin conexión) se queda en el local y pide entrar de nuevo para sincronizar.

@@ -11,6 +11,13 @@ export const net = $state({
 
 let timer = 0;
 
+/** Lo registra lib/servers.svelte.ts: con varias direcciones del server, probarlas todas (y pasar
+ *  a la que conteste) antes de seguir esperando a la de ahora. */
+let recover: () => Promise<boolean> = async () => false;
+export function setRecover(f: () => Promise<boolean>) {
+  recover = f;
+}
+
 export function markDown() {
   if (net.down) return;
   net.down = true;
@@ -34,6 +41,7 @@ export async function check() {
   clearTimeout(timer);
   net.checking = true;
   try {
+    if (await recover()) return markUp();
     const r = await fetch(serverBase() + "/api/health", { signal: AbortSignal.timeout(5000) });
     if (r.ok) return markUp();
   } catch {

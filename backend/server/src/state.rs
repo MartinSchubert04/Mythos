@@ -17,6 +17,8 @@ use crate::{
 pub struct AppState {
     pub cfg: Arc<Config>,
     pub db: Db,
+    /// Identidad estable de este server (`Db::server_id`, `GET /api/health`).
+    pub server_id: Arc<str>,
     pub auth: Auth,
     pub media: Media,
     pub cinemeta: Arc<Cinemeta>,

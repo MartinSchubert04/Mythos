@@ -5,7 +5,7 @@
   // sesion (sin entrar a esa cuenta).
   import { Check, ImageOff } from "@lucide/svelte";
   import { api, avatarUrl, errText, getToken } from "../lib/api";
-  import { syncProfile, updateProfile, type Profile } from "../lib/profiles.svelte";
+  import { profileBase, syncProfile, updateProfile, type Profile } from "../lib/profiles.svelte";
   import { session } from "../lib/session.svelte";
   import { toast } from "../lib/toast.svelte";
   import type { Avatar } from "../lib/types";
@@ -15,7 +15,7 @@
   let list = $state<Avatar[] | null>(null);
   let error = $state("");
   let busy = $state(false);
-  const to = $derived(profile ? { base: profile.server, token: profile.token } : undefined);
+  const to = $derived(profile ? { base: profileBase(profile), token: profile.token } : undefined);
 
   // Una vez al montar (el padre lo vuelve a montar con otro perfil).
   function load() {
