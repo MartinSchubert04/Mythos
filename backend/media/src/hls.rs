@@ -459,7 +459,7 @@ async fn launch(e: &Engine, s: &Arc<PlaySession>, job: &HlsJob) -> anyhow::Resul
     let input = e.internal_url(&s.id, Role::Hls);
     let argv = args(&pl, &input, job.start, offset, base, &job.key);
     tracing::info!(session = %s.id, key = %job.key, base, offset, attempt, ?pl, "starting ffmpeg (hls)");
-    let mut child = tokio::process::Command::new(&e.cfg.ffmpeg)
+    let mut child = crate::util::tool_command(&e.cfg.ffmpeg)
         .args(&argv)
         .current_dir(&job.dir)
         .stdin(std::process::Stdio::null())
@@ -494,7 +494,7 @@ async fn segment_bounds(ffprobe: &std::path::Path, dir: &std::path::Path, e: &En
     let input = format!("concat:{}|{}", e.map, e.uri);
     let out = tokio::time::timeout(
         Duration::from_secs(10),
-        tokio::process::Command::new(ffprobe)
+        crate::util::tool_command(ffprobe)
             .args(["-v", "error", "-show_entries", "format=start_time,duration", "-of", "csv=p=0", &input])
             .current_dir(dir)
             .kill_on_drop(true)

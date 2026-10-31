@@ -16,7 +16,14 @@ export type UiPrefs = {
   subPos: number;
   /** Al terminar un episodio, cuenta regresiva y el siguiente. */
   autoplayNext: boolean;
+  /** Idioma de audio preferido ("eng", "spa-419", "spa-ES"...; vacio = el original): elige esa
+   *  pista y sube los streams en ese idioma (lib/streamlang.ts). */
+  audioLang: string;
+  /** Desenfoca las imagenes y esconde la descripcion de los episodios no vistos. */
+  hideSpoilers: boolean;
   reduceMotion: boolean;
+  /** Desktop y Android: aviso al pasar al server local y al volver (solo de este dispositivo). */
+  localNotice: boolean;
   sidebarCollapsed: boolean;
   volume: number;
   muted: boolean;
@@ -29,7 +36,10 @@ const defaults = (): UiPrefs => ({
   subBg: 35,
   subPos: 8,
   autoplayNext: true,
+  audioLang: "",
+  hideSpoilers: false,
   reduceMotion: false,
+  localNotice: true,
   sidebarCollapsed: false,
   volume: 1,
   muted: false,
@@ -38,7 +48,7 @@ const defaults = (): UiPrefs => ({
 export const prefs = $state<UiPrefs>(readJson(KEY, defaults()));
 
 /** Las que viajan al server. */
-const SYNCED = ["subLang", "subSize", "subBg", "subPos", "autoplayNext", "reduceMotion"] as const;
+const SYNCED = ["subLang", "subSize", "subBg", "subPos", "autoplayNext", "audioLang", "hideSpoilers", "reduceMotion"] as const;
 
 function applyMotion() {
   document.documentElement.toggleAttribute("data-reduce-motion", prefs.reduceMotion);

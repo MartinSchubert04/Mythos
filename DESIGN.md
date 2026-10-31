@@ -91,13 +91,31 @@ Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en
 - **Hero** (`Hero`): fondo con zoom lento, logo o título, rating, año, géneros, descripción, Play /
   More info. Rota cada 8 s con fundido cruzado (espera a que la imagen siguiente esté bajada).
 - **Continue watching** (`ContinueCard`): 16:9 con barra de progreso, episodio y tiempo restante.
+- **New episodes** (`NewEpisodeCard`, `lib/newEpisodes.ts`): debajo de Continue watching, un episodio
+  por serie de la Library salido en los últimos 14 días y sin empezar ("New · 3" si hay más). Sin
+  esqueleto: la fila aparece solo si hay algo. Las metas se piden de a 4 y lo reciente de cada serie
+  queda una hora en `sessionStorage`.
 - **Lista de streams** (`StreamList`): calidad grande (4K con el acento), tamaño, seeders con color
   (`--ok` ≥ 50, `--warn` ≥ 10, `--danger` menos), fuente, idiomas, tags como chips (HDR, DV, REMUX
-  resaltados). Los "cached" llevan "Instant" y borde verde. El primero dice "Best".
+  resaltados). Los "cached" llevan "Instant" y borde verde. El primero dice "Best". Con un idioma de
+  audio en Settings → Playback, los streams en ese idioma suben (banderas y palabras del release:
+  "Latino", "Castellano"…; nunca uno con < 5 seeders o CAM). Menú ⋯ (al pasar el mouse, clic
+  derecho o mantener apretado): "Copy stream link" (el link directo con `?t=`: el tooltip avisa que
+  lleva la sesión) y, en desktop, "Open in VLC".
+- **Menú chico** (`PopMenu`, `lib/press.ts`): flota donde se pidió (clic derecho, mantener apretado
+  550 ms o un botón ⋯), colgado de `<body>`; Esc o tocar afuera lo cierra.
 - **Reproductor** (`views/Player.svelte`): controles propios que se esconden a los 2,8 s; barra con
   lo bufferizado y el tiempo al pasar el mouse (`SeekBar`); menús de subtítulos, audio y velocidad;
   panel de streams a la derecha; pantalla de carga con datos vivos (`PlayerLoading`); diálogo de
   retomar; panel "Try another stream"; "Next episode" en los créditos y cuenta regresiva al final.
+  Sin botones nuevos: mantener Space (o el dedo) = 2× con la pastilla "2×" arriba; `[`/`]` la
+  velocidad; V la escala (Fit = entero, Fill = estirado, Crop = llena recortando; se recuerda en la
+  sesión); D las estadísticas (modo, códec, peers, MB/s, buffer, cuadros perdidos; `/status` solo
+  mientras se ven; en el celular, "Playback stats" en el panel de streams); `?` la lista de atajos.
+  Con el dedo: tocar muestra/esconde los controles, doble toque a un costado −10/+10 s con una onda
+  (seguir tocando suma), pellizcar afuera = Crop y adentro = Fit. Media Session: título, póster,
+  posición y play/pausa/saltos/siguiente episodio en las teclas multimedia, auriculares y la
+  notificación de Android.
 - **Cajón (Drawer):** formularios y la lista de streams del detalle, a la derecha sobre un velo.
 - **Select**, **Switch**, **Seg**, **Confirm**, **Section**: los de Ethereon, iguales.
 - **Avisos (toasts):** entran desde abajo a la derecha; rojos si fallan.
@@ -117,7 +135,12 @@ Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en
 - **Cast** (detalle): avatares con iniciales sobre el acento (el catálogo no trae fotos). Debajo,
   la fila "More like this" (mismo género principal).
 - **Episodios**: en pantallas anchas van en dos o tres columnas; los especiales (temporada 0) se
-  llaman "Specials" y van al final; con más de 6 temporadas, Select en vez de Seg.
+  llaman "Specials" y van al final; con más de 6 temporadas, Select en vez de Seg. Visto / no visto a
+  mano: el tilde al pasar el mouse por un episodio, clic derecho o mantener apretado (menú), el ⋯
+  junto a "Episodes" para toda la temporada, y en las películas el botón del tilde en la fila de
+  acciones. Es progreso con la posición al final (o borrarlo). "Hide spoilers" (Settings →
+  Playback): imagen desenfocada y descripción tapada en los no empezados hasta pasar el mouse (con
+  el dedo, tocar la descripción).
 
 ## 4b. Estados
 
@@ -149,9 +172,11 @@ Rutas con hash: `#/`, `#/search?q=`, `#/title/{type}/{id}`, `#/watch/{type}/{id}
 
 Atajos (listados en Settings → Keyboard shortcuts): `/` o `Ctrl K` buscar (lo que se escribe
 mientras la vista carga no se pierde); flechas entre pósters de una fila y entre filas; Esc cierra
-paneles y menús. En el reproductor: espacio/K, F, M, ←/→ (5 s), J/L (10 s), ↑/↓
-volumen, C subtítulos, G/H el subtítulo puesto 0,5 s antes/después (con Shift 0,1 s), -/= tamaño de
-los subtítulos, N siguiente episodio, Esc (cierra menú → sale de pantalla completa → vuelve).
+paneles y menús. En el reproductor: espacio/K (mantener espacio: 2×), F, M, ←/→ (5 s), J/L (10 s),
+↑/↓ volumen, `[`/`]` velocidad, V escala, C subtítulos, G/H el subtítulo puesto 0,5 s antes/después
+(con Shift 0,1 s), -/= tamaño de los subtítulos, N siguiente episodio, D estadísticas, `?` atajos, Esc
+(cierra menú → sale de pantalla completa → vuelve). La lista vive en `lib/shortcuts.ts` (Settings y
+el `?` del reproductor usan la misma).
 
 ## 5b. Movimiento
 

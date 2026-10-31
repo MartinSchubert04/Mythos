@@ -1,6 +1,6 @@
 [package]
 name = "mythos-mobile"
-version = "0.4.0"
+version = "0.5.0"
 description = "Mythos para Android: el shell de Tauri que abre la interfaz del server"
 edition = "2021"
 
@@ -14,6 +14,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-mythos = { path = "../plugin" }
+# El server embebido del modo local (docs/local-mode.md).
+tauri-plugin-mythos-local = { path = "../../local-server" }
 
 [profile.release]
 codegen-units = 1

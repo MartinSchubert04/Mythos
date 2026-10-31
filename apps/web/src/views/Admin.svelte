@@ -1,17 +1,51 @@
 <script lang="ts">
-  // Admin: usuarios, torrents activos (velocidad en vivo, solo mientras la vista esta abierta) y
-  // el uso de cache y disco.
-  import { HardDrive, KeyRound, Plus, RefreshCw, Trash2, UserPlus, Users } from "@lucide/svelte";
+  // Admin, en pestañas: Overview (cache, disco, que se esta viendo y torrents en vivo), Traffic
+  // (cuanto se le pega al server, por IP y por usuario), Logs (requests y actividad de las
+  // cuentas) y Users. La pestaña va en la URL (#/admin?tab=logs).
+  import { HardDrive, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UserPlus, Users } from "@lucide/svelte";
   import { onDestroy } from "svelte";
+  import AdminLogs from "../components/AdminLogs.svelte";
+  import AdminTraffic from "../components/AdminTraffic.svelte";
   import Drawer from "../components/Drawer.svelte";
+  import Seg from "../components/Seg.svelte";
   import Switch from "../components/Switch.svelte";
   import { api, errText } from "../lib/api";
   import { ask, prompt } from "../lib/confirm.svelte";
   import { bytes, relTime, speed } from "../lib/format";
+  import { rise } from "../lib/motion";
+  import { route, setQuery } from "../lib/router.svelte";
   import { keepScroll } from "../lib/scroll";
   import { session } from "../lib/session.svelte";
   import { attempt, toast } from "../lib/toast.svelte";
-  import type { AdminStats, TorrentStat, User } from "../lib/types";
+  import type { AdminStats, LogFilters, TorrentStat, User } from "../lib/types";
+
+  type Tab = "overview" | "traffic" | "logs" | "users";
+  const TABS: { value: Tab; label: string }[] = [
+    { value: "overview", label: "Overview" },
+    { value: "traffic", label: "Traffic" },
+    { value: "logs", label: "Logs" },
+    { value: "users", label: "Users" },
+  ];
+  const fromUrl = (): Tab => {
+    const t = route.query.get("tab");
+    return TABS.some((x) => x.value === t) ? (t as Tab) : "overview";
+  };
+  let tab = $state<Tab>(fromUrl());
+  let page = $state<HTMLDivElement>();
+  function pickTab(t: Tab) {
+    tab = t;
+    setQuery(t === "overview" ? {} : { tab: t });
+    page?.scrollTo({ top: 0 });
+  }
+
+  // Los filtros de los logs viven aca: Traffic los llena al tocar una IP, un usuario o una ruta.
+  let filters = $state<LogFilters>({});
+  let logMode = $state<"requests" | "activity">("requests");
+  function openLogs(f: LogFilters) {
+    filters = f;
+    logMode = "requests";
+    pickTab("logs");
+  }
 
   let users = $state<User[] | null>(null);
   let torrents = $state<TorrentStat[] | null>(null);
@@ -28,21 +62,24 @@
       .then((l) => (users = l))
       .catch((e) => (error = errText(e)));
   }
-  loadUsers();
+  // Sin permisos (alguien que escribio #/admin a mano) no se pide nada: el server diria 403.
+  const isAdmin = !!session.user?.is_admin;
+  if (isAdmin) loadUsers();
 
-  // Torrents y caché cada 2 s, solo con la vista abierta y la pestaña visible.
+  // Torrents y caché cada 2 s, solo en Overview y con la pestaña del navegador visible (cada
+  // pedido tambien queda en los logs: no llenarlos de ruido desde las otras pestañas).
   let timer = 0;
   let alive = true;
   async function tick() {
     if (!alive) return;
-    if (!document.hidden) {
+    if (!document.hidden && (tab === "overview" || !stats)) {
       const [t, s] = await Promise.allSettled([api.torrents(), api.stats()]);
       if (t.status === "fulfilled") torrents = t.value;
       if (s.status === "fulfilled") stats = s.value;
     }
     if (alive) timer = window.setTimeout(tick, 2000);
   }
-  tick();
+  if (isAdmin) tick();
   onDestroy(() => {
     alive = false;
     clearTimeout(timer);
@@ -120,12 +157,26 @@
   const cachePct = $derived(stats && stats.cache_limit_bytes ? Math.min(100, (stats.cache_bytes / stats.cache_limit_bytes) * 100) : 0);
 </script>
 
-<div class="page" use:keepScroll={"admin"}>
+<div class="page" use:keepScroll={"admin"} bind:this={page}>
   <div class="page-head">
     <h1>Admin</h1>
     <div class="grow"></div>
-    <button class="btn primary" onclick={() => (creating = true)}><UserPlus size={15} />New user</button>
+    {#if tab === "users" && isAdmin}
+      <button class="btn primary" onclick={() => (creating = true)}><UserPlus size={15} />New user</button>
+    {/if}
   </div>
+  {#if !isAdmin}
+  <div class="empty"><ShieldCheck size={28} /><h3>Admins only</h3><span>Ask an admin if you need access to this page.</span></div>
+  {:else}
+  <nav class="tabs" aria-label="Admin sections"><Seg value={tab} options={TABS} onchange={pickTab} /></nav>
+
+  {#key tab}
+  <div class="tab" in:rise={{ y: 6 }}>
+  {#if tab === "traffic"}
+    <AdminTraffic onfilter={openLogs} />
+  {:else if tab === "logs"}
+    <AdminLogs bind:filters bind:mode={logMode} users={users?.map((u) => u.username) ?? []} />
+  {:else if tab === "overview"}
 
   <!-- Uso de cache y disco -->
   <div class="stats-grid">
@@ -155,14 +206,43 @@
         <div class="faint small">open sessions</div>
       {/if}
     </div>
-    <div class="card stat">
+    <button class="card stat link-card" onclick={() => pickTab("users")} title="Manage users">
       <div class="stat-head"><Users size={15} />Users</div>
       <div class="stat-n">{stats?.users ?? users?.length ?? "–"}</div>
       <div class="faint small">{users?.filter((u) => u.is_admin).length ?? 0} admin</div>
-    </div>
+    </button>
   </div>
 
-  <h2 class="section-title">Users</h2>
+  <h2 class="section-title">Torrents <span class="live"><span class="dot"></span>live</span></h2>
+  <div class="card table-card">
+    <table class="list">
+      <thead><tr><th>Name</th><th>Progress</th><th>Down</th><th>Up</th><th>Peers</th><th>Last used</th><th></th></tr></thead>
+      <tbody>
+        {#if !torrents}
+          {#each Array(2) as _, i (i)}<tr><td colspan="7"><div class="skel line" style="width: {80 - i * 20}%"></div></td></tr>{/each}
+        {:else if !torrents.length}
+          <tr><td colspan="7" class="faint none">No torrents in the cache.</td></tr>
+        {:else}
+          {#each torrents as t (t.info_hash)}
+            {@const pct = t.size_bytes ? (t.downloaded_bytes / t.size_bytes) * 100 : 0}
+            <tr>
+              <td class="tname"><span class="ellipsis" title={t.name}>{t.name}</span><span class="faint small">{bytes(t.size_bytes)} · {t.state}</span></td>
+              <td class="tprog">
+                <div class="progress"><div class="progress-fill" style="width: {pct}%"></div></div>
+                <span class="faint small">{pct.toFixed(0)}%</span>
+              </td>
+              <td class="num" class:active={t.down_bps > 0}>{speed(t.down_bps)}</td>
+              <td class="num faint">{speed(t.up_bps)}</td>
+              <td class="num">{t.peers}</td>
+              <td class="faint">{relTime(t.last_used_at)}</td>
+              <td class="acts"><button class="icon-btn del" title="Remove torrent and files" onclick={() => dropTorrent(t)}><Trash2 size={15} /></button></td>
+            </tr>
+          {/each}
+        {/if}
+      </tbody>
+    </table>
+  </div>
+  {:else}
   {#if error}
     <div class="empty"><h3>Couldn't load users</h3><span>{error}</span></div>
   {:else}
@@ -197,36 +277,10 @@
       </table>
     </div>
   {/if}
-
-  <h2 class="section-title">Torrents <span class="live"><span class="dot"></span>live</span></h2>
-  <div class="card table-card">
-    <table class="list">
-      <thead><tr><th>Name</th><th>Progress</th><th>Down</th><th>Up</th><th>Peers</th><th>Last used</th><th></th></tr></thead>
-      <tbody>
-        {#if !torrents}
-          {#each Array(2) as _, i (i)}<tr><td colspan="7"><div class="skel line" style="width: {80 - i * 20}%"></div></td></tr>{/each}
-        {:else if !torrents.length}
-          <tr><td colspan="7" class="faint none">No torrents in the cache.</td></tr>
-        {:else}
-          {#each torrents as t (t.info_hash)}
-            {@const pct = t.size_bytes ? (t.downloaded_bytes / t.size_bytes) * 100 : 0}
-            <tr>
-              <td class="tname"><span class="ellipsis" title={t.name}>{t.name}</span><span class="faint small">{bytes(t.size_bytes)} · {t.state}</span></td>
-              <td class="tprog">
-                <div class="progress"><div class="progress-fill" style="width: {pct}%"></div></div>
-                <span class="faint small">{pct.toFixed(0)}%</span>
-              </td>
-              <td class="num" class:active={t.down_bps > 0}>{speed(t.down_bps)}</td>
-              <td class="num faint">{speed(t.up_bps)}</td>
-              <td class="num">{t.peers}</td>
-              <td class="faint">{relTime(t.last_used_at)}</td>
-              <td class="acts"><button class="icon-btn del" title="Remove torrent and files" onclick={() => dropTorrent(t)}><Trash2 size={15} /></button></td>
-            </tr>
-          {/each}
-        {/if}
-      </tbody>
-    </table>
+  {/if}
   </div>
+  {/key}
+  {/if}
 </div>
 
 {#if creating}
@@ -253,6 +307,18 @@
   .page {
     padding: 26px var(--gutter) 40px;
     max-width: 1600px;
+  }
+  .tabs {
+    display: flex;
+    margin: -6px 0 18px;
+  }
+  .link-card {
+    text-align: left;
+    transition: border-color 0.15s, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .link-card:hover {
+    border-color: var(--line-strong);
+    transform: translateY(-1px);
   }
   .stats-grid {
     display: grid;
@@ -399,6 +465,9 @@
     }
   }
   @media (max-width: 700px) {
+    .tabs > :global(*) {
+      flex: 1;
+    }
     .stats-grid {
       grid-template-columns: 1fr 1fr;
     }

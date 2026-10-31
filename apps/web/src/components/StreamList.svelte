@@ -1,41 +1,115 @@
 <script lang="ts">
   // Lista de streams: calidad, tamaño, seeders (con color segun cuantos), fuente, tags como chips,
-  // idiomas. Los que estan en cache (instantaneos) van destacados.
-  import { Check, HardDrive, Users, Zap } from "@lucide/svelte";
+  // idiomas. Los que estan en cache (instantaneos) van destacados. Con `linkFor`, un menu chico
+  // (⋯ al pasar el mouse, clic derecho o mantener apretado) para copiar el link directo o abrirlo
+  // en VLC (desktop).
+  import { Check, Copy, Ellipsis, ExternalLink, HardDrive, Users, Zap } from "@lucide/svelte";
+  import { errText } from "../lib/api";
+  import { canVlc, copyText, openInVlc } from "../lib/external";
   import { bytes, seedTone } from "../lib/format";
+  import { press } from "../lib/press";
+  import { toast } from "../lib/toast.svelte";
   import type { Stream } from "../lib/types";
+  import PopMenu, { type PopItem } from "./PopMenu.svelte";
 
   let {
     streams,
     current = "",
     onpick,
     onmedia = false,
-  }: { streams: Stream[]; current?: string; onpick: (s: Stream) => void; onmedia?: boolean } = $props();
+    linkFor,
+  }: {
+    streams: Stream[];
+    current?: string;
+    onpick: (s: Stream) => void;
+    onmedia?: boolean;
+    /** El link directo (con el token) de un stream: prende el menu de cada uno. */
+    linkFor?: (s: Stream) => Promise<string>;
+  } = $props();
+
+  let menu = $state<{ s: Stream; x: number; y: number } | null>(null);
+  const WARN = "The link includes your session: anyone who has it can watch as you. Don't share it.";
+  const items = (s: Stream): PopItem[] => [
+    ...(canVlc
+      ? [
+          {
+            label: "Open in VLC",
+            icon: ExternalLink,
+            title: WARN,
+            run: async () => {
+              try {
+                await openInVlc(await linkFor!(s));
+              } catch (e) {
+                toast(String(e).includes("VLC") ? String(e) : `Couldn't open VLC: ${errText(e)}`, true);
+              }
+            },
+          },
+        ]
+      : []),
+    {
+      label: "Copy stream link",
+      icon: Copy,
+      title: WARN,
+      run: async () => {
+        try {
+          await copyText(await linkFor!(s));
+          toast("Link copied. It includes your session, so don't share it.");
+        } catch (e) {
+          toast(errText(e), true);
+        }
+      },
+    },
+  ];
+
+  function openAt(s: Stream, x: number, y: number) {
+    menu = { s, x, y };
+  }
+  function fromButton(e: MouseEvent, s: Stream) {
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (menu?.s.key === s.key) menu = null;
+    else openAt(s, r.right - 200, r.bottom + 4);
+  }
 
   const qClass = (q: string) => (q === "2160p" ? "uhd" : q === "1080p" ? "fhd" : q === "720p" ? "hd" : "sd");
 </script>
 
 <div class="list" class:onmedia>
   {#each streams as s, i (s.key)}
-    <button class="stream" class:cached={s.cached} class:on={s.key === current} style="--i: {i}" onclick={() => onpick(s)}>
-      <span class="q {qClass(s.quality)}">{s.quality === "unknown" ? "?" : s.quality.replace("p", "")}<small>{s.quality.endsWith("p") ? "p" : ""}</small></span>
-      <span class="main">
-        <span class="title ellipsis" title={s.title}>{s.title}</span>
-        <span class="facts">
-          {#if s.cached}<span class="chip ok instant"><Zap size={11} fill="currentColor" />Instant</span>{/if}
-          {#if s.size_bytes}<span class="fact"><HardDrive size={12} />{bytes(s.size_bytes)}</span>{/if}
-          {#if s.seeders != null}<span class="fact seed {seedTone(s.seeders)}"><Users size={12} />{s.seeders}</span>{/if}
-          {#if s.source}<span class="fact src">{s.source}</span>{/if}
-          {#if s.languages.length}<span class="fact langs">{s.languages.join(" ")}</span>{/if}
-        </span>
-        {#if s.tags.length}
-          <span class="tags">
-            {#each s.tags as t (t)}<span class="chip" class:accent={t === "HDR" || t === "DV" || t === "REMUX"}>{t}</span>{/each}
+    <div class="item">
+      <button
+        class="stream"
+        class:cached={s.cached}
+        class:on={s.key === current}
+        class:has-more={!!linkFor}
+        style="--i: {i}"
+        onclick={() => onpick(s)}
+        use:press={linkFor ? (x, y) => openAt(s, x, y) : undefined}
+      >
+        <span class="q {qClass(s.quality)}">{s.quality === "unknown" ? "?" : s.quality.replace("p", "")}<small>{s.quality.endsWith("p") ? "p" : ""}</small></span>
+        <span class="main">
+          <span class="title ellipsis" title={s.title}>{s.title}</span>
+          <span class="facts">
+            {#if s.cached}<span class="chip ok instant"><Zap size={11} fill="currentColor" />Instant</span>{/if}
+            {#if s.size_bytes}<span class="fact"><HardDrive size={12} />{bytes(s.size_bytes)}</span>{/if}
+            {#if s.seeders != null}<span class="fact seed {seedTone(s.seeders)}"><Users size={12} />{s.seeders}</span>{/if}
+            {#if s.source}<span class="fact src">{s.source}</span>{/if}
+            {#if s.languages.length}<span class="fact langs">{s.languages.join(" ")}</span>{/if}
           </span>
-        {/if}
-      </span>
-      {#if s.key === current}<span class="cur"><Check size={16} /></span>{:else if i === 0}<span class="best">Best</span>{/if}
-    </button>
+          {#if s.tags.length}
+            <span class="tags">
+              {#each s.tags as t (t)}<span class="chip" class:accent={t === "HDR" || t === "DV" || t === "REMUX"}>{t}</span>{/each}
+            </span>
+          {/if}
+        </span>
+        {#if s.key === current}<span class="cur"><Check size={16} /></span>{:else if i === 0}<span class="best">Best</span>{/if}
+      </button>
+      {#if linkFor}
+        <button class="more" class:open={menu?.s.key === s.key} title="More" aria-label="More options" aria-haspopup="menu" onclick={(e) => fromButton(e, s)}>
+          <Ellipsis size={16} />
+        </button>
+      {/if}
+    </div>
   {:else}
     <div class="none">
       <b>No streams found</b>
@@ -44,7 +118,62 @@
   {/each}
 </div>
 
+{#if menu}
+  <PopMenu x={menu.x} y={menu.y} items={items(menu.s)} {onmedia} label="Stream options" onclose={() => (menu = null)} />
+{/if}
+
 <style>
+  .item {
+    position: relative;
+  }
+  .item > .stream {
+    width: 100%;
+  }
+  /* El ⋯ aparece al pasar el mouse, arriba a la derecha (no tapa "Best" ni el tilde). */
+  .more {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    background: var(--panel-2);
+    border: var(--border) solid var(--line);
+    opacity: 0;
+    transition:
+      opacity 0.15s,
+      background 0.15s;
+  }
+  .item:hover .more,
+  .more:focus-visible,
+  .more.open {
+    opacity: 1;
+  }
+  .more:hover {
+    color: var(--text);
+    background: var(--hover);
+  }
+  /* En pantallas tactiles se mantiene apretado el stream: sin boton extra. */
+  @media (hover: none) {
+    .more {
+      display: none;
+    }
+    .stream.has-more {
+      -webkit-touch-callout: none;
+    }
+  }
+  .onmedia .more {
+    color: var(--on-media-2);
+    background: var(--media-scrim);
+    border-color: var(--media-line);
+  }
+  .onmedia .more:hover {
+    color: var(--on-media);
+    background: var(--media-line);
+  }
   .list {
     display: flex;
     flex-direction: column;

@@ -1,6 +1,7 @@
 // Sesion: quien entro, sus ajustes del server, y el paso al login cuando el token no sirve.
-import { api, ApiError, getToken, onUnauthorized, setToken } from "./api";
-import { serverBase } from "./platform";
+import { api, ApiError, dropCache, getLocalToken, getToken, onUnauthorized, remoteToken, setToken } from "./api";
+import { conn, loginLocal, logoutAll, onLocalExpired, startConn, viaLocal } from "./local.svelte";
+import { remoteBase, serverBase } from "./platform";
 import { applyRemoteUi } from "./prefs.svelte";
 import { go } from "./router.svelte";
 import { takeHandoff, toServer } from "./shell.svelte";
@@ -17,12 +18,15 @@ export const session = $state({
   offline: false,
 });
 
-onUnauthorized(() => {
+function expired() {
   if (session.user) session.expired = true;
   session.user = null;
   session.settings = null;
   session.checked = true;
-});
+  conn.enrolled = !!getLocalToken();
+}
+onUnauthorized(expired);
+onLocalExpired(expired);
 
 async function loadSettings() {
   try {
@@ -39,6 +43,8 @@ export async function start() {
   // Android, interfaz del server: el token si recien se entro desde la pagina del APK.
   const handed = await takeHandoff();
   if (handed) setToken(handed);
+  // Desktop y APK: Auto / Solo local (lib/local.svelte.ts) eligen con que server arrancar.
+  await startConn();
   if (!getToken()) {
     session.checked = true;
     return;
@@ -63,18 +69,34 @@ export async function start() {
 }
 
 export async function login(username: string, password: string) {
-  const r = await api.login(username, password);
-  setToken(r.token);
-  // Android, pagina del APK: se sigue en la interfaz del server, ya con la sesion.
-  if (await toServer(serverBase(), r.token, true)) return;
+  let user: User;
+  if (await viaLocal()) {
+    // Por el server local: lo valida contra el de casa si lo alcanza y guarda las dos sesiones.
+    ({ user } = await loginLocal(username, password));
+    const remote = remoteToken();
+    if (conn.on === "server" && remote && (await toServer(remoteBase(), remote, true))) return;
+  } else {
+    const r = await api.login(username, password);
+    setToken(r.token);
+    user = r.user;
+    // Android, pagina del APK: se sigue en la interfaz del server, ya con la sesion.
+    if (await toServer(serverBase(), r.token, true)) return;
+  }
   await loadSettings();
   session.expired = false;
-  session.user = r.user;
+  session.user = user;
 }
 
+/** Cierra la sesion (en desktop y Android, la del server de casa y la del dispositivo). Tambien
+ *  sirve para cambiar de cuenta: queda el login, con el mismo server. */
 export async function logout() {
-  await api.logout().catch(() => {});
-  setToken(null);
+  if (conn.available) await logoutAll();
+  else {
+    await api.logout().catch(() => {});
+    setToken(null);
+  }
+  dropCache("");
   session.user = null;
   session.settings = null;
+  session.expired = false;
 }

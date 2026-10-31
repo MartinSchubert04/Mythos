@@ -113,7 +113,7 @@ fn spawn(e: &Engine, s: &Arc<PlaySession>, idx: usize, out: &Path) -> anyhow::Re
     }
     let part = out.with_extension("vtt.part");
     let input = e.internal_url(&s.id, Role::Passive);
-    let mut child = tokio::process::Command::new(&e.cfg.ffmpeg)
+    let mut child = crate::util::tool_command(&e.cfg.ffmpeg)
         .args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", &input, "-map", &format!("0:{idx}"), "-c:s", "webvtt", "-flush_packets", "1", "-f", "webvtt"])
         .arg(&part)
         .stdin(std::process::Stdio::null())

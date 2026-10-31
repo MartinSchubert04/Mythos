@@ -2,6 +2,8 @@
 // `npm run dev:mock`). Contesta el contrato con datos reales de Cinemeta guardados en
 // fixtures.json y un video de prueba publico. El build de produccion no lo incluye.
 import fixtures from "./fixtures.json";
+import { mockAudit, mockLogs, mockMetrics, mockSessions } from "./traffic";
+import type { MetricsRange } from "../types";
 import type {
   AdminStats,
   Episode,
@@ -129,7 +131,11 @@ function metaFor(type: string, id: string): Meta | null {
           name: `Episode ${e}`,
           overview: "An episode of the series. In mock mode every episode plays the same test video.",
           thumbnail: p.background,
-          released: `20${10 + s}-0${Math.min(9, e)}-01T00:00:00.000Z`,
+          // Los dos ultimos de la temporada 3: uno de hace 3 dias y otro en 4 (para "New episodes").
+          released:
+            s === 3 && e >= 7
+              ? new Date(Date.now() + (e === 7 ? -3 : 4) * 86_400_000).toISOString()
+              : `20${10 + s}-0${Math.min(9, e)}-01T00:00:00.000Z`,
         });
     m.videos = eps;
   }
@@ -251,6 +257,10 @@ async function route(req: Request): Promise<Response> {
   let r: RegExpMatchArray | null;
   if (path === "/api/auth/logout") return none();
   if (path === "/api/me") return json(me);
+  if (path.startsWith("/api/me/sessions")) {
+    const s = mockSessions(me.username, m, path);
+    if (s) return s.status === 204 ? none() : json(s.body, s.status);
+  }
   if (path === "/api/me/password") {
     const b = await body<{ current: string; new: string }>();
     if (db.passwords[me.username] !== b.current) return err(400, "The current password is wrong");
@@ -433,6 +443,13 @@ async function route(req: Request): Promise<Response> {
     };
     return json(s);
   }
+  if (path === "/api/admin/metrics") {
+    const range = (url.searchParams.get("range") ?? "24h") as MetricsRange;
+    if (!["24h", "7d", "30d", "90d"].includes(range)) return err(400, "range must be 24h, 7d, 30d or 90d");
+    return json(mockMetrics(range));
+  }
+  if (path === "/api/admin/logs") return json(mockLogs(url.searchParams));
+  if (path === "/api/admin/audit") return json(mockAudit(url.searchParams));
   return err(404, `Mock: no route for ${m} ${path}`);
 }
 

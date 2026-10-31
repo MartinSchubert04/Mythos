@@ -55,7 +55,7 @@ impl Probe {
 /// Corre ffprobe sobre `input` (URL del endpoint interno). `name` es el nombre real del archivo
 /// (la URL interna no tiene extensión, y la extensión distingue webm de mkv).
 pub async fn run(ffprobe: &Path, input: &str, name: &str, timeout: Duration) -> anyhow::Result<Probe> {
-    let mut cmd = tokio::process::Command::new(ffprobe);
+    let mut cmd = crate::util::tool_command(ffprobe);
     cmd.args([
         "-v", "error",
         "-probesize", "5000000",

@@ -8,6 +8,7 @@
   import { api, ApiError, errText } from "../lib/api";
   import { expand } from "../lib/motion";
   import { checkServer, isRemoteShell, needsServer, normalizeServer, pickServer, serverSetting, setServer } from "../lib/platform";
+  import { viaLocal } from "../lib/local.svelte";
   import { login, session } from "../lib/session.svelte";
   import { leaveServer } from "../lib/shell.svelte";
 
@@ -40,8 +41,10 @@
       }
       if (url) {
         // Antes de mandar la contraseña: ¿hay un Mythos en esa direccion?
+        // Desktop y APK con Auto / Solo local: sin server se puede entrar igual, contra la copia
+        // de la cuenta que guarda el dispositivo (si ya se entro una vez con el server).
         const bad = await checkServer(url);
-        if (bad) {
+        if (bad && !(url === normalizeServer(serverSetting()) && (await viaLocal()))) {
           error = bad;
           showServer = true;
           busy = false;
@@ -54,7 +57,9 @@
     try {
       await login(username.trim(), password);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) error = "Wrong username or password.";
+      // Sin server (login contra la copia del dispositivo): solo cuentas que ya entraron aca.
+      if (err instanceof ApiError && err.status === 401 && err.message.includes("offline")) error = "Wrong username or password. Without the server, only accounts that already signed in on this device can sign in.";
+      else if (err instanceof ApiError && err.status === 401) error = "Wrong username or password.";
       else if (err instanceof ApiError && err.status === 429) error = "Too many attempts. Wait a minute and try again.";
       else {
         error = errText(err);

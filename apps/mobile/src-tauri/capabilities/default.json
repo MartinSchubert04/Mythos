@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "La pagina que viene en el APK. La del server recibe sus permisos en tiempo de ejecucion (apps/mobile/plugin/src/lib.rs)",
   "windows": ["main"],
-  "permissions": ["core:default", "mythos:default"]
+  "permissions": ["core:default", "mythos:default", "mythos-local:default"]
 }

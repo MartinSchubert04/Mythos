@@ -1,8 +1,9 @@
 <script lang="ts">
   // Barra de titulo propia del desktop (como Ethereon): plegar la barra lateral, la marca, un
-  // hueco para arrastrar (doble clic maximiza) y los controles de la ventana.
+  // hueco para arrastrar (doble clic maximiza), a que server se habla y los controles de la ventana.
   import { Menu, Search } from "@lucide/svelte";
   import { go } from "../lib/router.svelte";
+  import ConnBadge from "./ConnBadge.svelte";
   import Logo from "./Logo.svelte";
   import WindowControls from "./WindowControls.svelte";
 
@@ -19,6 +20,8 @@
   </div>
   <div class="drag" data-tauri-drag-region></div>
   {#if !bare}
+    <!-- Server de casa o el del dispositivo (modo local). -->
+    <ConnBadge />
     <button class="find" onclick={() => go("/search")} title="Search (Ctrl K)">
       <Search size={14} /><span>Search</span><kbd>/</kbd>
     </button>

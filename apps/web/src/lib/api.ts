@@ -1,13 +1,20 @@
 // Cliente tipado del contrato (docs/API.md). El token vive en localStorage; un 401 lleva al login.
 import { detectCaps } from "./caps";
 import { markDown, markUp } from "./net.svelte";
-import { serverBase } from "./platform";
+import { deviceLabel, serverBase, setActiveServer } from "./platform";
 import { read, write } from "./store";
 import type {
   AdminStats,
+  AuditRow,
   ClientCaps,
   ExternalSub,
+  LogFilters,
+  LogRow,
   MediaStatus,
+  Metrics,
+  MetricsRange,
+  Page,
+  SessionInfo,
   MediaType,
   Meta,
   MetaPreview,
@@ -18,17 +25,55 @@ import type {
   Stream,
   TorrentStat,
   User,
+  LocalLogin,
+  LocalStatus,
 } from "./types";
 
+// Dos sesiones (modo local, docs/local-mode.md): la del server de casa (`token`) y, en desktop y
+// Android con Auto / Solo local, la del server embebido (`localToken`). Se usa la del server al que
+// se le esta hablando (`useLocal`, lib/local.svelte.ts). En la web solo existe la primera.
 const TOKEN_KEY = "mythos.token";
+const LOCAL_TOKEN_KEY = "mythos.localToken";
 let token = read(TOKEN_KEY);
+let localToken = read(LOCAL_TOKEN_KEY);
+let onLocal = false;
+let localBase = "";
 
+/** El token del server activo. */
 export function getToken() {
+  return onLocal ? localToken : token;
+}
+/** El del server de casa. */
+export function remoteToken() {
   return token;
 }
 export function setToken(t: string | null) {
   token = t;
   write(TOKEN_KEY, t);
+}
+export function getLocalToken() {
+  return localToken;
+}
+export function setLocalToken(t: string | null) {
+  localToken = t;
+  write(LOCAL_TOKEN_KEY, t);
+}
+/** Donde escucha el server embebido ("" = no hay). */
+export function setLocalBase(url: string) {
+  localBase = url.replace(/\/+$/, "");
+}
+/** Pasa toda la API al server embebido (`true`) o de vuelta al de casa. Las sesiones de video ya
+ *  abiertas siguen en el server donde se abrieron (ver `pins`). */
+export function useLocal(on: boolean) {
+  onLocal = on && !!localBase;
+  setActiveServer(onLocal ? localBase : null);
+}
+
+/** Lo registra lib/local.svelte.ts: un pedido al server de casa no llego. Devuelve `true` si ya se
+ *  paso al server local (y el pedido se repite ahi). */
+let unreachable: () => Promise<boolean> = async () => false;
+export function onUnreachable(f: () => Promise<boolean>) {
+  unreachable = f;
 }
 
 /** Lo llama session.svelte.ts: un 401 cierra la sesion y muestra el login. */
@@ -54,15 +99,24 @@ export function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-type Opts = { signal?: AbortSignal; keepalive?: boolean; noAuthRedirect?: boolean };
+/** `to`: un server puntual ({base, token}) en vez del activo, sin aviso de caida ni paso al local
+ *  (las rutas /api/local/*, el logout de cada sesion, el estado de una sesion de video). `used`
+ *  se llena con el server que contesto (el pedido puede repetirse en el local). */
+type Target = { base: string; token: string | null };
+type Opts = { signal?: AbortSignal; keepalive?: boolean; noAuthRedirect?: boolean; to?: Target; used?: Partial<Target>; retried?: boolean };
 
 async function req<T>(method: string, path: string, body?: unknown, o: Opts = {}): Promise<T> {
+  const base = o.to ? o.to.base : serverBase();
+  const tok = o.to ? o.to.token : getToken();
+  const wasLocal = onLocal;
   const headers: Record<string, string> = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (tok) headers.Authorization = `Bearer ${tok}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  // Server de casa caido con Auto: se pasa al local y el mismo pedido se repite ahi.
+  const retry = async () => !o.to && !o.retried && !wasLocal && !o.signal?.aborted && (await unreachable());
   let r: Response;
   try {
-    r = await fetch(serverBase() + path, {
+    r = await fetch(base + path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -70,16 +124,22 @@ async function req<T>(method: string, path: string, body?: unknown, o: Opts = {}
       keepalive: o.keepalive,
     });
   } catch (e) {
+    if (e instanceof TypeError && (await retry())) return req<T>(method, path, body, { ...o, retried: true });
     // Sin respuesta (server caido, sin red): aviso arriba y reconexion automatica.
-    if (e instanceof TypeError) markDown();
+    if (e instanceof TypeError && !o.to) markDown();
     throw e;
   }
   // 502/503/504 de un proxy (Vite, tailscale serve) = el server no esta; cualquier otra
   // respuesta, aunque sea un error, quiere decir que hay conexion.
-  if ([502, 503, 504].includes(r.status) && !path.startsWith("/api/play")) markDown();
-  else markUp();
-  if (r.status === 401 && !o.noAuthRedirect) {
-    setToken(null);
+  if ([502, 503, 504].includes(r.status) && !path.startsWith("/api/play")) {
+    if (await retry()) return req<T>(method, path, body, { ...o, retried: true });
+    if (!o.to) markDown();
+  } else if (!o.to) markUp();
+  if (o.used) Object.assign(o.used, { base, token: tok });
+  if (r.status === 401 && !o.noAuthRedirect && !o.to) {
+    // La sesion del server que contesto ya no sirve: al login (que renueva las dos).
+    if (wasLocal) setLocalToken(null);
+    else setToken(null);
     unauthorized();
   }
   if (!r.ok) {
@@ -95,25 +155,48 @@ async function req<T>(method: string, path: string, body?: unknown, o: Opts = {}
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+/** Cada sesion de video queda en el server (y con el token) donde se abrio: si a mitad de una
+ *  pelicula la API pasa al local o vuelve al de casa, el video, sus subtitulos, su HLS y su
+ *  /status siguen yendo al mismo lugar. */
+const pins = new Map<string, Target>();
+function pinOf(path: string): Target | undefined {
+  const m = /\/api\/media\/([^/?#]+)\//.exec(path);
+  return m ? pins.get(m[1]) : undefined;
+}
+/** La sesion de video se abrio en otro server que el que usa la API ahora. */
+export function movedAway(session: string): boolean {
+  const p = pins.get(session);
+  return !!p && p.base !== serverBase();
+}
+/** Opciones de `req` para una sesion de video: su server, o el activo si no se conoce. */
+const pinned = (session: string): Opts => {
+  const to = pins.get(session);
+  return to ? { to } : {};
+};
+
 /** URL de media lista para <video>, hls.js o fetch: con la base del server y el token en ?t=.
  *  Las absolutas de otro lado (y data:/blob:) quedan como estan. */
 export function mediaUrl(path: string, extra?: Record<string, string | number | undefined>): string {
   if (/^(data|blob):/.test(path)) return path;
-  const base = serverBase();
+  const pin = pinOf(path);
+  const base = pin ? pin.base : serverBase();
+  const tok = pin ? pin.token : getToken();
   const abs = /^https?:\/\//.test(path);
   const ours = !abs || (base && path.startsWith(base)) || path.startsWith(location.origin);
   const u = new URL(abs ? path : (base || location.origin) + path);
-  if (ours && token && !u.searchParams.has("t")) u.searchParams.set("t", token);
+  if (ours && tok && !u.searchParams.has("t")) u.searchParams.set("t", tok);
   for (const [k, v] of Object.entries(extra ?? {})) if (v !== undefined) u.searchParams.set(k, String(v));
   return u.toString();
 }
 
 /** Agrega el token a una URL que arma hls.js (segmentos relativos a la playlist). */
 export function withToken(url: string): string {
-  if (!token || /[?&]t=/.test(url)) return url;
-  const base = serverBase() || location.origin;
-  if (/^https?:\/\//.test(url) && !url.startsWith(base)) return url;
-  return url + (url.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(token);
+  const pin = pinOf(url);
+  const tok = pin ? pin.token : getToken();
+  if (!tok || /[?&]t=/.test(url)) return url;
+  const base = (pin ? pin.base : serverBase()) || location.origin;
+  if (/^https?:\/\//.test(url) && !url.startsWith(base) && !url.startsWith(location.origin)) return url;
+  return url + (url.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(tok);
 }
 
 // ---- cache corta en memoria: volver atras o pasar el mouse no repite pedidos
@@ -158,7 +241,7 @@ export type PlayRequest = {
 export const api = {
   health: () => req<{ ok: boolean; version: string }>("GET", "/api/health", undefined, { noAuthRedirect: true }),
   login: (username: string, password: string) =>
-    req<{ token: string; user: User }>("POST", "/api/auth/login", { username, password }, { noAuthRedirect: true }),
+    req<{ token: string; user: User }>("POST", "/api/auth/login", { username, password, device: deviceLabel() }, { noAuthRedirect: true }),
   logout: () => req<void>("POST", "/api/auth/logout", undefined, { noAuthRedirect: true }),
   me: () => req<User>("GET", "/api/me"),
   changePassword: (current: string, next: string) => req<void>("PUT", "/api/me/password", { current, new: next }),
@@ -182,7 +265,14 @@ export const api = {
     cached(`prefetch:${s.info_hash ?? s.url}:${s.file_idx ?? ""}`, 5 * MIN, () =>
       req<void>("POST", "/api/prefetch", { info_hash: s.info_hash, file_idx: s.file_idx, url: s.url }),
     ).catch(() => {}),
-  play: (body: PlayRequest) => req<PlayInfo>("POST", "/api/play", body),
+  /** La sesion queda atada al server que la abrio (ver `pins`). */
+  play: async (body: PlayRequest) => {
+    const used: Partial<Target> = {};
+    const info = await req<PlayInfo>("POST", "/api/play", body, { used });
+    pins.set(info.session_id, { base: used.base ?? serverBase(), token: used.token ?? getToken() });
+    if (pins.size > 40) pins.delete(pins.keys().next().value!);
+    return info;
+  },
 
   continueWatching: () => req<Progress[]>("GET", "/api/progress/continue"),
   progress: (metaId: string) => req<Progress>("GET", `/api/progress/${enc(metaId)}`).catch((e) => {
@@ -206,8 +296,36 @@ export const api = {
   torrents: () => req<TorrentStat[]>("GET", "/api/admin/torrents"),
   deleteTorrent: (hash: string, files: boolean) => req<void>("DELETE", `/api/admin/torrents/${hash}${q({ files: files ? "true" : undefined })}`),
   stats: () => req<AdminStats>("GET", "/api/admin/stats"),
+  metrics: (range: MetricsRange, signal?: AbortSignal) => req<Metrics>("GET", `/api/admin/metrics${q({ range })}`, undefined, { signal }),
+  logs: (f: LogFilters & { before?: number; limit?: number }, signal?: AbortSignal) =>
+    req<Page<LogRow>>("GET", `/api/admin/logs${q(f)}`, undefined, { signal }),
+  audit: (f: { event?: string; user?: string; before?: number; limit?: number }, signal?: AbortSignal) =>
+    req<Page<AuditRow>>("GET", `/api/admin/audit${q(f)}`, undefined, { signal }),
+
+  /** Sesiones abiertas del usuario (dispositivos), nunca el token. */
+  sessions: () => req<SessionInfo[]>("GET", "/api/me/sessions"),
+  revokeSession: (id: number) => req<void>("DELETE", `/api/me/sessions/${id}`),
+  revokeOtherSessions: () => req<{ revoked: number }>("DELETE", "/api/me/sessions"),
 
   status: (session: string, signal?: AbortSignal) =>
-    req<MediaStatus>("GET", `/api/media/${session}/status`, undefined, { signal }),
-  closeSession: (session: string) => req<void>("DELETE", `/api/media/${session}`, undefined, { keepalive: true }).catch(() => {}),
+    req<MediaStatus>("GET", `/api/media/${session}/status`, undefined, { signal, ...pinned(session) }),
+  closeSession: (session: string) =>
+    req<void>("DELETE", `/api/media/${session}`, undefined, { keepalive: true, ...pinned(session) }).catch(() => {}),
+
+  // ---- modo local (server embebido, docs/local-mode.md): siempre contra el local
+  /** Login por el local: valida contra el server de casa si lo alcanza y devuelve las dos
+   *  sesiones; si no, contra la copia del dispositivo (`offline: true`). */
+  localLogin: (b: { username: string; password: string; device?: string; remote_url?: string }) =>
+    req<LocalLogin>("POST", "/api/auth/login", b, { to: { base: localBase, token: null }, noAuthRedirect: true }),
+  localStatus: () => req<LocalStatus>("GET", "/api/local/status", undefined, { to: { base: localBase, token: localToken } }),
+  /** Sincroniza ya. Con `token` (la sesion del server de casa) el local la verifica y la guarda. */
+  localSync: (remote?: string | null) =>
+    req<{ pushed: number; pulled: number; last_sync_at: number | null }>(
+      "POST",
+      "/api/local/sync",
+      remote ? { token: remote } : undefined,
+      { to: { base: localBase, token: localToken } },
+    ),
+  /** Cierra una sesion puntual (la del server de casa o la del local), sin tocar la activa. */
+  logoutAt: (base: string, tok: string) => req<void>("POST", "/api/auth/logout", undefined, { to: { base, token: tok } }),
 };

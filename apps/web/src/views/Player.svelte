@@ -21,6 +21,7 @@
     ChevronLeft,
     ChevronRight,
     FastForward,
+    Activity,
     Gauge,
     ListVideo,
     LoaderCircle,
@@ -32,25 +33,30 @@
     Plus,
     RotateCcw,
     RotateCw,
+    Scan,
     SkipForward,
     TriangleAlert,
     Volume1,
     Volume2,
     VolumeX,
+    X,
   } from "@lucide/svelte";
   import type HlsType from "hls.js";
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import PlayerLoading from "../components/PlayerLoading.svelte";
   import SeekBar from "../components/SeekBar.svelte";
   import StreamList from "../components/StreamList.svelte";
   import WindowControls from "../components/WindowControls.svelte";
-  import { api, dropCache, errText, mediaUrl, withToken } from "../lib/api";
+  import { api, dropCache, errText, mediaUrl, movedAway, withToken } from "../lib/api";
   import { degrade, detectCaps } from "../lib/caps";
-  import { bytes, clock, epCode, sized } from "../lib/format";
+  import { bytes, clock, epCode, sized, speed } from "../lib/format";
   import { fadeQuick, pop, rise, step } from "../lib/motion";
   import { isDesktop, isFullscreen, setFullscreen } from "../lib/platform";
   import { langName, nativeLangName, normLang, prefs, savePrefs } from "../lib/prefs.svelte";
   import { back, go, setQuery } from "../lib/router.svelte";
+  import { keyParts, PLAYER_KEYS, PLAYER_TOUCH } from "../lib/shortcuts";
+  import { preferredAudio, sortByLang } from "../lib/streamlang";
+  import { streamLink } from "../lib/external";
   import { toast } from "../lib/toast.svelte";
   import type { ClientCaps, Episode, MediaStatus, MediaType, Meta, PlayInfo, Progress, Stream } from "../lib/types";
   import { loadDelays, saveDelays } from "../lib/subdelay";
@@ -104,7 +110,7 @@
   let fs = $state(false);
   let ended = $state(false);
 
-  type FlashIcon = "play" | "pause" | "fwd" | "back" | "vol" | "subs";
+  type FlashIcon = "play" | "pause" | "fwd" | "back" | "vol" | "subs" | "speed" | "scale";
   let ui = $state(true); // controles visibles
   let menu = $state<"" | "subs" | "audio" | "speed" | "streams">("");
   let dragging = $state(false);
@@ -180,6 +186,7 @@
 
   onMount(() => {
     init();
+    mediaHandlers(true);
     const onHide = () => leave(true);
     window.addEventListener("pagehide", onHide);
     const onFs = () => isFullscreen().then((v) => (fs = v));
@@ -195,6 +202,15 @@
   onDestroy(() => {
     destroyed = true;
     leave(false);
+    mediaHandlers(false);
+    if (msess) {
+      msess.metadata = null;
+      msess.playbackState = "none";
+      try {
+        msess.setActionHandler("nexttrack", null);
+        msess.setPositionState?.();
+      } catch {}
+    }
     if (fs) setFullscreen(root!, false);
   });
 
@@ -222,7 +238,8 @@
     const progP = api.progress(id).catch(() => null);
     let list: Stream[];
     try {
-      list = await api.streams(type, id);
+      // Con un idioma de audio preferido, los streams en ese idioma primero (lib/streamlang.ts).
+      list = sortByLang(await api.streams(type, id), prefs.audioLang);
     } catch (e) {
       fatal = `Couldn't get streams: ${errText(e)}`;
       return;
@@ -295,8 +312,19 @@
       return;
     }
     if (prev && prev.session_id !== next.session_id) api.closeSession(prev.session_id);
+    // Sin ffmpeg (server local en el dispositivo) solo hay reproduccion directa: si el sondeo dice
+    // que aca no se va a ver o escuchar, se prueba solo el siguiente stream (en el mismo lugar).
+    if (next.transcode_available === false && next.direct_ok === false) {
+      const alt = nextPlayable(s);
+      if (alt) {
+        api.closeSession(next.session_id);
+        toast("This file can't play on this device. Trying another stream…");
+        setQuery({ s: alt.key });
+        return open(alt, at, newCaps);
+      }
+    }
     info = next;
-    audioSel = next.audio_tracks.find((a) => a.default)?.index ?? next.audio_tracks[0]?.index ?? null;
+    pickPreferredAudio(next);
     autoSub();
     const pos = await at;
     if (destroyed) return;
@@ -329,6 +357,7 @@
     attempts.media = 0;
     decodeChecked = false;
     const useHls = (info.mode !== "direct" || forceHls) && !!info.hls_url;
+    viaHls = useHls;
     if (!useHls) {
       offset = 0;
       pendingSeek = at > 0 ? at : null;
@@ -456,6 +485,18 @@
    *  capacidades (pasa a remux o transcode) y se sigue desde el mismo lugar. */
   function fallback(what: "video" | "audio" | "any"): boolean {
     if (!info || !stream) return false;
+    // Sin ffmpeg no hay a que degradar: otro stream (o el panel para elegirlo).
+    if (info.transcode_available === false) {
+      const alt = nextPlayable(stream);
+      if (alt) {
+        toast("This file can't play on this device. Trying another stream…");
+        switchTo(alt);
+        return true;
+      }
+      stuck = "codec";
+      stuckMsg = "This device can't play this file without your server. Another stream will probably work.";
+      return false;
+    }
     const less = degrade(caps, info, what);
     if (!less || attempts.fallback >= 3) {
       stuck = "codec";
@@ -466,6 +507,14 @@
     toast("Switching to compatible playback…");
     open(stream, t, less);
     return true;
+  }
+
+  /** Siguiente stream de la lista que todavia no se probo (sin ffmpeg; hasta 3 saltos solos). */
+  const tried = new Set<string>();
+  function nextPlayable(from: Stream): Stream | null {
+    tried.add(from.key);
+    if (tried.size > 3) return null;
+    return streams.find((x) => !tried.has(x.key)) ?? null;
   }
 
   /** A los ~3 s de reproducir en direct: ¿hay imagen? ¿hay sonido? */
@@ -508,6 +557,14 @@
   }
 
   function watchdog() {
+    // La API ya le habla a otro server que el de este video (modo local: se cayo el de casa, o
+    // volvio) y el video se trabo: se sigue en el activo, desde el mismo lugar.
+    if (info && stream && started && (waiting || stuck === "error") && !fatal && movedAway(info.session_id) && Date.now() - waitSince > 3000) {
+      stuck = "";
+      toast("Reconnecting playback…");
+      open(stream, t);
+      return;
+    }
     if (stuck || fatal || askResume || !stream) return;
     if (status?.state === "error") {
       stuck = "error";
@@ -549,6 +606,7 @@
       pendingSeek = null;
     }
     vDur = isFinite(video!.duration) ? video!.duration : 0;
+    applyNativeAudio();
   }
 
   let waitTimer = 0;
@@ -579,6 +637,7 @@
     // En pausa el rAF no corre: un salto tiene que cambiar la linea igual.
     if (paused) renderSub();
     readBuffered();
+    syncPosition();
     if (!prefetchedNext && nextEp && duration && t / duration > 0.85) prefetchNext();
   }
 
@@ -653,6 +712,7 @@
       else attach(to);
     }
     t = to;
+    syncPosition(true);
   }
 
   function skip(d: number) {
@@ -679,9 +739,287 @@
   }
 
   let flashK = 0;
+  let flashTimer = 0;
   function bump(icon: FlashIcon, text?: string) {
     flash = { k: ++flashK, icon, text };
+    // Con "reducir animaciones" no hay animationend: se saca igual.
+    clearTimeout(flashTimer);
+    flashTimer = window.setTimeout(() => (flash = null), 700);
   }
+
+  // ---- velocidad: [ y ] por los pasos del menu; mantener Space (o el dedo) = 2× mientras dura
+
+  function stepRate(d: 1 | -1) {
+    if (holding) return;
+    const i = SPEEDS.indexOf(rate);
+    const n = i >= 0 ? SPEEDS[i + d] : d > 0 ? SPEEDS.find((v) => v > rate) : [...SPEEDS].reverse().find((v) => v < rate);
+    if (n !== undefined) rate = n;
+    bump("speed", rate === 1 ? "Normal speed" : `${rate}×`);
+  }
+
+  let holding = $state(false);
+  let holdPrev = 1;
+  let holdTimer = 0;
+  let spaceHeld = false;
+  /** Como Stremio (usePlaybackSpeedHold): solo mientras se reproduce; al soltar, la de antes. */
+  function startHold() {
+    if (holding || !video || video.paused || !started) return;
+    holdPrev = rate;
+    holding = true;
+    rate = Math.max(2, rate);
+  }
+  function endHold() {
+    clearTimeout(holdTimer);
+    if (!holding) return;
+    holding = false;
+    rate = holdPrev;
+  }
+  /** Space: en pausa arranca enseguida; reproduciendo, soltar antes de 300 ms pausa y mantener
+   *  pasa a 2×. */
+  function spaceDown(e: KeyboardEvent) {
+    if (e.repeat || spaceHeld) return;
+    if (!video || video.paused || !started || ended) return toggle();
+    spaceHeld = true;
+    clearTimeout(holdTimer);
+    holdTimer = window.setTimeout(startHold, 300);
+  }
+  function onKeyUp(e: KeyboardEvent) {
+    if (e.key !== " " || !spaceHeld) return;
+    spaceHeld = false;
+    e.preventDefault();
+    if (holding) endHold();
+    else {
+      clearTimeout(holdTimer);
+      toggle();
+    }
+  }
+  function onBlur() {
+    spaceHeld = false;
+    endHold();
+  }
+
+  // ---- escala del video: Fit (entero), Fill (estirado a la pantalla), Crop (llena recortando
+  // los bordes). V la cambia, pellizcar en el celular; se recuerda mientras dure la sesion.
+
+  type Scale = "fit" | "fill" | "crop";
+  const SCALES: Scale[] = ["fit", "fill", "crop"];
+  const SCALE_LABEL: Record<Scale, string> = { fit: "Fit", fill: "Fill", crop: "Crop" };
+  const SCALE_CSS: Record<Scale, string> = { fit: "contain", fill: "fill", crop: "cover" };
+  const SCALE_KEY = "mythos.scale";
+  let scale = $state<Scale>(readScale());
+  function readScale(): Scale {
+    try {
+      const v = sessionStorage.getItem(SCALE_KEY) as Scale | null;
+      return v && SCALES.includes(v) ? v : "fit";
+    } catch {
+      return "fit";
+    }
+  }
+  function setScale(s: Scale) {
+    scale = s;
+    try {
+      sessionStorage.setItem(SCALE_KEY, s);
+    } catch {}
+    bump("scale", SCALE_LABEL[s]);
+  }
+  const cycleScale = () => setScale(SCALES[(SCALES.indexOf(scale) + 1) % SCALES.length]);
+
+  // ---- estadisticas (D, o "Playback stats" en el panel de streams): /status solo mientras se ven
+
+  let showStats = $state(false);
+  let viaHls = $state(false); // lo que se conecto en attach (direct puede ir por HLS por el audio)
+  let stats = $state<MediaStatus | null>(null);
+  let frames = $state<{ dropped: number; total: number } | null>(null);
+  let aheadS = $state(0);
+  let shownRes = $state("");
+  function readLocal() {
+    if (!video) return;
+    const q = video.getVideoPlaybackQuality?.();
+    frames = q ? { dropped: q.droppedVideoFrames, total: q.totalVideoFrames } : null;
+    shownRes = video.videoWidth ? `${video.videoWidth}×${video.videoHeight}` : "";
+    let ahead = 0;
+    const b = video.buffered;
+    const c = video.currentTime;
+    for (let i = 0; i < b.length; i++) if (b.start(i) <= c + 0.5 && b.end(i) > c) ahead = b.end(i) - c;
+    aheadS = ahead;
+  }
+  $effect(() => {
+    if (!showStats) return;
+    const sid = info?.session_id;
+    const ctl = new AbortController();
+    let timer = 0;
+    let alive = true;
+    const tick = async () => {
+      untrack(readLocal);
+      if (sid)
+        try {
+          stats = await api.status(sid, ctl.signal);
+        } catch {}
+      if (alive) timer = window.setTimeout(tick, 1000);
+    };
+    tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      ctl.abort();
+    };
+  });
+  const curAudio = $derived(info?.audio_tracks.find((a) => a.index === audioSel));
+
+  // ---- gestos en pantallas tactiles (sobre el video): tocar muestra o esconde los controles,
+  // doble toque a un costado = −10 / +10 s (seguir tocando suma), mantener = 2×, pellizcar
+  // hacia afuera = Crop y hacia adentro = Fit. El mouse sigue igual (clic pausa, doble clic F).
+
+  const pts = new Map<number, { x: number; y: number }>();
+  let gest = { x0: 0, y0: 0, at: 0, moved: false, multi: false, pinch0: 0, pinched: false, uiAtDown: true, long: false };
+  let longTimer = 0;
+  let tapTimer = 0;
+  let lastTap = { at: 0, zone: 0 };
+  let combo = $state<{ k: number; zone: -1 | 1; total: number } | null>(null);
+  let comboUntil = 0;
+  let comboTimer = 0;
+  let lastPointer = "mouse";
+  const spread = () => {
+    const [a, b] = [...pts.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  };
+
+  function onVDown(e: PointerEvent) {
+    lastPointer = e.pointerType;
+    if (e.pointerType !== "touch") return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) {
+      // `ui` antes de que el pointerdown del reproductor muestre los controles.
+      gest = { x0: e.clientX, y0: e.clientY, at: Date.now(), moved: false, multi: false, pinch0: 0, pinched: false, uiAtDown: ui, long: false };
+      clearTimeout(longTimer);
+      longTimer = window.setTimeout(() => {
+        if (gest.moved || gest.multi) return;
+        startHold();
+        gest.long = holding;
+      }, 450);
+    } else {
+      gest.multi = true;
+      clearTimeout(longTimer);
+      if (pts.size === 2) gest.pinch0 = spread();
+    }
+  }
+  function onVMove(e: PointerEvent) {
+    if (e.pointerType !== "touch" || !pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size >= 2) {
+      if (!gest.pinch0 || gest.pinched) return;
+      const r = spread() / gest.pinch0;
+      if (r > 1.2 || r < 0.83) {
+        gest.pinched = true;
+        setScale(r > 1 ? "crop" : "fit");
+      }
+    } else if (Math.hypot(e.clientX - gest.x0, e.clientY - gest.y0) > 12) {
+      gest.moved = true;
+      clearTimeout(longTimer);
+    }
+  }
+  function onVUp(e: PointerEvent) {
+    if (e.pointerType !== "touch" || !pts.delete(e.pointerId) || pts.size) return;
+    clearTimeout(longTimer);
+    if (gest.long) return endHold();
+    if (e.type === "pointercancel" || gest.multi || gest.moved || Date.now() - gest.at > 350) return;
+    tap(e.clientX);
+  }
+  function tap(x: number) {
+    if (!started || !root) return;
+    const w = root.clientWidth;
+    const zone = x < w / 3 ? -1 : x > (2 * w) / 3 ? 1 : 0;
+    const now = Date.now();
+    if (zone && combo?.zone === zone && now < comboUntil) return comboSeek(zone);
+    if (zone && lastTap.zone === zone && now - lastTap.at < 300) {
+      clearTimeout(tapTimer);
+      lastTap = { at: 0, zone: 0 };
+      return comboSeek(zone);
+    }
+    lastTap = { at: now, zone };
+    clearTimeout(tapTimer);
+    const was = gest.uiAtDown;
+    // Al centro no hay doble toque: los controles enseguida. A los costados se espera un poco.
+    if (!zone) toggleUi(was);
+    else tapTimer = window.setTimeout(() => toggleUi(was), 300);
+  }
+  function toggleUi(wasShown: boolean) {
+    if (wasShown) {
+      clearTimeout(hideTimer);
+      ui = false;
+    } else activity();
+  }
+  function comboSeek(zone: -1 | 1) {
+    const now = Date.now();
+    const total = (combo?.zone === zone && now < comboUntil ? combo.total : 0) + 10;
+    combo = { k: ++flashK, zone, total };
+    comboUntil = now + 700;
+    seek(t + zone * 10);
+    clearTimeout(comboTimer);
+    comboTimer = window.setTimeout(() => (combo = null), 800);
+  }
+
+  // ---- Media Session: teclas multimedia, auriculares, la notificacion de Android y la
+  // pantalla bloqueada. Titulo, poster y posicion; play/pausa/saltos/siguiente episodio.
+
+  const msess = typeof navigator !== "undefined" && "mediaSession" in navigator ? navigator.mediaSession : null;
+  $effect(() => {
+    if (!msess || !meta || typeof MediaMetadata === "undefined") return;
+    const art = sized(ep?.thumbnail && !prefs.hideSpoilers ? ep.thumbnail : meta.poster, "medium");
+    try {
+      msess.metadata = new MediaMetadata({
+        title: ep ? `${epCode(ep.season, ep.episode)}${ep.name ? ` · ${ep.name}` : ""}` : meta.name,
+        artist: ep ? meta.name : (meta.year ?? ""),
+        album: "Mythos",
+        artwork: art ? [{ src: art }] : [],
+      });
+    } catch {}
+  });
+  function mediaHandlers(on: boolean) {
+    if (!msess) return;
+    const list: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ["play", () => video?.paused && toggle()],
+      ["pause", () => video && !video.paused && toggle()],
+      ["stop", () => video?.pause()],
+      ["seekbackward", (d) => skip(-(d.seekOffset || 10))],
+      ["seekforward", (d) => skip(d.seekOffset || 10)],
+      ["seekto", (d) => d.seekTime != null && seek(d.seekTime)],
+    ];
+    for (const [a, f] of list)
+      try {
+        msess.setActionHandler(a, on ? f : null);
+      } catch {}
+  }
+  $effect(() => {
+    if (!msess) return;
+    const next = nextEp ? () => playNext() : null;
+    try {
+      msess.setActionHandler("nexttrack", next);
+    } catch {}
+  });
+  $effect(() => {
+    if (msess) msess.playbackState = !started ? "none" : paused ? "paused" : "playing";
+  });
+  let posAt = 0;
+  /** La posicion para la barra del sistema (una vez por segundo, o enseguida al saltar). */
+  function syncPosition(force = false) {
+    if (!msess?.setPositionState || !duration || !started) return;
+    const now = Date.now();
+    if (!force && now - posAt < 1000) return;
+    posAt = now;
+    try {
+      msess.setPositionState({ duration, position: Math.max(0, Math.min(t, duration)), playbackRate: rate || 1 });
+    } catch {}
+  }
+  $effect(() => {
+    void rate;
+    void paused;
+    untrack(() => syncPosition(true));
+  });
+
+  // ---- "?": la lista de atajos (la misma de Settings)
+  let showKeys = $state(false);
+  const coarse = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 
   function setVolume(v: number) {
     prefs.volume = Math.max(0, Math.min(1, v));
@@ -714,6 +1052,31 @@
   const canAudio = $derived(
     !!info && info.audio_tracks.length > 1 && (!!info.hls_url || !!(video as unknown as { audioTracks?: unknown })?.audioTracks),
   );
+  type NativeTracks = { length: number; [i: number]: { enabled: boolean } };
+  const nativeTracks = () => (video as unknown as { audioTracks?: NativeTracks } | undefined)?.audioTracks;
+
+  /** Al abrir una sesion: la pista del idioma preferido (Settings → Playback) si la hay. Si no es
+   *  la que viene por defecto: en directo con las pistas del navegador (al cargar, ver
+   *  applyNativeAudio) y si no hay, por HLS con esa pista (igual que elegirla a mano). */
+  function pickPreferredAudio(p: PlayInfo) {
+    const def = p.audio_tracks.find((a) => a.default) ?? p.audio_tracks[0];
+    const want = preferredAudio(p.audio_tracks, prefs.audioLang);
+    audioSel = def?.index ?? null;
+    if (!want || !def || want.index === def.index) return;
+    if (p.mode === "direct" && nativeTracks()) audioSel = want.index;
+    else if (p.hls_url) {
+      audioSel = want.index;
+      forceHls = true;
+      hlsAudio = want.index;
+    }
+  }
+  function applyNativeAudio() {
+    const native = nativeTracks();
+    if (!info || info.mode !== "direct" || forceHls || !native?.length) return;
+    const pos = info.audio_tracks.findIndex((a) => a.index === audioSel);
+    if (pos >= 0 && native.length === info.audio_tracks.length) for (let i = 0; i < native.length; i++) native[i].enabled = i === pos;
+  }
+
   function pickAudio(index: number) {
     menu = "";
     if (!info || index === audioSel) return;
@@ -999,7 +1362,10 @@
     if (!nextEp) return;
     api
       .streams("series", nextEp.id)
-      .then((l) => l[0] && api.prefetch(l[0]))
+      .then((l) => {
+        const first = sortByLang(l, prefs.audioLang)[0];
+        if (first) api.prefetch(first);
+      })
       .catch(() => {});
   }
 
@@ -1064,6 +1430,7 @@
     clearTimeout(hideTimer);
     clearTimeout(waitTimer);
     clearTimeout(peekTimer);
+    for (const tm of [holdTimer, longTimer, tapTimer, comboTimer, flashTimer]) clearTimeout(tm);
     cancelAnimationFrame(raf);
     pollCtl?.abort();
     saveProgress(keepalive);
@@ -1101,7 +1468,8 @@
 
   function onKey(e: KeyboardEvent) {
     if ((e.target as HTMLElement).closest("input, textarea")) return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // AltGr (Ctrl+Alt en Windows) escribe [ ] en algunos teclados: esa si pasa.
+    if ((e.ctrlKey || e.metaKey || e.altKey) && !e.getModifierState?.("AltGraph")) return;
     const panel = (e.target as HTMLElement).closest<HTMLElement>(".pmenu");
     if (panel && menuKey(e, panel)) return activity();
     const k = e.key.toLowerCase();
@@ -1110,7 +1478,8 @@
       if (k === "enter") resume(askResume.position_s);
       else if (k === "escape") exit();
       else handled = false;
-    } else if (k === " " || k === "k") toggle();
+    } else if (k === " ") spaceDown(e);
+    else if (k === "k") toggle();
     else if (k === "f") toggleFs();
     else if (k === "m") toggleMute();
     else if (k === "arrowright") skip(5);
@@ -1127,13 +1496,19 @@
     else if (k === "-" || k === "_") stepSize(-1, true);
     else if (k === "=" || k === "+") stepSize(1, true);
     else if (k === "n") nextEp && playNext();
+    else if (k === "[") stepRate(-1);
+    else if (k === "]") stepRate(1);
+    else if (k === "v") cycleScale();
+    else if (k === "d") showStats = !showStats;
+    else if (k === "?") showKeys = !showKeys;
     else if (k === "escape") {
       if (menu) {
         // Si el foco estaba en el menu, vuelve al boton que lo abrio.
         const opener = panel ? root?.querySelector<HTMLElement>(`[data-menu="${menu}"]`) : null;
         menu = "";
         opener?.focus();
-      } else if (countdown !== null) cancelCountdown();
+      } else if (showKeys) showKeys = false;
+      else if (countdown !== null) cancelCountdown();
       else if (fs) toggleFs();
       else exit();
     } else handled = false;
@@ -1150,7 +1525,7 @@
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onkeyup={onKeyUp} onblur={onBlur} />
 
 <div
   class="player"
@@ -1166,6 +1541,11 @@
     bind:this={video}
     preload="auto"
     playsinline
+    style="object-fit: {SCALE_CSS[scale]}"
+    onpointerdown={onVDown}
+    onpointermove={onVMove}
+    onpointerup={onVUp}
+    onpointercancel={onVUp}
     onloadedmetadata={onLoadedMeta}
     ondurationchange={() => (vDur = video && isFinite(video.duration) ? video.duration : 0)}
     onwaiting={onWaiting}
@@ -1179,8 +1559,8 @@
     onseeked={() => !video?.paused && video!.readyState >= 3 && onPlaying()}
     onended={onEnded}
     onerror={onError}
-    onclick={() => started && !menu && toggle()}
-    ondblclick={toggleFs}
+    onclick={() => started && !menu && lastPointer !== "touch" && toggle()}
+    ondblclick={() => lastPointer !== "touch" && toggleFs()}
   ></video>
 
   <!-- Subtitulos dibujados por la app (no <track> ni ::cue): siguen al tiempo real tambien en HLS
@@ -1212,11 +1592,55 @@
           {:else if flash.icon === "fwd"}<RotateCw size={30} />
           {:else if flash.icon === "back"}<RotateCcw size={30} />
           {:else if flash.icon === "subs"}<Captions size={30} />
+          {:else if flash.icon === "speed"}<Gauge size={30} />
+          {:else if flash.icon === "scale"}<Scan size={30} />
           {:else}<VolIcon size={30} />{/if}
         </span>
         {#if flash.text}<span class="flash-text">{flash.text}</span>{/if}
       </div>
     {/key}
+  {/if}
+
+  <!-- Mantener apretado: 2× mientras dura. -->
+  {#if holding}
+    <div class="hold-pill" transition:fadeQuick><FastForward size={15} fill="currentColor" />{rate}×</div>
+  {/if}
+
+  <!-- Doble toque a un costado: el salto acumulado (−30 s) con una onda. -->
+  {#if combo}
+    <div class="ripple" class:right={combo.zone > 0} transition:fadeQuick>
+      {#key combo.k}<span class="ring"></span>{/key}
+      <span class="rtext">
+        {#if combo.zone > 0}<RotateCw size={22} />{:else}<RotateCcw size={22} />{/if}
+        {combo.zone > 0 ? "+" : "−"}{combo.total} s
+      </span>
+    </div>
+  {/if}
+
+  <!-- Estadisticas (D): lo que el server sabe del torrent y lo que el navegador del video. -->
+  {#if showStats && info}
+    <div class="stats" transition:fadeQuick>
+      <div class="st-head">
+        <span>Playback stats</span>
+        <button class="st-x" onclick={() => (showStats = false)} title="Close (D)" aria-label="Close stats"><X size={14} /></button>
+      </div>
+      <dl>
+        <dt>Mode</dt><dd>{info.mode}{info.mode === "direct" && viaHls ? " · HLS (audio track)" : ""}</dd>
+        <dt>Video</dt>
+        <dd>
+          {[info.video_codec?.toUpperCase(), info.width && info.height ? `${info.width}×${info.height}` : "", info.hdr ? "HDR" : ""].filter(Boolean).join(" · ") || "—"}
+          {#if shownRes && info.width && shownRes !== `${info.width}×${info.height}`}<span class="dim"> → {shownRes}</span>{/if}
+        </dd>
+        <dt>Audio</dt><dd>{curAudio ? `${curAudio.codec.toUpperCase()} · ${curAudio.title || langName(curAudio.lang)}` : "—"}</dd>
+        {#if info.container}<dt>Container</dt><dd>{info.container}</dd>{/if}
+        <dt>Peers</dt><dd>{stats?.peers ?? "—"}</dd>
+        <dt>Download</dt><dd>{stats ? `${speed(stats.down_bps)} · up ${speed(stats.up_bps)}` : "—"}</dd>
+        <dt>File</dt><dd>{stats && stats.total_bytes ? `${Math.round(stats.progress * 100)}% of ${bytes(stats.total_bytes)}` : bytes(info.size_bytes)}</dd>
+        <dt>Buffered</dt><dd>{aheadS.toFixed(0)} s ahead{stats?.buffered_ahead_s ? ` · server ${Math.round(stats.buffered_ahead_s)} s` : ""}</dd>
+        {#if frames}<dt>Dropped</dt><dd>{frames.dropped} of {frames.total} frames</dd>{/if}
+        <dt>Speed</dt><dd>{rate}× · {SCALE_LABEL[scale]}</dd>
+      </dl>
+    </div>
   {/if}
 
   {#if loadingFull || (waitShown && started && !stuck)}
@@ -1432,9 +1856,13 @@
       <div class="side-head">
         <h3>Streams</h3>
         <span class="faint">{streams.length} found · switching keeps your position</span>
+        <!-- La entrada a las estadisticas en pantallas tactiles (en el teclado es la D). -->
+        <button class="side-link" onclick={() => ((showStats = !showStats), (menu = ""))} title="Playback stats (D)">
+          <Activity size={13} />{showStats ? "Hide playback stats" : "Playback stats"}
+        </button>
       </div>
       <div class="side-body">
-        <StreamList {streams} current={stream?.key} onpick={switchTo} onmedia />
+        <StreamList {streams} current={stream?.key} onpick={switchTo} onmedia linkFor={(s) => streamLink(s, stream && info ? { key: stream.key, info } : null)} />
       </div>
     </div>
   {/if}
@@ -1487,7 +1915,7 @@
   {#if ended && nextEp}
     <div class="next-card" transition:rise={{ y: 16 }}>
       <div class="nc-thumb">
-        {#if nextEp.thumbnail}<img src={nextEp.thumbnail} alt="" />{/if}
+        {#if nextEp.thumbnail}<img src={nextEp.thumbnail} alt="" class:spoil={prefs.hideSpoilers} />{/if}
         {#if countdown !== null}
           <svg class="nc-ring" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" style="stroke-dashoffset: {106.8 * (1 - countdown / 10)}" /></svg>
           <span class="nc-n">{countdown}</span>
@@ -1511,6 +1939,27 @@
           <button class="btn primary lg" onclick={toggle}><RotateCcw size={16} />Watch again</button>
           <button class="btn glass lg" onclick={exit}><ArrowLeft size={16} />Back</button>
         </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- "?": los atajos (la lista de lib/shortcuts.ts, la misma de Settings). -->
+  {#if showKeys}
+    <div class="modal-wrap" role="presentation" onclick={(e) => e.target === e.currentTarget && (showKeys = false)}>
+      <div class="dialog-card keys-card" transition:pop role="dialog" aria-label="Keyboard shortcuts">
+        <div class="dc-title">Shortcuts</div>
+        {#each coarse ? [PLAYER_TOUCH, PLAYER_KEYS] : [PLAYER_KEYS, PLAYER_TOUCH] as list, li (li)}
+          <div class="mh">{list === PLAYER_TOUCH ? "Touch" : "Keyboard"}</div>
+          <div class="keys">
+            {#each list as [k, what] (k)}
+              <div class="key-row">
+                <span class="kbds">{#each keyParts(k) as one, i (one)}{#if i}<span class="or">or</span>{/if}<kbd>{one}</kbd>{/each}</span>
+                <span class="what">{what}</span>
+              </div>
+            {/each}
+          </div>
+        {/each}
+        <div class="dc-actions"><button class="btn glass" onclick={() => (showKeys = false)}>Close</button></div>
       </div>
     </div>
   {/if}
@@ -2272,6 +2721,189 @@
     display: flex;
     gap: 8px;
     margin-top: 8px;
+  }
+  /* Con el dedo: los gestos son de la app (sin zoom ni scroll del navegador). */
+  video {
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .hold-pill {
+    position: absolute;
+    top: 76px;
+    left: 50%;
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 999px;
+    font: 700 13px var(--mono);
+    background: var(--media-scrim);
+    border: 1px solid var(--media-line);
+    backdrop-filter: blur(10px);
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  .ripple {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 4;
+    width: 34%;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 0 50% 50% 0 / 0 50% 50% 0;
+    background: color-mix(in srgb, var(--on-media) 8%, transparent);
+    pointer-events: none;
+  }
+  .ripple.right {
+    left: auto;
+    right: 0;
+    border-radius: 50% 0 0 50% / 50% 0 0 50%;
+  }
+  /* La onda: sin "reducir animaciones" crece y se va; con, no se ve (opacidad 0 en reposo). */
+  .ring {
+    position: absolute;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--on-media) 22%, transparent);
+    opacity: 0;
+    animation: ring 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @keyframes ring {
+    from {
+      opacity: 1;
+      transform: scale(0.4);
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.6);
+    }
+  }
+  .rtext {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    font: 700 14px var(--mono);
+    text-shadow: 0 2px 10px var(--media-bg);
+  }
+  .stats {
+    position: absolute;
+    top: 70px;
+    left: 14px;
+    z-index: 7;
+    width: min(340px, calc(100vw - 28px));
+    /* Celular acostado: no tapa la barra de abajo (scrollea). */
+    max-height: calc(100% - 170px);
+    overflow: auto;
+    padding: 8px 12px 10px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--media-bg) 72%, transparent);
+    border: 1px solid var(--media-line);
+    backdrop-filter: blur(14px);
+    font-size: 12px;
+  }
+  .st-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--on-media-2);
+  }
+  .st-x {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    color: var(--on-media-2);
+  }
+  .st-x:hover {
+    background: var(--media-line);
+    color: var(--on-media);
+  }
+  .stats dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 12px;
+    margin: 4px 0 0;
+  }
+  .stats dt {
+    color: var(--on-media-2);
+  }
+  .stats dd {
+    margin: 0;
+    min-width: 0;
+    font: 600 12px var(--mono);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+  .side-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--on-media-2);
+  }
+  .side-link:hover {
+    color: var(--on-media);
+  }
+  .nc-thumb img.spoil {
+    filter: blur(10px);
+    transform: scale(1.1);
+  }
+  .keys-card {
+    width: min(620px, 100%);
+    text-align: left;
+  }
+  .keys-card .dc-title {
+    margin-bottom: 6px;
+  }
+  .keys-card .mh {
+    padding: 12px 0 4px;
+  }
+  .keys {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr));
+    gap: 0 18px;
+  }
+  .key-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--media-line);
+    font-size: 12.5px;
+  }
+  .kbds {
+    flex: none;
+    min-width: 96px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .keys-card kbd {
+    background: var(--media-line);
+    border-color: var(--media-line);
+    color: var(--on-media);
+    box-shadow: none;
+  }
+  .or {
+    font-size: 10.5px;
+    color: var(--on-media-2);
+  }
+  .what {
+    color: var(--on-media-2);
   }
   .sr-only {
     position: absolute;

@@ -14,6 +14,7 @@ iguales.
 | Cómo tiene que verse la interfaz | `DESIGN.md` (portado de Ethereon) |
 | Despliegue en el server, puertos | `deploy/README.md` |
 | App de Android: shell, interfaz del server opcional, actualizaciones, publicar | `docs/mobile.md` |
+| Modo local (server embebido en desktop y Android, sincronización, Auto/Solo server/Solo local) | `docs/local-mode.md` |
 
 ## Estructura
 
@@ -27,6 +28,8 @@ apps/web/                 la interfaz (Svelte 5 + Vite + TS). La misma para web,
 apps/desktop/             Tauri 2: solo la ventana; carga el build de apps/web
 apps/mobile/              Tauri 2 para Android: carga el build de apps/web; plugin/ (Rust + Kotlin)
                           con pantalla completa, atras, actualizaciones del APK
+apps/local-server/        plugin de Tauri `mythos-local` (desktop y Android): el server embebido del
+                          modo local (docs/local-mode.md)
 deploy/                   Dockerfile, docker-compose.yml, README de despliegue
 ```
 
@@ -67,9 +70,9 @@ Repo: https://github.com/MartinSchubert04/Mythos (público: nada de secretos, `.
 - La versión está en `backend/server/Cargo.toml`, `backend/media/Cargo.toml`,
   `apps/web/package.json`, `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.toml`,
   `apps/desktop/src-tauri/tauri.conf.json`, `apps/mobile/package.json`,
-  `apps/mobile/src-tauri/Cargo.toml`, `apps/mobile/src-tauri/tauri.conf.json` y
-  `apps/mobile/plugin/Cargo.toml` (todas iguales). El tag `vX.Y.Z` publica el instalador de Windows y
-  el APK (los workflows la toman del tag).
+  `apps/mobile/src-tauri/Cargo.toml`, `apps/mobile/src-tauri/tauri.conf.json`,
+  `apps/mobile/plugin/Cargo.toml` y `apps/local-server/Cargo.toml` (todas iguales). El tag
+  `vX.Y.Z` publica el instalador de Windows y el APK (los workflows la toman del tag).
 
 ## Reglas
 

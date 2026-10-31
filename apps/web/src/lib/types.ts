@@ -88,6 +88,11 @@ export type PlayInfo = {
   hdr?: boolean | null;
   audio_tracks: Track[];
   subtitle_tracks: Track[];
+  /** El server tiene ffmpeg. Sin el (modo local sin ffmpeg): siempre "direct" y sin hls_url. */
+  transcode_available?: boolean | null;
+  /** Segun lo sondeado, este dispositivo lo reproduce tal cual. */
+  direct_ok?: boolean | null;
+  probe_source?: "ffprobe" | "sniff" | "guess" | null;
 };
 
 export type MediaStatus = {
@@ -151,4 +156,106 @@ export type AdminStats = {
   users: number;
   /** Que esta viendo cada uno ahora. */
   watching?: { username: string; meta_id?: string | null; stream_key?: string | null; session_id?: string | null; started_at?: number | null }[] | null;
+};
+
+// ---- sesiones propias (GET /api/me/sessions)
+
+export type SessionInfo = {
+  id: number;
+  /** La etiqueta que mando la UI en el login. */
+  device?: string | null;
+  user_agent?: string | null;
+  last_ip?: string | null;
+  /** unix s */
+  created_at: number;
+  last_used_at: number;
+  expires_at: number;
+  /** Es la de este request. */
+  current: boolean;
+};
+
+// ---- metricas, logs y auditoria (admin)
+
+export type MetricsRange = "24h" | "7d" | "30d" | "90d";
+
+export type Metrics = {
+  range: string;
+  from_ms: number;
+  to_ms: number;
+  totals: { requests: number; errors: number; client_errors: number; bytes_out: number; p50_ms?: number | null; p95_ms?: number | null };
+  /** Una por hora con trafico (las horas sin nada no vienen). */
+  series: { hour_ms: number; requests: number; errors: number; bytes_out: number; p95_ms?: number | null }[];
+  top_ips: { ip: string; requests: number; bytes_out: number; users: string[]; tailscale_logins: string[] }[];
+  top_users: { user_id: number; username?: string | null; requests: number; bytes_out: number }[];
+  top_routes: { method: string; route: string; requests: number; errors: number; bytes_out: number; p50_ms?: number | null; p95_ms?: number | null }[];
+  status: { status: number; requests: number }[];
+  failed_logins: { ip: string; count: number; last_at_ms: number; usernames: string[] }[];
+  dropped_events: number;
+};
+
+export type LogRow = {
+  id: number;
+  ts_ms: number;
+  ip?: string | null;
+  tailscale_login?: string | null;
+  user_id?: number | null;
+  username?: string | null;
+  method: string;
+  /** Plantilla de la ruta (/api/meta/{type}/{id}), nunca la URL real. */
+  route: string;
+  status: number;
+  dur_ms: number;
+  bytes: number;
+};
+
+export type AuditEvent =
+  | "login_ok"
+  | "login_fail"
+  | "logout"
+  | "session_revoked"
+  | "password_changed"
+  | "user_created"
+  | "user_updated"
+  | "user_disabled"
+  | "user_deleted";
+
+export type AuditRow = {
+  id: number;
+  ts_ms: number;
+  event: AuditEvent | string;
+  user_id?: number | null;
+  username?: string | null;
+  ip?: string | null;
+  detail?: string | null;
+};
+
+/** Pagina de logs o auditoria: `next_before` va como `before` de la siguiente (null = no hay mas). */
+export type Page<T> = { items: T[]; next_before: number | null };
+
+export type LogFilters = { user?: string; ip?: string; status?: string; route?: string };
+
+// ---- modo local (server embebido en desktop y Android, docs/local-mode.md)
+
+export type LocalLogin = {
+  token: string;
+  user: User;
+  /** Validado contra la copia del dispositivo: el server de casa no se alcanzo. */
+  offline: boolean;
+  remote: { url: string; token: string; user: { id: number; username: string } } | null;
+};
+
+export type LocalStatus = {
+  mode: "local";
+  username: string;
+  remote_url: string | null;
+  /** Hay una sesion del server de casa guardada (si no, hace falta entrar de nuevo online). */
+  remote_signed_in: boolean;
+  /** null = sin server de casa configurado. */
+  remote_reachable: boolean | null;
+  last_sync_at: number | null;
+  last_sync_error: string | null;
+  pending_changes: number;
+  transcode_available: boolean;
+  sync_interval_s: number | null;
+  version: string;
 };

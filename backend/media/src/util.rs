@@ -177,6 +177,16 @@ pub fn normalize_hash(h: &str) -> Option<String> {
     (h.len() == 40 && h.bytes().all(|b| b.is_ascii_hexdigit())).then_some(h)
 }
 
+/// `tokio::process::Command` para ffmpeg/ffprobe. En Windows, sin ventana de consola: embebido en
+/// la app de escritorio (que no tiene consola propia) cada proceso abriría una ventana negra.
+pub fn tool_command(program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = tokio::process::Command::new(program);
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    cmd
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3,12 +3,13 @@
   import { flip } from "svelte/animate";
   import { fade } from "svelte/transition";
   import Confirm from "./components/Confirm.svelte";
+  import ConnBadge from "./components/ConnBadge.svelte";
   import Logo from "./components/Logo.svelte";
   import Titlebar from "./components/Titlebar.svelte";
   import { confirmState } from "./lib/confirm.svelte";
   import { flipMs, ms, rise, toastIn } from "./lib/motion";
   import { check, net } from "./lib/net.svelte";
-  import { isDesktop, pickServer } from "./lib/platform";
+  import { isAndroid, isDesktop, pickServer } from "./lib/platform";
   import { prefs, savePrefs } from "./lib/prefs.svelte";
   import { go, loadView, route, searchIntent, viewComponent, type ViewName } from "./lib/router.svelte";
   import { session, start } from "./lib/session.svelte";
@@ -183,6 +184,12 @@
 
 {#if confirmState.open}
   <Confirm />
+{/if}
+
+<!-- Android: server de casa o el del dispositivo, siempre a la vista (en desktop va en la barra de
+     titulo). -->
+{#if isAndroid && session.user && !playing}
+  <ConnBadge floating />
 {/if}
 
 {#if net.down && session.user}

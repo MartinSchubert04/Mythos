@@ -14,7 +14,7 @@ apps/mobile/
     android/          Kotlin: MythosPlugin.kt (pantalla completa, atras, pantalla encendida,
                       barras, red local) y Updater.kt (GitHub Releases + PackageInstaller)
   src-tauri/          la app: tauri.conf.json (carga apps/web/dist), capabilities, iconos
-    src/lib.rs        solo el Builder; aca va a arrancar el server embebido del modo local
+    src/lib.rs        solo el Builder (plugins mythos y mythos-local)
     gen/android/      proyecto de Gradle (de `tauri android init`, con firma y MainActivity propios)
 apps/web/src/lib/
   platform.ts         isTauri / isAndroid / isDesktop, serverBase(), setActiveServer(), pantalla completa
@@ -63,19 +63,20 @@ almacenamiento separado: al entrar a la del server se le pasa el token una sola 
 Contrato entre la interfaz y el APK: los comandos del plugin solo se agregan, nunca se cambian ni se
 sacan, y la interfaz tolera que falte uno (un APK más viejo que la interfaz del server).
 
-## Modo local (ganchos)
+## Modo local
 
-Para el server embebido (`docs/local-mode.md`, `mythos::run(Config::local(dir))`):
+El server embebido (`docs/local-mode.md`) es el plugin `mythos-local` (`apps/local-server`), el
+mismo del desktop: arranca en segundo plano según el modo (Auto / Server only / Local only, en
+Settings → Connection) con la carpeta privada de la app, y la interfaz le pregunta dónde está
+(`info`). La interfaz cambia de server en caliente con `useLocal()` de `lib/api.ts` (que usa
+`setActiveServer(url)` de `platform.ts`); ver `lib/local.svelte.ts`.
 
-- **Rust:** el `setup` de `apps/mobile/src-tauri/src/lib.rs` (y el de `apps/desktop/src-tauri/src/lib.rs`)
-  es donde arrancarlo, con `app.path().app_data_dir()` como carpeta, y pasarle a la interfaz
-  `Handle::base_url()` (un comando o un evento).
-- **Interfaz:** `setActiveServer(url)` de `apps/web/src/lib/platform.ts` cambia el server en caliente
-  (sin recargar, sin tocar el guardado); `null` vuelve al guardado. Los tokens siguen en `lib/api.ts`
-  (`setToken`).
 - **Red:** el release solo permite HTTPS, salvo `127.0.0.1` y `localhost`
   (`gen/android/app/src/main/res/xml/network_security_config.xml`); el debug, HTTP a cualquier lado
   (`src/debug/res/xml/`). El loopback no necesita el permiso de red local de Android 17.
+- **TLS:** Gradle trae `org.rustls:rustls-platform-verifier` (repositorio maven de rustls en
+  `gen/android/build.gradle.kts`); el plugin lo inicializa al arrancar.
+- **Logs:** `adb logcat -s mythos` (los del server embebido).
 - La interfaz del server (opcional) no sirve en modo local: con el server caído la app queda en la
   del APK, que es la que habla con el embebido.
 

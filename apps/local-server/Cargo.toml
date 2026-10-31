@@ -1,0 +1,28 @@
+# Plugin de Tauri `mythos-local`: el server de Mythos embebido (modo local, docs/local-mode.md),
+# compartido por las apps de escritorio y de Android. Arranca y para `mythos::run` según el modo
+# que elige el usuario (Auto / Solo server / Solo local) y le dice a la interfaz dónde está.
+[package]
+name = "tauri-plugin-mythos-local"
+version = "0.5.0"
+description = "Mythos: el server embebido del modo local (desktop y Android)"
+edition = "2021"
+links = "tauri-plugin-mythos-local"
+
+[dependencies]
+mythos = { path = "../../backend/server" }
+tauri = "2"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["sync", "time"] }
+tracing = "0.1"
+# Ya están en el árbol de `mythos`: no suman compilación.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+
+# Android: el verificador TLS de la plataforma (lo usa librqbit para los trackers https://) se
+# inicializa por JNI con el contexto de la app. Las dos ya vienen con rustls/tao.
+[target.'cfg(target_os = "android")'.dependencies]
+rustls-platform-verifier = "0.7"
+jni = { version = "0.22", default-features = false }
+ndk-context = "0.1"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

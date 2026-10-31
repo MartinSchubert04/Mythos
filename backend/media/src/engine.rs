@@ -713,7 +713,7 @@ async fn detect_tools(cfg: &MediaConfig) -> MediaTools {
         if path.as_os_str().is_empty() {
             return false;
         }
-        let mut cmd = tokio::process::Command::new(path);
+        let mut cmd = crate::util::tool_command(path);
         cmd.arg("-version")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())

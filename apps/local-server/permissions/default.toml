@@ -1,0 +1,7 @@
+"$schema" = "schemas/schema.json"
+
+# Para la pagina que viene en la app (desktop y APK). La interfaz del server (Android, opcional)
+# no lo recibe: en modo local la app queda en la pagina propia.
+[default]
+description = "Ver y cambiar el modo local (el server embebido)"
+permissions = ["allow-info", "allow-set-mode"]

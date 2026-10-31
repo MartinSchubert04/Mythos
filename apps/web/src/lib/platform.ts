@@ -35,9 +35,14 @@ export function setActiveServer(url: string | null) {
  *  Pagina local de Tauri: la activa o la guardada; vacia = mismo origen (sirve con `tauri dev` y
  *  el proxy de Vite). */
 export function serverBase(): string {
+  if (active !== null && pickServer) return active;
+  return remoteBase();
+}
+
+/** El server de casa (el guardado), aunque la API le este hablando al local. */
+export function remoteBase(): string {
   // En modo mock el "server" vive en esta misma pagina.
   if (!pickServer || (import.meta.env.DEV && import.meta.env.VITE_MOCK === "1")) return "";
-  if (active !== null) return active;
   const s = read(SERVER_KEY);
   return (s ?? DEFAULT_SERVER).trim().replace(/\/+$/, "");
 }
@@ -51,6 +56,21 @@ export function serverSetting(): string {
 export function needsServer(): boolean {
   // En `tauri dev` vacio sirve (mismo origen, con el proxy de Vite); en el build no.
   return pickServer && !(read(SERVER_KEY) ?? DEFAULT_SERVER).trim() && !import.meta.env.DEV;
+}
+
+/** Etiqueta de este dispositivo para la lista de sesiones (Settings → Account): "Mythos Desktop ·
+ *  Windows", "Mythos Android · Pixel 8", "Chrome on Windows". Va en el login (≤ 64 caracteres). */
+export function deviceLabel(): string {
+  const ua = navigator.userAgent;
+  const os = /Windows/i.test(ua) ? "Windows" : /Android/i.test(ua) ? "Android" : /iPhone|iPad/i.test(ua) ? "iOS" : /Mac OS/i.test(ua) ? "macOS" : /Linux/i.test(ua) ? "Linux" : "";
+  if (isAndroid) {
+    // "…(Linux; Android 14; Pixel 8 Build/…; wv)" → "Pixel 8"
+    const model = /Android [\d.]+; ([^;)]+?)(?: Build\/|;|\))/.exec(ua)?.[1]?.trim();
+    return (model && model !== "K" ? `Mythos Android · ${model}` : "Mythos Android").slice(0, 64);
+  }
+  if (isDesktop) return `Mythos Desktop · ${os || "PC"}`;
+  const browser = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Browser";
+  return os ? `${browser} on ${os}` : browser;
 }
 
 /** "my-server:7700" → "https://my-server:7700" (sin barra final). */

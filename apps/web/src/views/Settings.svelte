@@ -2,6 +2,10 @@
   // Ajustes: tema y paleta con muestras en vivo (como Ethereon), reproduccion, subtitulos,
   // Real-Debrid y la cuenta. Lo de la interfaz se guarda solo (local y en el server).
   import { Captions, Download, Keyboard, KeyRound, LogOut, Palette, Play, RefreshCw, Server, Smartphone, UserRound } from "@lucide/svelte";
+  import { MonitorSmartphone, Users } from "@lucide/svelte";
+  import { conn } from "../lib/local.svelte";
+  import ConnectionSettings from "../components/ConnectionSettings.svelte";
+  import Devices from "../components/Devices.svelte";
   import Section from "../components/Section.svelte";
   import Seg from "../components/Seg.svelte";
   import Select from "../components/Select.svelte";
@@ -10,6 +14,8 @@
   import { ask } from "../lib/confirm.svelte";
   import { checkServer, isAndroid, isRemoteShell, normalizeServer, pickServer, serverSetting, setServer } from "../lib/platform";
   import { LANGS, prefs, savePrefs } from "../lib/prefs.svelte";
+  import { ALL_KEYS as KEYS } from "../lib/shortcuts";
+  import { AUDIO_LANGS } from "../lib/streamlang";
   import { keepScroll } from "../lib/scroll";
   import { logout, session } from "../lib/session.svelte";
   import { checkUpdate, installUpdate, leaveServer, remoteUi, setRemoteUi, shell } from "../lib/shell.svelte";
@@ -52,22 +58,7 @@
     { value: "720p", label: "720p" },
   ];
 
-  const KEYS: [string, string][] = [
-    ["/  ·  Ctrl K", "Search"],
-    ["← → ↑ ↓", "Move between posters in a row and between rows"],
-    ["Esc", "Close a panel or menu · in the player: leave full screen, then go back"],
-    ["Space  ·  K", "Play or pause"],
-    ["F", "Full screen"],
-    ["M", "Mute"],
-    ["← →", "Back or forward 5 seconds (in the player)"],
-    ["J  ·  L", "Back or forward 10 seconds"],
-    ["↑ ↓", "Volume (in the player)"],
-    ["C", "Subtitles on or off"],
-    ["G  ·  H", "This subtitle 0.5 s earlier or later (Shift: 0.1 s; remembered per subtitle)"],
-    ["-  ·  =", "Subtitles smaller or larger"],
-    ["N", "Next episode"],
-    ["Enter", "Resume (when the player asks)"],
-  ];
+  // Los atajos viven en lib/shortcuts.ts (el "?" del reproductor muestra los mismos).
 
   const SIZES = [
     { value: 80, label: "Small" },
@@ -95,6 +86,10 @@
   }
   async function signOut() {
     if (await ask({ title: "Sign out?", body: "You'll need your password to come back.", confirm: "Sign out" })) logout();
+  }
+  /** Lo mismo que salir (las dos sesiones, en desktop y Android): queda el login con el server. */
+  async function switchAccount() {
+    if (await ask({ title: "Switch account?", body: "You'll sign out here and can sign in with another account on the same server.", confirm: "Switch" })) logout();
   }
 
   let server = $state(serverSetting());
@@ -208,8 +203,14 @@
           />
           <span class="hint">Bigger files are skipped when choosing the best stream.</span>
         </div>
+        <div class="field">
+          Audio language
+          <Select bind:value={prefs.audioLang} options={AUDIO_LANGS} onchange={() => savePrefs()} />
+          <span class="hint">Streams in this language go first (from tags like "Latino" or "Castellano"), and that audio track is picked when a file has several.</span>
+        </div>
       </div>
       <Switch bind:checked={prefs.autoplayNext} onchange={() => savePrefs()}>Play the next episode automatically (10 second countdown)</Switch>
+      <Switch bind:checked={prefs.hideSpoilers} onchange={() => savePrefs()}>Hide spoilers (blur images and descriptions of episodes you haven't started)</Switch>
     </Section>
 
     <Section
@@ -260,6 +261,8 @@
       </div>
     </Section>
 
+    {#if conn.available}<ConnectionSettings />{/if}
+
     <Section id="account" title="Account" icon={UserRound} summary="Signed in as {session.user?.username}">
       <div class="sub">Change password</div>
       <div class="grid2">
@@ -281,8 +284,13 @@
         </div>
         {#if serverErr}<div class="srv-err">{serverErr}</div>{/if}
       {/if}
+      <div class="sub"><MonitorSmartphone size={12} /> Signed-in devices</div>
+      <Devices />
       <div class="sep"></div>
-      <div><button class="btn danger" onclick={signOut}><LogOut size={14} />Sign out</button></div>
+      <div class="row">
+        <button class="btn danger" onclick={signOut}><LogOut size={14} />Sign out</button>
+        <button class="btn ghost" onclick={switchAccount}><Users size={14} />Switch account</button>
+      </div>
     </Section>
 
     {#if isAndroid}

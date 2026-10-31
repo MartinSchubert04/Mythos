@@ -210,13 +210,50 @@ de rustls que traen librqbit y reqwest) compilan con el clang del NDK sin CMake 
 único propio de Android en el código es la verificación TLS (arriba). Con Tauri, `tauri android
 build` pone estas variables solo.
 
-## Lo que falta en el shell y la UI
+## Cómo está hecho en las apps
 
-- Shell: arrancar/parar el server según el modo; comando Tauri que devuelva `base_url()` y
-  `media_tools()`; carpeta de datos; en Android, foreground service y
-  `network_security_config.xml`.
-- UI: selector Auto / Solo server / Solo local; login por el local en Auto/Solo local; guardar los
-  dos tokens; detección de caída y aviso "Server unavailable, continuing locally"; vuelta con
-  `POST /api/local/sync`; prefijar `direct_url`/`hls_url` con la base que corresponda; mandar
-  `caps` reales y usar `direct_ok`/`transcode_available`; pantalla de sesiones
-  (`/api/me/sessions`).
+**Shell** (`apps/local-server`, plugin de Tauri `mythos-local`, el mismo en desktop y Android):
+
+- Guarda el modo en `<app_local_data_dir>/local-mode` (`auto` por defecto). En `auto` y `local`
+  arranca `mythos::run(Config::local(<app_local_data_dir>/local))` en segundo plano apenas abre la
+  app (la ventana no espera; ~1–2 s en debug, el server local queda listo para cuando haga falta).
+  En `server` no arranca nada.
+- Comandos: `info` → `{mode, base_url, transcode_available, error}` (espera si está arrancando) y
+  `set_mode(mode)` (lo guarda; `server` apaga el local, `auto`/`local` lo arrancan).
+- ffmpeg: no viene con la app. En Windows, si `ffmpeg` y `ffprobe` están en el PATH se usan; si
+  no, rutas vacías (solo directo, el motor ni intenta lanzarlos). En Android, nunca. Los procesos
+  de ffmpeg se lanzan sin ventana de consola (`CREATE_NO_WINDOW`, `mythos_media::util::tool_command`).
+- Al salir (`RunEvent::Exit`): `Handle::shutdown()`.
+- `tracing`: a stderr en desktop, a logcat (etiqueta `mythos`) en Android (`init_tracing`).
+- Android: `rustls_platform_verifier::android::init_with_env` con el contexto de la app (de
+  `ndk-context`, que deja tao) y la parte de Kotlin `org.rustls:rustls-platform-verifier` en
+  Gradle (misma versión que `rustls-platform-verifier-android` en el `Cargo.lock`, regla de
+  ProGuard en `proguard-rules.pro`). Sin eso el primer tracker `https://` de librqbit entraba en
+  pánico (y en release, con `panic = "abort"`, cerraba la app).
+
+**UI** (`apps/web/src/lib/local.svelte.ts`):
+
+- Settings → Connection: Auto / Server only / Local only, "Show a notice when switching to local",
+  estado (cambios sin subir, última sincronización, "Sync now"). Pasar a Auto/Local sin la cuenta
+  en el dispositivo pide la contraseña ahí mismo (login por el local).
+- Indicador siempre visible "Server" / "Local" (con los cambios pendientes): en la barra de título
+  del desktop y arriba a la derecha en Android (`components/ConnBadge.svelte`).
+- Dos tokens en `localStorage`: `mythos.token` (server de casa) y `mythos.localToken` (local).
+  `lib/api.ts` usa el del server activo. Logout y "Switch account" cierran los dos.
+- Caída: un pedido al de casa que no llega (o 502/503/504) y `GET /api/health` que tampoco →
+  pasa al local, repite ese pedido ahí y avisa. En el local mira `/api/local/status` cada 20 s;
+  con `remote_reachable` → `POST /api/local/sync {token}` → vuelve al de casa ("Back on the server ·
+  synced") y recarga la vista. Sin sesión del remoto (`remote_signed_in: false` o un login hecho
+  sin conexión) se queda en el local y pide entrar de nuevo para sincronizar.
+- Cada sesión de video queda atada al server (y token) donde se abrió: `direct_url`, HLS,
+  subtítulos internos y `/status` siguen yendo ahí aunque la API cambie. Si ese video se traba y
+  la API ya está en otro server, el reproductor lo reabre en el activo en el mismo segundo.
+- Sin ffmpeg (`transcode_available: false`): si `direct_ok` es `false` se prueba solo el
+  siguiente stream (hasta 3); si el `<video>` no lo decodifica, lo mismo en vez de degradar.
+
+## Lo que falta
+
+- Android: *foreground service* mientras se reproduce o baja algo en el local (con la pantalla
+  apagada Android puede congelar el proceso).
+- `caps` reales del WebView de Android para `/api/streams` (hoy usa la misma detección que la
+  web, que ya es la del dispositivo).

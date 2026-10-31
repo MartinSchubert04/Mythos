@@ -1,10 +1,12 @@
 <script lang="ts">
   // Detalle de una pelicula o serie: fondo grande con degradado, poster (que llega volando desde
   // la tarjeta), datos, favoritos, trailer y Play con el mejor stream. Series: temporadas y
-  // episodios con el progreso visto.
-  import { ArrowLeft, Check, Clock, Heart, ListVideo, Play, Star, Clapperboard, X } from "@lucide/svelte";
+  // episodios con el progreso visto. Visto / no visto a mano: el boton del tilde (peliculas), al
+  // pasar el mouse o mantener apretado un episodio, y el menu ⋯ de la temporada.
+  import { ArrowLeft, Check, CircleCheck, Clock, Ellipsis, EyeOff, Heart, ListVideo, Play, Star, Clapperboard, X } from "@lucide/svelte";
   import Drawer from "../components/Drawer.svelte";
   import Img from "../components/Img.svelte";
+  import PopMenu, { type PopItem } from "../components/PopMenu.svelte";
   import PosterCard from "../components/PosterCard.svelte";
   import Row from "../components/Row.svelte";
   import Seg from "../components/Seg.svelte";
@@ -14,8 +16,12 @@
   import { clock, epCode, sized } from "../lib/format";
   import { takeOver } from "../lib/handoff";
   import { fadeQuick, fadeSlow, pop, rise } from "../lib/motion";
+  import { streamLink } from "../lib/external";
+  import { prefs } from "../lib/prefs.svelte";
+  import { press } from "../lib/press";
   import { back, go, loadView } from "../lib/router.svelte";
   import { keepScroll } from "../lib/scroll";
+  import { sortByLang } from "../lib/streamlang";
   import { attempt, toast } from "../lib/toast.svelte";
   import type { Episode, MediaType, Meta, MetaPreview, Progress, Stream } from "../lib/types";
 
@@ -124,7 +130,10 @@
     if (!playTarget) return;
     api
       .streams(type, playTarget)
-      .then((l) => l[0] && api.prefetch(l[0]))
+      .then((l) => {
+        const first = sortByLang(l, prefs.audioLang)[0];
+        if (first) api.prefetch(first);
+      })
       .catch(() => {});
   }
 
@@ -133,7 +142,7 @@
     streams = null;
     streamsErr = "";
     try {
-      const l = await api.streams(type, target);
+      const l = sortByLang(await api.streams(type, target), prefs.audioLang);
       if (panel?.target !== target) return;
       streams = l;
       if (l[0]) api.prefetch(l[0]);
@@ -161,6 +170,107 @@
     const ok = await attempt(() => (was ? api.libraryRemove(type, id) : api.libraryAdd(preview)));
     if (!ok) inLib = was;
     else toast(was ? "Removed from Library" : "Added to Library");
+  }
+
+  // ---- visto / no visto a mano. "Visto" es lo mismo que al terminar de verlo: progreso con la
+  // posicion al final (> 92 %), asi sale de "Continue watching" y el boton grande pasa al
+  // siguiente. "No visto" borra el progreso.
+  const watched = (mid: string) => {
+    const p = progress[mid];
+    return !!p && p.duration_s > 0 && p.position_s / p.duration_s > 0.92;
+  };
+  /** Duracion para la marca: la del progreso, la del catalogo ("148 min") o una hora. */
+  function durOf(mid: string) {
+    const p = progress[mid];
+    if (p?.duration_s) return p.duration_s;
+    const r = /(\d+)\s*min/.exec(meta?.runtime ?? "");
+    return r ? Number(r[1]) * 60 : 3600;
+  }
+  let marking = $state(false);
+  async function setWatched(ids: string[], on: boolean, done?: string) {
+    if (!m || marking) return;
+    // Solo lo que cambia; en orden, asi el ultimo marcado queda como el mas reciente.
+    const todo = ids.filter((x) => (on ? !watched(x) : !!progress[x]));
+    if (!todo.length) return;
+    const before = progress;
+    const next = { ...progress };
+    const now = Date.now();
+    todo.forEach((mid, i) => {
+      if (!on) return void delete next[mid];
+      const d = durOf(mid);
+      const e = meta?.videos?.find((v) => v.id === mid);
+      next[mid] = {
+        meta_id: mid,
+        type,
+        series_id: type === "series" ? id : null,
+        name: m!.name,
+        poster: m!.poster,
+        background: m!.background,
+        episode_label: e ? `${epCode(e.season, e.episode)}${e.name ? ` · ${e.name}` : ""}` : null,
+        position_s: d,
+        duration_s: d,
+        stream_key: progress[mid]?.stream_key ?? null,
+        updated_at: new Date(now + i).toISOString(),
+      };
+    });
+    progress = next;
+    marking = true;
+    try {
+      for (const mid of todo) {
+        if (on) {
+          const { updated_at: _, ...rec } = next[mid];
+          await api.saveProgress(rec);
+        } else await api.deleteProgress(mid);
+      }
+      if (done) toast(done);
+    } catch (e) {
+      progress = before;
+      toast(errText(e), true);
+    } finally {
+      marking = false;
+    }
+  }
+  const toggleEp = (e: Episode) =>
+    setWatched([e.id], !watched(e.id), `${epCode(e.season, e.episode)} marked as ${watched(e.id) ? "unwatched" : "watched"}`);
+
+  // Los menus chicos: el de un episodio (clic derecho o mantener apretado) y el ⋯ de la temporada.
+  let pm = $state<{ x: number; y: number; items: PopItem[]; label: string } | null>(null);
+  function epMenu(e: Episode, x: number, y: number) {
+    if (future(e)) return;
+    pm = {
+      x,
+      y,
+      label: `${epCode(e.season, e.episode)} options`,
+      items: [
+        watched(e.id)
+          ? { label: "Mark as unwatched", icon: EyeOff, run: () => toggleEp(e) }
+          : { label: "Mark as watched", icon: CircleCheck, run: () => toggleEp(e) },
+        { label: "Choose stream", icon: ListVideo, run: () => openStreams(e.id, `${m?.name} · ${epCode(e.season, e.episode)}`) },
+      ],
+    };
+  }
+  const aired = $derived(episodes.filter((e) => !future(e)));
+  const seasonWatched = $derived(aired.length > 0 && aired.every((e) => watched(e.id)));
+  const seasonName = $derived(season === 0 ? "Specials" : `Season ${season}`);
+  function seasonMenu(ev: MouseEvent) {
+    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    const ids = aired.map((e) => e.id);
+    const items: PopItem[] = [];
+    if (!seasonWatched) items.push({ label: `Mark ${seasonName.toLowerCase()} as watched`, icon: CircleCheck, run: () => setWatched(ids, true, `${seasonName} marked as watched`) });
+    if (aired.some((e) => progress[e.id]))
+      items.push({ label: `Mark ${seasonName.toLowerCase()} as unwatched`, icon: EyeOff, run: () => setWatched(ids, false, `${seasonName} marked as unwatched`) });
+    pm = { x: r.left, y: r.bottom + 4, label: `${seasonName} options`, items };
+  }
+  /** Spoilers escondidos: el episodio no se empezo a ver. */
+  const hidden = (e: Episode) => prefs.hideSpoilers && !progress[e.id];
+  // Con el dedo, tocar la descripcion escondida la muestra (tocar la imagen reproduce).
+  let shown = $state<Record<string, boolean>>({});
+  function epClick(ev: MouseEvent, e: Episode) {
+    if (hidden(e) && !shown[e.id] && (ev.target as HTMLElement).closest(".ep-text") && matchMedia("(hover: none)").matches) {
+      shown[e.id] = true;
+      return;
+    }
+    play(e.id);
   }
 
   function epProgress(e: Episode) {
@@ -239,11 +349,23 @@
           {#if meta?.trailer_youtube_id}
             <button class="btn glass lg icon" onclick={() => (trailer = true)} title="Trailer"><Clapperboard size={18} /></button>
           {/if}
+          {#if type === "movie"}
+            <button
+              class="btn glass lg icon"
+              class:seen-on={watched(id)}
+              onclick={() => setWatched([id], !watched(id), watched(id) ? "Marked as unwatched" : "Marked as watched")}
+              title={watched(id) ? "Watched · click to mark as unwatched" : "Mark as watched"}
+              aria-pressed={watched(id)}
+              disabled={marking || !m}
+            >
+              <CircleCheck size={18} />
+            </button>
+          {/if}
         </div>
         {#if resume && resume.position_s > 30 && resume.duration_s}
           <div class="resume" in:rise={{ y: 6, delay: 200 }}>
             <div class="progress"><div class="progress-fill" style="width: {(resume.position_s / resume.duration_s) * 100}%"></div></div>
-            <span class="faint">{clock(resume.duration_s - resume.position_s)} left</span>
+            <span class="faint">{watched(resume.meta_id) ? "Watched" : `${clock(resume.duration_s - resume.position_s)} left`}</span>
           </div>
         {/if}
 
@@ -287,6 +409,11 @@
     <section class="episodes">
       <div class="ep-head">
         <h2>Episodes</h2>
+        {#if meta && aired.length}
+          <button class="icon-btn season-more" onclick={seasonMenu} title="{seasonName} options" aria-label="{seasonName} options" aria-haspopup="menu" disabled={marking}>
+            <Ellipsis size={18} />
+          </button>
+        {/if}
         <div class="grow"></div>
         {#if seasons.length > 1 && seasons.length <= 6}
           <Seg bind:value={season} options={seasonOpts} />
@@ -306,8 +433,8 @@
           <div class="ep-list" in:rise={{ y: 6 }}>
             {#each episodes as e, i (e.id)}
               {@const pct = epProgress(e)}
-              <div class="ep" class:now={current?.id === e.id} class:future={future(e)} style="--i: {i}">
-                <button class="ep-main" onclick={() => play(e.id)} disabled={future(e)}>
+              <div class="ep" class:now={current?.id === e.id} class:future={future(e)} class:spoiler={hidden(e) && !shown[e.id]} style="--i: {i}">
+                <button class="ep-main" onclick={(ev) => epClick(ev, e)} disabled={future(e)} use:press={(x, y) => epMenu(e, x, y)}>
                   <span class="thumb">
                     <Img src={e.thumbnail} alt="" fallback={epCode(e.season, e.episode)} />
                     <span class="ep-play"><Play size={18} fill="currentColor" /></span>
@@ -321,6 +448,16 @@
                   </span>
                 </button>
                 {#if !future(e)}
+                  <button
+                    class="icon-btn ep-watch"
+                    class:seen-on={watched(e.id)}
+                    title={watched(e.id) ? "Mark as unwatched" : "Mark as watched"}
+                    aria-label={watched(e.id) ? "Mark as unwatched" : "Mark as watched"}
+                    onclick={() => toggleEp(e)}
+                    disabled={marking}
+                  >
+                    <CircleCheck size={16} />
+                  </button>
                   <button class="icon-btn ep-streams" title="Choose stream" onclick={() => openStreams(e.id, `${m?.name} · ${epCode(e.season, e.episode)}`)}>
                     <ListVideo size={16} />
                   </button>
@@ -351,9 +488,13 @@
     {:else if !streams}
       {#each Array(6) as _, i (i)}<div class="skel" style="height: 66px; border-radius: var(--radius)"></div>{/each}
     {:else}
-      <StreamList {streams} onpick={(s) => play(panel!.target, s.key)} />
+      <StreamList {streams} onpick={(s) => play(panel!.target, s.key)} linkFor={(s) => streamLink(s)} />
     {/if}
   </Drawer>
+{/if}
+
+{#if pm}
+  <PopMenu x={pm.x} y={pm.y} items={pm.items} label={pm.label} onclose={() => (pm = null)} />
 {/if}
 
 {#if trailer && meta?.trailer_youtube_id}
@@ -738,8 +879,41 @@
     opacity: 0;
   }
   .ep:hover .ep-streams,
-  .ep-streams:focus-visible {
+  .ep-streams:focus-visible,
+  .ep:hover .ep-watch,
+  .ep-watch:focus-visible {
     opacity: 1;
+  }
+  .ep-watch {
+    opacity: 0;
+  }
+  .seen-on {
+    color: var(--accent);
+  }
+  .season-more {
+    width: 34px;
+    height: 34px;
+  }
+  /* Sin spoilers: la imagen desenfocada y la descripcion tapada hasta pasar el mouse (o tocarla).
+     Sin filtro animado: aparece de una. */
+  .spoiler .thumb :global(img) {
+    filter: blur(14px);
+    transform: scale(1.12);
+  }
+  .spoiler .ep-desc {
+    filter: blur(5px);
+  }
+  @media (hover: hover) {
+    .spoiler:hover .thumb :global(img),
+    .spoiler:hover .ep-desc {
+      filter: none;
+      transform: none;
+    }
+  }
+  .spoiler:focus-within .thumb :global(img),
+  .spoiler:focus-within .ep-desc {
+    filter: none;
+    transform: none;
   }
   .skel-ep {
     gap: 16px;
@@ -800,6 +974,10 @@
   @media (hover: none) {
     .ep-streams {
       opacity: 1;
+    }
+    /* Con el dedo: mantener apretado el episodio (menos botones en la fila). */
+    .ep-watch {
+      display: none;
     }
   }
 </style>

@@ -2,9 +2,11 @@
   // Inicio: el hero y las filas. Las filas de abajo piden sus datos recien al acercarse.
   import ContinueCard from "../components/ContinueCard.svelte";
   import Hero from "../components/Hero.svelte";
+  import NewEpisodeCard from "../components/NewEpisodeCard.svelte";
   import PosterCard from "../components/PosterCard.svelte";
   import Row from "../components/Row.svelte";
   import { api } from "../lib/api";
+  import { lastNewEpisodes, newEpisodes, type NewEp } from "../lib/newEpisodes";
   import { keepScroll } from "../lib/scroll";
   import { attempt } from "../lib/toast.svelte";
   import type { MetaPreview, Progress } from "../lib/types";
@@ -28,6 +30,13 @@
     .continueWatching()
     .then((l) => (cont = l))
     .catch(() => (cont = []));
+
+  // Episodios nuevos de las series de la Library: aparece solo si hay alguno (sin esqueleto, para
+  // que la fila no se arme y desaparezca). Lo de la ultima vez se muestra enseguida.
+  let fresh = $state<NewEp[]>(lastNewEpisodes());
+  newEpisodes()
+    .then((l) => (fresh = l))
+    .catch(() => {});
 
   async function remove(p: Progress) {
     if (await attempt(() => api.deleteProgress(p.meta_id))) cont = cont?.filter((x) => x.meta_id !== p.meta_id) ?? null;
@@ -60,6 +69,11 @@
     {#if cont === null || cont.length}
       <Row title="Continue watching" items={cont ?? undefined} wide>
         {#snippet card(p, i)}<ContinueCard {p} {i} onremove={remove} />{/snippet}
+      </Row>
+    {/if}
+    {#if fresh.length}
+      <Row title="New episodes" items={fresh} wide>
+        {#snippet card(n, i)}<NewEpisodeCard {n} {i} />{/snippet}
       </Row>
     {/if}
     {#each ROWS as r, ri (r.title)}
