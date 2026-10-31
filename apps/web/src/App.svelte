@@ -8,7 +8,7 @@
   import { confirmState } from "./lib/confirm.svelte";
   import { flipMs, ms, rise, toastIn } from "./lib/motion";
   import { check, net } from "./lib/net.svelte";
-  import { isDesktop } from "./lib/platform";
+  import { isDesktop, pickServer } from "./lib/platform";
   import { prefs, savePrefs } from "./lib/prefs.svelte";
   import { go, loadView, route, searchIntent, viewComponent, type ViewName } from "./lib/router.svelte";
   import { session, start } from "./lib/session.svelte";
@@ -40,6 +40,12 @@
     if (session.offline) start();
   });
   const playing = $derived(route.view === "player");
+
+  /** Desde la pantalla de reconexion: elegir otro server (Login con el campo abierto). */
+  function changeServer() {
+    history.replaceState(history.state, "", "#/server");
+    session.offline = false;
+  }
 
   function toggleSidebar() {
     prefs.sidebarCollapsed = !prefs.sidebarCollapsed;
@@ -86,7 +92,7 @@
 
 <svelte:window onkeydown={onKey} oncontextmenu={onContext} />
 
-<div class="frame">
+<div class="frame" class:playing>
   {#if !session.checked}
     {#if isDesktop}<Titlebar bare />{/if}
     <div class="splash" out:fade={{ duration: ms(200) }}>
@@ -102,6 +108,7 @@
         {#if net.checking}<LoaderCircle size={15} class="spin" />{:else}<RefreshCw size={15} />{/if}
         Retry now
       </button>
+      {#if pickServer}<button class="btn ghost" onclick={changeServer}>Change server</button>{/if}
     </div>
   {:else if !session.user}
     {#if isDesktop}<Titlebar bare />{/if}
@@ -197,11 +204,18 @@
 </div>
 
 <style>
+  /* En Android la app va de borde a borde: se deja lugar a las barras del sistema y al recorte
+     de la camara (en web y desktop estos valores son 0). Abajo, en celular, lo deja la barra de
+     pestañas. El reproductor pone su propio margen (fondo negro). */
   .frame {
     position: relative;
     height: 100%;
     display: flex;
     flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .frame.playing {
+    padding: 0;
   }
   .body {
     flex: 1;
@@ -223,6 +237,7 @@
   }
   .player-host {
     background: var(--media-bg);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
   .shell {
     --side-w: 212px;
@@ -390,7 +405,7 @@
   }
   .netbar {
     position: fixed;
-    top: 12px;
+    top: calc(12px + env(safe-area-inset-top));
     left: 50%;
     z-index: 130;
     translate: -50% 0;
@@ -411,8 +426,8 @@
   }
   .toasts {
     position: fixed;
-    right: 16px;
-    bottom: 16px;
+    right: calc(16px + env(safe-area-inset-right));
+    bottom: calc(16px + env(safe-area-inset-bottom));
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -433,6 +448,9 @@
 
   /* Celular: la barra lateral pasa a ser una barra abajo, solo iconos. */
   @media (max-width: 700px) {
+    .frame:has(.shell) {
+      padding-bottom: 0;
+    }
     .shell,
     .shell.collapsed {
       grid-template-columns: 1fr;
@@ -474,7 +492,7 @@
       opacity: 1;
     }
     .toasts.raised {
-      bottom: 76px;
+      bottom: calc(76px + env(safe-area-inset-bottom));
     }
   }
 </style>

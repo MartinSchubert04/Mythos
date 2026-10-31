@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "La pagina que viene en el APK. La del server recibe sus permisos en tiempo de ejecucion (apps/mobile/plugin/src/lib.rs)",
+  "windows": ["main"],
+  "permissions": ["core:default", "mythos:default"]
+}

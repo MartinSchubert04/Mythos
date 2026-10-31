@@ -29,6 +29,9 @@ pub fn run() {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();
             }
+            // Aca va a arrancar el server embebido del modo local (backend/server como
+            // biblioteca, en 127.0.0.1 con un puerto libre). La interfaz lo usa con
+            // `setActiveServer(url)` de apps/web/src/lib/platform.ts, sin recargar.
             Ok(())
         })
         .run(tauri::generate_context!())

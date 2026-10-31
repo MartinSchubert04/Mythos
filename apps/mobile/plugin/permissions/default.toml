@@ -1,0 +1,19 @@
+"$schema" = "schemas/schema.json"
+
+# Para la pagina local (el build de apps/web que viene en el APK). La del server recibe, en
+# tiempo de ejecucion, todos menos `open_server` (ver `allow_remote` en src/lib.rs).
+[default]
+description = "Todo lo del plugin, para la pagina que viene en el APK"
+permissions = [
+  "allow-open-server",
+  "allow-leave-server",
+  "allow-handoff",
+  "allow-set-fullscreen",
+  "allow-set-playing",
+  "allow-set-bars",
+  "allow-minimize",
+  "allow-request-network",
+  "allow-update-state",
+  "allow-update-check",
+  "allow-update-install",
+]

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-leave-server"
+description = "Enables the leave_server command without any pre-configured scope."
+commands.allow = ["leave_server"]
+
+[[permission]]
+identifier = "deny-leave-server"
+description = "Denies the leave_server command without any pre-configured scope."
+commands.deny = ["leave_server"]

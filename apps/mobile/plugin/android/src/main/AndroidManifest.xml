@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Actualizaciones: instalar el APK nuevo que baja Mythos. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Sin esto Android 12+ ignora setRequireUserAction(USER_ACTION_NOT_REQUIRED) y siempre pide
+         confirmar (desde segundo plano ni siquiera puede mostrar el dialogo). -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+
+    <!-- Android 17 corta las conexiones a la red local (un server con IP de la casa) sin este
+         permiso; el sistema lo muestra como "dispositivos cercanos". Se pide recien si el server
+         no contesta. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
+    <application>
+        <receiver
+            android:name="dev.mrtn.mythos.plugin.InstallResult"
+            android:exported="false" />
+    </application>
+</manifest>

@@ -369,7 +369,7 @@
   </div>
 {/if}
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && trailer && (trailer = false)} />
+<svelte:window onkeydown={(e) => e.key === "Escape" && trailer && (e.preventDefault(), (trailer = false))} />
 
 <style>
   .detail {

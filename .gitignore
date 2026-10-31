@@ -7,3 +7,4 @@ data/
 apps/desktop/src-tauri/gen/
 .env.local
 .env.*.local
+apps/mobile/src-tauri/gen/schemas/

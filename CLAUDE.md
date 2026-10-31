@@ -3,7 +3,8 @@
 Mythos: cliente tipo Stremio para uso personal. El servidor (en `MRTN-SERVER`, Docker) descarga los
 torrents que devuelve Torrentio con su propio motor (librqbit) y le manda el video a los clientes por
 HTTP; si el formato no lo soporta el navegador, lo convierte en vivo con ffmpeg + NVENC. Usuarios con
-login (nadie entra sin cuenta), modo admin para crearlos. Interfaz web y desktop (Tauri 2) iguales.
+login (nadie entra sin cuenta), modo admin para crearlos. Interfaz web, desktop y Android (Tauri 2)
+iguales.
 
 ## Dónde está cada decisión
 
@@ -12,6 +13,7 @@ login (nadie entra sin cuenta), modo admin para crearlos. Interfaz web y desktop
 | Contrato HTTP entre UI y servidor, API del crate de media | `docs/API.md` |
 | Cómo tiene que verse la interfaz | `DESIGN.md` (portado de Ethereon) |
 | Despliegue en el server, puertos | `deploy/README.md` |
+| App de Android: shell, interfaz del server opcional, actualizaciones, publicar | `docs/mobile.md` |
 
 ## Estructura
 
@@ -21,17 +23,19 @@ backend/                  workspace de Rust (lo único que entra al contenedor)
                           sirve la UI compilada y monta el router de media
   media/                  crate `mythos-media`: motor torrent (librqbit), streaming con Range,
                           ffmpeg (HLS, NVENC), subtítulos internos. No sabe nada de usuarios.
-apps/web/                 la interfaz (Svelte 5 + Vite + TS). La misma para web y desktop.
+apps/web/                 la interfaz (Svelte 5 + Vite + TS). La misma para web, desktop y Android.
 apps/desktop/             Tauri 2: solo la ventana; carga el build de apps/web
+apps/mobile/              Tauri 2 para Android: carga el build de apps/web; plugin/ (Rust + Kotlin)
+                          con pantalla completa, atras, actualizaciones del APK
 deploy/                   Dockerfile, docker-compose.yml, README de despliegue
 ```
 
 ## Puertos (MRTN-SERVER)
 
 - `127.0.0.1:7700` la app (API + UI). Afuera solo por `tailscale serve --https=7700`
-  → `https://<tu-server>.ts.net:7700` (solo tailnet). La app desktop toma esa URL de
-  `VITE_DEFAULT_SERVER` (`apps/web/.env.local`, fuera del repo; en CI, el secret
-  `MYTHOS_SERVER_URL`).
+  → `https://<tu-server>.ts.net:7700` (solo tailnet). Desktop y Android piden esa URL en el login
+  la primera vez y la guardan: ningún build lleva la dirección (los Releases son públicos).
+  `VITE_DEFAULT_SERVER` (`apps/web/.env.local`, fuera del repo) es solo para probar en la PC.
 - `42069` TCP/UDP: peers de BitTorrent (abrirlo en el router para más velocidad).
 - No usar: 22, 53, 443, 1883, 3000, 4000, 4517, 5678, 6052, 6080, 8080, 8090, 8123, 8443, 8765,
   8787, 8788, 10200, 10300, 11987, 51515, 61208 (ya están ocupados).
@@ -47,6 +51,8 @@ cd apps/web; npm run dev             # http://localhost:5173, proxy de /api a :7
 cd apps/web; npm run check
 # desktop
 cd apps/desktop; npm run tauri dev
+# android (ANDROID_HOME, NDK_HOME y JAVA_HOME: ver docs/mobile.md)
+cd apps/mobile; npm run build:emulator
 ```
 
 ## Commits y versiones
@@ -59,8 +65,11 @@ Repo: https://github.com/MartinSchubert04/Mythos (público: nada de secretos, `.
   pidan, subiendo la versión con semver (`feat` → menor, `fix` → parche; mayor solo preguntando)
   y con tag `vX.Y.Z` sobre ese commit. `docs`/`chore` sin tag.
 - La versión está en `backend/server/Cargo.toml`, `backend/media/Cargo.toml`,
-  `apps/web/package.json`, `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.toml` y
-  `apps/desktop/src-tauri/tauri.conf.json` (todas iguales).
+  `apps/web/package.json`, `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.toml`,
+  `apps/desktop/src-tauri/tauri.conf.json`, `apps/mobile/package.json`,
+  `apps/mobile/src-tauri/Cargo.toml`, `apps/mobile/src-tauri/tauri.conf.json` y
+  `apps/mobile/plugin/Cargo.toml` (todas iguales). El tag `vX.Y.Z` publica el instalador de Windows y
+  el APK (los workflows la toman del tag).
 
 ## Reglas
 

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-request-network"
+description = "Enables the request_network command without any pre-configured scope."
+commands.allow = ["request_network"]
+
+[[permission]]
+identifier = "deny-request-network"
+description = "Denies the request_network command without any pre-configured scope."
+commands.deny = ["request_network"]

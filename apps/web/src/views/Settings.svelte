@@ -1,19 +1,20 @@
 <script lang="ts">
   // Ajustes: tema y paleta con muestras en vivo (como Ethereon), reproduccion, subtitulos,
   // Real-Debrid y la cuenta. Lo de la interfaz se guarda solo (local y en el server).
-  import { Captions, Keyboard, KeyRound, LogOut, Palette, Play, Server, UserRound } from "@lucide/svelte";
+  import { Captions, Download, Keyboard, KeyRound, LogOut, Palette, Play, RefreshCw, Server, Smartphone, UserRound } from "@lucide/svelte";
   import Section from "../components/Section.svelte";
   import Seg from "../components/Seg.svelte";
   import Select from "../components/Select.svelte";
   import Switch from "../components/Switch.svelte";
   import { api } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
-  import { checkServer, isDesktop, normalizeServer, serverSetting, setServer } from "../lib/platform";
+  import { checkServer, isAndroid, isRemoteShell, normalizeServer, pickServer, serverSetting, setServer } from "../lib/platform";
   import { LANGS, prefs, savePrefs } from "../lib/prefs.svelte";
   import { keepScroll } from "../lib/scroll";
   import { logout, session } from "../lib/session.svelte";
+  import { checkUpdate, installUpdate, leaveServer, remoteUi, setRemoteUi, shell } from "../lib/shell.svelte";
   import { THEMES, applyTheme, currentPalette, currentTheme, palettesOf, type ThemeId } from "../lib/themes";
-  import { attempt } from "../lib/toast.svelte";
+  import { attempt, toast } from "../lib/toast.svelte";
   import type { PreferredQuality } from "../lib/types";
 
   let theme = $state<ThemeId>(currentTheme());
@@ -62,7 +63,8 @@
     ["J  ·  L", "Back or forward 10 seconds"],
     ["↑ ↓", "Volume (in the player)"],
     ["C", "Subtitles on or off"],
-    ["G  ·  H", "Subtitles 0.5 s earlier or later (sync)"],
+    ["G  ·  H", "This subtitle 0.5 s earlier or later (Shift: 0.1 s; remembered per subtitle)"],
+    ["-  ·  =", "Subtitles smaller or larger"],
     ["N", "Next episode"],
     ["Enter", "Resume (when the player asks)"],
   ];
@@ -112,6 +114,35 @@
     if (await ask({ title: "Switch server?", body: "Mythos will sign you out to connect to the new address.", confirm: "Switch" })) {
       await logout();
       location.reload();
+    }
+  }
+
+  // ---- Android: actualizaciones del APK (la interfaz ya viene del server, siempre al dia)
+  let checking = $state(false);
+  let upToDate = $state(false);
+  async function lookForUpdate() {
+    checking = true;
+    upToDate = false;
+    try {
+      upToDate = !(await checkUpdate()) && !shell.update;
+    } catch (e) {
+      toast(String(e), true);
+    } finally {
+      checking = false;
+    }
+  }
+  let useServerUi = $state(remoteUi.on);
+  async function toggleServerUi(on: boolean) {
+    if (!(await setRemoteUi(on, normalizeServer(serverSetting())))) {
+      useServerUi = false;
+      toast("This server can't provide the interface. Update it and try again.", true);
+    }
+  }
+  async function updateNow() {
+    try {
+      if (!(await installUpdate())) toast('Allow "Install unknown apps" for Mythos, then tap Update now again.');
+    } catch (e) {
+      toast(String(e), true);
     }
   }
 </script>
@@ -236,7 +267,13 @@
         <input type="password" placeholder="New password" bind:value={newPw} autocomplete="new-password" />
       </div>
       <div><button class="btn" disabled={!oldPw || !newPw} onclick={changePw}>Change password</button></div>
-      {#if isDesktop}
+      {#if isRemoteShell}
+        <div class="sub"><Server size={12} /> Server</div>
+        <div class="row">
+          <input value={location.host} readonly />
+          <button class="btn" onclick={() => leaveServer()}>Change server</button>
+        </div>
+      {:else if pickServer}
         <div class="sub"><Server size={12} /> Server</div>
         <div class="row">
           <input bind:value={server} placeholder="https://your-server.ts.net:7700" spellcheck="false" />
@@ -247,6 +284,33 @@
       <div class="sep"></div>
       <div><button class="btn danger" onclick={signOut}><LogOut size={14} />Sign out</button></div>
     </Section>
+
+    {#if isAndroid}
+      <Section id="app" title="App" icon={Smartphone} summary={shell.version ? `Version ${shell.version}` : "Android"}>
+        <div class="row">
+          <span class="grow">Mythos for Android {shell.version}</span>
+          {#if shell.update?.status === "ready"}
+            <button class="btn primary" onclick={updateNow}><Download size={14} />Update now</button>
+          {:else}
+            <button class="btn" onclick={lookForUpdate} disabled={checking || !!shell.update}>
+              <RefreshCw size={14} class={checking || shell.update ? "spin" : ""} />Check for updates
+            </button>
+          {/if}
+        </div>
+        {#if shell.update}
+          <span class="app-hint">
+            {shell.update.status === "ready"
+              ? `Mythos ${shell.update.version} is ready. It installs by itself when you leave the app while nothing is playing.`
+              : `Downloading Mythos ${shell.update.version}… ${Math.round(shell.update.progress * 100)}%`}
+          </span>
+        {:else if upToDate}
+          <span class="app-hint">You have the latest version.</span>
+        {:else}
+          <span class="app-hint">The app updates by itself when you leave it while nothing is playing.</span>
+        {/if}
+        <Switch bind:checked={useServerUi} onchange={toggleServerUi}>Load the interface from the server (new versions without updating the app)</Switch>
+      </Section>
+    {/if}
   </div>
 </div>
 
@@ -418,5 +482,14 @@
   }
   .row input {
     flex: 1;
+  }
+  .app-hint {
+    font-size: 12.5px;
+    color: var(--text-3);
+    line-height: 1.5;
+  }
+  .row .grow {
+    flex: 1;
+    min-width: 0;
   }
 </style>

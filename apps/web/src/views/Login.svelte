@@ -1,31 +1,36 @@
 <script lang="ts">
   // Login: centrado, con la marca que brilla. Contraseña incorrecta: la tarjeta tiembla.
-  // En desktop se elige ademas el server (campo desplegable).
+  // En desktop y en la pagina del APK de Android se elige ademas el server (campo desplegable,
+  // abierto la primera vez). En Android con la interfaz del server, "Change server" vuelve a la
+  // pagina del APK.
   import { ChevronDown, LoaderCircle, Server } from "@lucide/svelte";
   import Logo from "../components/Logo.svelte";
   import { api, ApiError, errText } from "../lib/api";
   import { expand } from "../lib/motion";
-  import { checkServer, isDesktop, needsServer, normalizeServer, serverSetting, setServer } from "../lib/platform";
+  import { checkServer, isRemoteShell, needsServer, normalizeServer, pickServer, serverSetting, setServer } from "../lib/platform";
   import { login, session } from "../lib/session.svelte";
+  import { leaveServer } from "../lib/shell.svelte";
 
   let username = $state("");
   let password = $state("");
   let server = $state(serverSetting());
-  let showServer = $state(needsServer());
+  // Abierto si falta, o si se vino a cambiarlo (#/server).
+  let showServer = $state(needsServer() || location.hash.startsWith("#/server"));
   let error = $state("");
   let busy = $state(false);
   let shake = $state(false);
   let userField = $state<HTMLInputElement>();
 
   $effect(() => {
-    userField?.focus();
+    // En pantallas tactiles no: el teclado taparia la mitad del login apenas se abre.
+    if (!matchMedia("(pointer: coarse)").matches) userField?.focus();
   });
 
   async function submit(e: Event) {
     e.preventDefault();
     error = "";
     busy = true;
-    if (isDesktop) {
+    if (pickServer) {
       const url = normalizeServer(server);
       if (!url && needsServer()) {
         error = "Enter the address of your Mythos server.";
@@ -54,8 +59,8 @@
       else {
         error = errText(err);
         // Sin conexion: en desktop probablemente es la direccion del server.
-        if (isDesktop) showServer = true;
-        api.health().catch(() => (error = isDesktop ? "Can't reach the server. Check the address." : "Can't reach the server."));
+        if (pickServer) showServer = true;
+        api.health().catch(() => (error = pickServer ? "Can't reach the server. Check the address." : "Can't reach the server."));
       }
       password = "";
       wobble();
@@ -92,7 +97,12 @@
         <input type="password" autocomplete="current-password" bind:value={password} />
       </label>
 
-      {#if isDesktop}
+      {#if isRemoteShell}
+        <button type="button" class="srv-toggle" onclick={() => leaveServer()}>
+          <Server size={13} />
+          <span class="ellipsis">{location.host} · Change</span>
+        </button>
+      {:else if pickServer}
         <button type="button" class="srv-toggle" class:open={showServer} onclick={() => (showServer = !showServer)}>
           <Server size={13} />
           <span class="ellipsis">{server.trim() ? server.replace(/^https?:\/\//, "") : "Choose a server"}</span>
@@ -101,8 +111,8 @@
         {#if showServer}
           <div transition:expand>
             <label class="field">
-              Server
-              <input bind:value={server} placeholder="https://your-server.ts.net:7700" spellcheck="false" autocapitalize="off" />
+              Server URL
+              <input bind:value={server} inputmode="url" placeholder="https://your-server.ts.net:7700" spellcheck="false" autocapitalize="off" />
               <span class="hint">The address of your Mythos server, for example https://my-server.ts.net:7700</span>
             </label>
           </div>

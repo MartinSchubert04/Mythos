@@ -166,6 +166,15 @@ select option {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+/* Pantallas tactiles (Android): sin barra de scroll fija, como las apps nativas. */
+@media (pointer: coarse) {
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  * {
+    scrollbar-width: none;
+  }
+}
 
 .mono,
 code,

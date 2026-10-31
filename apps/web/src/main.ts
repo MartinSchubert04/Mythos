@@ -11,6 +11,7 @@ import "./styles/base.css";
 import "./styles/athanor.css";
 import "./styles/app.css";
 import App from "./App.svelte";
+import { initShell } from "./lib/shell.svelte";
 import { installTooltips } from "./lib/tooltip";
 
 async function boot() {
@@ -19,6 +20,7 @@ async function boot() {
     const { installMock } = await import("./lib/mock");
     installMock();
   }
+  initShell();
   mount(App, { target: document.getElementById("app")! });
   installTooltips();
 }

@@ -1,6 +1,9 @@
 // Sesion: quien entro, sus ajustes del server, y el paso al login cuando el token no sirve.
 import { api, ApiError, getToken, onUnauthorized, setToken } from "./api";
+import { serverBase } from "./platform";
 import { applyRemoteUi } from "./prefs.svelte";
+import { go } from "./router.svelte";
+import { takeHandoff, toServer } from "./shell.svelte";
 import type { Settings, User } from "./types";
 
 export const session = $state({
@@ -30,6 +33,12 @@ async function loadSettings() {
 }
 
 export async function start() {
+  // Android, pagina del APK con "interfaz del server" prendida: si el server contesta, a su
+  // interfaz (mientras, el splash).
+  if (await toServer(serverBase())) return;
+  // Android, interfaz del server: el token si recien se entro desde la pagina del APK.
+  const handed = await takeHandoff();
+  if (handed) setToken(handed);
   if (!getToken()) {
     session.checked = true;
     return;
@@ -38,6 +47,9 @@ export async function start() {
     const [me] = await Promise.all([api.me(), loadSettings()]);
     session.user = me;
     session.offline = false;
+    // "Change server" desde la interfaz del server, ya con sesion aca: a Settings (el campo del
+    // server y la opcion de la interfaz del server estan ahi). Sin sesion, el login lo muestra.
+    if (location.hash.startsWith("#/server")) go("/settings", { replace: true });
   } catch (e) {
     // Sin conexion: no se pierde la sesion, se reintenta (App muestra la pantalla de reconexion).
     // Token vencido: al login, con el aviso.
@@ -53,6 +65,8 @@ export async function start() {
 export async function login(username: string, password: string) {
   const r = await api.login(username, password);
   setToken(r.token);
+  // Android, pagina del APK: se sigue en la interfaz del server, ya con la sesion.
+  if (await toServer(serverBase(), r.token, true)) return;
   await loadSettings();
   session.expired = false;
   session.user = r.user;

@@ -16,7 +16,9 @@ cada carga tiene esqueleto con brillo, cada imagen aparece en fundido, nada salt
 - **Voz:** literal y en inglés. "Play", "Resume from 42:10", "Choose stream", "Try another stream",
   "Buffering 72%…". Sin metáforas.
 - **Seis temas, una estructura.** Cambian colores, bordes, sombras, fondos y fuentes; nunca el layout.
-- **La única diferencia entre web y desktop** es la barra de título propia del desktop.
+- **La única diferencia entre web y desktop** es la barra de título propia del desktop. En Android
+  (`docs/mobile.md`): botón atrás, reproductor en pantalla completa horizontal, de borde a borde con
+  `env(safe-area-inset-*)` y Settings → App (versión y actualizaciones).
 
 ## 2. Colores y roles
 
@@ -100,10 +102,17 @@ Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en
 - **Select**, **Switch**, **Seg**, **Confirm**, **Section**: los de Ethereon, iguales.
 - **Avisos (toasts):** entran desde abajo a la derecha; rojos si fallan.
 - **Tooltips propios** (`lib/tooltip.ts`): todo `title=` se muestra con demora y estilo del tema.
-- **Menú de subtítulos**: primero los del archivo ("Embedded"); después una entrada por idioma con
-  su nombre en ese idioma ("Español (Latinoamérica)", "Português (Brasil)"), el preferido y el del
-  audio arriba y el resto alfabético; "Other versions (n)" despliega las otras versiones. Abajo,
-  "Sync" corre los subtítulos de a 0,5 s (también con G/H, con un aviso del offset).
+- **Menú de subtítulos** (por pasos, como Stremio): primero "Off" y una entrada por idioma con su
+  nombre en ese idioma ("Español (Latinoamérica)", "Português (Brasil)"), la cantidad de opciones y
+  "Embedded" si el archivo trae alguna; el preferido y el del audio arriba, después los que vienen
+  en el archivo y el resto alfabético. Elegir un idioma pone su primera opción y pasa (de costado)
+  a sus opciones: las internas primero, después las de OpenSubtitles ("Version n"). Abajo, fijos:
+  **Delay** de la opción elegida (−0,5 / −0,1 / +0,1 / +0,5 s y reset; se recuerda por archivo y
+  pista, y la lista marca las que tienen uno guardado), y el aspecto, que es global y viaja con las
+  preferencias: **Size** (75 a 200 %), **Position** (altura desde abajo) y **Background** (None,
+  Light, Dark, Solid). Con un subtítulo puesto, el menú abre directo en su idioma. En celular es
+  una hoja de lado a lado con filas de 44 px. Los subtítulos los dibuja la app (no `<track>` ni
+  `::cue`), así se ven igual en Chrome, WebView2 y Android y siguen al tiempo real en HLS.
 - **Botones del detalle**: siempre en una fila; en celular "Choose stream" queda solo con el ícono.
 - **Cast** (detalle): avatares con iniciales sobre el acento (el catálogo no trae fotos). Debajo,
   la fila "More like this" (mismo género principal).
@@ -141,7 +150,8 @@ Rutas con hash: `#/`, `#/search?q=`, `#/title/{type}/{id}`, `#/watch/{type}/{id}
 Atajos (listados en Settings → Keyboard shortcuts): `/` o `Ctrl K` buscar (lo que se escribe
 mientras la vista carga no se pierde); flechas entre pósters de una fila y entre filas; Esc cierra
 paneles y menús. En el reproductor: espacio/K, F, M, ←/→ (5 s), J/L (10 s), ↑/↓
-volumen, C subtítulos, G/H subtítulos 0,5 s antes/después, N siguiente episodio, Esc (cierra menú → sale de pantalla completa → vuelve).
+volumen, C subtítulos, G/H el subtítulo puesto 0,5 s antes/después (con Shift 0,1 s), -/= tamaño de
+los subtítulos, N siguiente episodio, Esc (cierra menú → sale de pantalla completa → vuelve).
 
 ## 5b. Movimiento
 
@@ -192,7 +202,8 @@ para menús y paneles.
 
 Ventana mínima del desktop: 900 x 560. Las grillas usan `auto-fill`; las filas, anchos con `clamp`.
 Hasta 700 px de ancho (celular): la barra lateral pasa a ser una barra abajo con íconos y nombre, el
-detalle apila póster y datos, el reproductor esconde la barra de volumen. Márgenes laterales con
+detalle apila póster y datos, el reproductor esconde la barra de volumen. En pantallas táctiles no
+hay barras de scroll fijas ni foco automático en el login (el teclado taparía la pantalla). Márgenes laterales con
 `--gutter` (16 a 44 px).
 
 ## 9. Guía para agentes

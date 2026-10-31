@@ -1,0 +1,17 @@
+{
+  "name": "@mythos/mobile",
+  "private": true,
+  "version": "0.4.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri android dev",
+    "build": "tauri android build --target aarch64 --apk",
+    "build:debug": "tauri android build --debug --target aarch64 --apk",
+    "build:emulator": "tauri android build --debug --target x86_64 --apk",
+    "icons": "tauri icon ../web/public/icon.svg -o src-tauri/icons"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.3"
+  }
+}
