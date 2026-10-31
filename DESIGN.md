@@ -87,7 +87,9 @@ Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en
   cruza; aparece el rating. Al pasar el mouse ya carga el detalle (código y datos). Al hacer clic el
   póster vuela al detalle (View Transitions).
 - **Fila** (`Row`): título, scroll horizontal suave con flechas que aparecen al pasar el mouse, carga
-  sus datos recién al acercarse a la pantalla, esqueletos mientras tanto.
+  sus datos recién al acercarse a la pantalla, esqueletos mientras tanto. Dibuja las tarjetas de a
+  16 (las siguientes al acercarse al final) y fuera de pantalla no se pinta
+  (`content-visibility: auto`): el inicio tiene diez filas de ~50 títulos.
 - **Hero** (`Hero`): fondo con zoom lento, logo o título, rating, año, géneros, descripción, Play /
   More info. Rota cada 8 s con fundido cruzado (espera a que la imagen siguiente esté bajada).
 - **Continue watching** (`ContinueCard`): 16:9 con barra de progreso, episodio y tiempo restante.
@@ -204,6 +206,12 @@ atrás y scroll de filas): sin tareas largas (> 50 ms) y CLS 0.
 
 En Athanor el movimiento es por pasos (`steps()`), como el pixel art.
 
+**Equipos flojos** (`lib/perf.ts`: ≤ 2 GB de RAM, ≤ 2 núcleos, o Android con ≤ 4 núcleos, como las
+TV boxes; se fuerza con `localStorage["mythos.lite"]` = `"1"` o `"0"`): `data-lite` en `<html>`
+saca los desenfoques (`--blur: none` y sin `backdrop-filter`), el zoom lento del hero, la
+aparición escalonada de las tarjetas y la animación de las sombras; los fondos se piden de 1280 px
+como máximo. El resto (fundidos, hover, transiciones de vista) queda igual.
+
 ## 6. Profundidad
 
 Default, Warp, Haze y Neovim: sin sombras en reposo; al pasar el mouse los pósters toman una sombra
@@ -218,7 +226,13 @@ para menús y paneles.
 - Sí: reservar el tamaño de las imágenes (`aspect-ratio`) para que nada salte al cargar.
 - Sí: estados con color y texto a la vez (seeders en rojo y el número; "Instant" verde).
 - Sí: secretos nunca visibles; la clave de Real-Debrid guardada muestra "Stored. Type to replace."
-- Sí: imágenes chicas en grillas (`small`), medianas en fondos (`medium`).
+- Sí: cada imagen del tamaño en que se muestra (`lib/images.ts`): pósters `small`; fondos y
+  miniaturas según el ancho real (fondo de 480 px de metahub, achicado por el server a
+  640/960/1280, o el original de 1920 solo si la pantalla lo pide). Ver `docs/API.md`
+  (`/api/media/img`).
+- No: `backdrop-filter`, `transform: translateZ(0)` ni `will-change` en algo que se repite
+  (tarjetas, filas): cada uno es una capa del compositor y con cientos el scroll se traba. El
+  desenfoque de una tarjeta va solo al pasar el mouse.
 - No: colores fijos en componentes. Si hace falta uno, es una variable nueva en `themes.css`.
 - No: animaciones largas fuera del hero y la transición del póster.
 - No: librerías de UI. Íconos de `@lucide/svelte` importados de a uno.

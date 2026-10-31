@@ -185,7 +185,7 @@ impl Images {
         if std::fs::write(&tmp, bytes).is_ok() && std::fs::rename(&tmp, file).is_err() {
             let _ = std::fs::remove_file(&tmp);
         }
-        if self.writes.fetch_add(1, Ordering::Relaxed) % 50 == 0 {
+        if self.writes.fetch_add(1, Ordering::Relaxed).is_multiple_of(50) {
             self.trim();
         }
     }
