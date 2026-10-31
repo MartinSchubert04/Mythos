@@ -1,6 +1,6 @@
 # Mythos en el server. Red del host (`network_mode: host`) para que el motor de torrents pueda usar
-# UPnP y el DHT (que abre un puerto UDP aleatorio); la app igual escucha solo en 127.0.0.1:7700 y
-# afuera se ve por `tailscale serve`. Los peers entran por 42069 TCP/UDP. Ver deploy/README.md.
+# UPnP y el DHT (que abre un puerto UDP aleatorio); la app escucha por defecto solo en 127.0.0.1:7700
+# y afuera se ve por `tailscale serve`. Los peers entran por 42069 TCP/UDP. Ver deploy/README.md.
 services:
   mythos:
     build:
@@ -12,8 +12,9 @@ services:
     network_mode: host
     env_file: .env
     environment:
-      # Solo localhost: con la red del host, 0.0.0.0 la expondría en toda la LAN.
-      MYTHOS_BIND: 127.0.0.1:7700
+      # Por defecto solo localhost. Con la red del host, MYTHOS_BIND=0.0.0.0:7700 en .env la abre a
+      # la red de casa (http://<ip-del-server>:7700, p. ej. para un TV box sin Tailscale).
+      MYTHOS_BIND: ${MYTHOS_BIND:-127.0.0.1:7700}
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
     volumes:

@@ -19,9 +19,14 @@ cosas que con la red aislada de Docker no andan: **UPnP** (le pide al router que
 peers; desde la red bridge el router no lo ve) y el **DHT**, que abre un puerto UDP aleatorio que no
 se puede publicar de antemano. Sin eso hay menos peers y la película tarda más en arrancar.
 
-La app no queda más expuesta: `MYTHOS_BIND=127.0.0.1:7700` (fijado en `docker-compose.yml`) hace
-que escuche solo en localhost, y `tailscale serve` la publica a la tailnet. El healthcheck
+La app no queda más expuesta: por defecto `MYTHOS_BIND=127.0.0.1:7700` (en `docker-compose.yml`)
+hace que escuche solo en localhost, y `tailscale serve` la publica a la tailnet. El healthcheck
 (`mythos health`) consulta ese mismo puerto en 127.0.0.1.
+
+**Red de casa (opcional):** con `MYTHOS_BIND=0.0.0.0:7700` en `deploy/.env` también se entra desde
+la LAN por `http://<ip-del-server>:7700`, sin Tailscale (por ejemplo, un TV box). Es `http` sin
+cifrar y cualquiera conectado al WiFi llega a la pantalla de login (con límite de intentos). Desde
+afuera de casa sigue siendo solo por la tailnet, y `tailscale serve` funciona igual.
 
 En el server ya están ocupados 22, 53, 443, 1883, 3000, 4000, 4517, 5678, 6052, 6080, 8080, 8090,
 8123, 8443, 8765, 8787, 8788, 10200, 10300, 11987, 51515 y 61208: Mythos no usa ninguno.
