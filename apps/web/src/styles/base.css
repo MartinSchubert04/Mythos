@@ -2,6 +2,18 @@
 
 * {
   box-sizing: border-box;
+  /* Celular: sin el recuadro azul de Android al tocar un botón o ícono (el foco del teclado y del
+     control remoto sigue con :focus-visible). */
+  -webkit-tap-highlight-color: transparent;
+}
+/* Mantener apretado un ícono o una imagen no la selecciona ni abre el menú de "guardar imagen". */
+img,
+svg,
+button,
+a {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 html,
