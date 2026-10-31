@@ -123,7 +123,8 @@ cd ~/Projects/Mythos && git pull
 cd deploy && docker compose up -d --build
 ```
 
-Las migraciones de la base corren solas al arrancar.
+Las migraciones de la base corren solas al arrancar (en el lugar, sin perder datos; conviene
+igual un backup antes de actualizar, ver abajo).
 
 ## Datos y backups
 
@@ -145,6 +146,13 @@ echo 'net.core.rmem_max=8388608' | sudo tee /etc/sysctl.d/90-mythos.conf
 echo 'net.core.wmem_max=8388608' | sudo tee -a /etc/sysctl.d/90-mythos.conf
 sudo sysctl --system && docker compose restart
 ```
+
+## Métricas
+
+El server registra cada request (la ruta como plantilla, nunca la URL con `?t=`) y los eventos de
+login y de usuarios, para la sección Admin (`/api/admin/metrics`, `/logs`, `/audit`; ver
+`docs/API.md`). Ocupa poco (crudos 14 días, por hora 90 días, en `mythos.db`). Para apagarlo:
+`MYTHOS_METRICS=0` en el `.env`.
 
 ## Sin GPU
 

@@ -1,9 +1,10 @@
-# Binario `mythos`: API HTTP (axum), SQLite, auth, catálogo, streams y la UI estática.
+# Crate `mythos`: biblioteca (el server entero, embebible en las apps con `mythos::run`) + binario
+# `mythos` (Docker). API HTTP (axum), SQLite, auth, catálogo, streams, sync y la UI estática.
 # Dependencias elegidas por peso: rusqlite (SQLite embebido, sin el runtime de sqlx), reqwest y
 # rustls que ya trae el crate de media, y nada de chrono (las fechas las arma SQLite).
 [package]
 name = "mythos"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
@@ -14,6 +15,7 @@ axum = { version = "0.8", features = ["macros"] }
 base64 = "0.23"
 flate2 = "1"
 getrandom = "0.4"
+http-body = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "gzip"] }
 rusqlite = { version = "0.41", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

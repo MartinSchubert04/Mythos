@@ -1,6 +1,6 @@
 [package]
 name = "mythos-media"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 # Dependencias mínimas: casi todo (reqwest, rand, bytes, tokio-util, tracing) ya lo trae librqbit,
@@ -27,6 +27,11 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 # Espacio libre en disco (stats): ya están en el árbol de dependencias, no suman compilación.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# Android: raíces TLS embebidas (ya está en el árbol vía rustls-platform-verifier). Ver
+# `http_client_builder` en lib.rs.
+[target.'cfg(target_os = "android")'.dependencies]
+webpki-root-certs = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

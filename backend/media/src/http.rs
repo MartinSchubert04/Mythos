@@ -62,18 +62,33 @@ async fn delete_session(State(e): St, Path(id): Path<String>) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// HLS y subtítulos internos necesitan ffmpeg: sin él, 501 con un mensaje claro.
+fn no_ffmpeg() -> Response {
+    json_error(StatusCode::NOT_IMPLEMENTED, "transcoding is not available on this device (ffmpeg not found); use direct play")
+}
+
 async fn hls_index(State(e): St, Path(id): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
+    if !e.tools.ffmpeg {
+        return no_ffmpeg();
+    }
     let Some(s) = e.session(&id) else { return not_found() };
     crate::hls::index(&e, s, &q).await
 }
 
 async fn hls_segment(State(e): St, Path((id, seg)): Path<(String, String)>, Query(q): Query<HashMap<String, String>>) -> Response {
+    if !e.tools.ffmpeg {
+        return no_ffmpeg();
+    }
     let Some(s) = e.session(&id) else { return not_found() };
     crate::hls::segment(&e, s, &seg, &q).await
 }
 
 async fn subs(State(e): St, Path((id, file)): Path<(String, String)>) -> Response {
-    let Some(s) = e.session(&id) else { return not_found() };
+    if !e.tools.ffmpeg {
+        return no_ffmpeg();
+    }
+    let Some(s)
+ = e.session(&id) else { return not_found() };
     let Some(idx) = file.strip_suffix(".vtt").and_then(|x| x.parse::<usize>().ok()) else {
         return json_error(StatusCode::NOT_FOUND, "subtitle not found");
     };

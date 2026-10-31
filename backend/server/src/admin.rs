@@ -9,7 +9,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    auth::{create_user, hash_password, user_from_row, validate_password, AdminUser, User, USER_COLS},
+    auth::{create_user, hash_password, user_from_row, validate_password, AdminUser, ClientIp, User, USER_COLS},
     db::now_unix,
     error::{ApiError, ApiResult, Json, Path, Query},
     state::{AppState, Watching},
@@ -44,9 +44,16 @@ struct NewUser {
     is_admin: bool,
 }
 
-async fn add_user(State(st): State<AppState>, a: AdminUser, Json(b): Json<NewUser>) -> ApiResult<Json<User>> {
+async fn add_user(State(st): State<AppState>, ClientIp(ip): ClientIp, a: AdminUser, Json(b): Json<NewUser>) -> ApiResult<Json<User>> {
     let user = st.db.call(move |c| create_user(c, &b.username, &b.password, b.is_admin)).await?;
     tracing::info!(by = %a.0.user.username, user = %user.username, admin = user.is_admin, "usuario creado");
+    st.recorder.audit(
+        "user_created",
+        Some(a.0.user.id),
+        Some(&a.0.user.username),
+        Some(ip),
+        Some(format!("created {} (admin: {})", user.username, user.is_admin)),
+    );
     Ok(Json(user))
 }
 
@@ -68,7 +75,25 @@ fn other_active_admins(c: &Connection, id: i64) -> ApiResult<i64> {
     Ok(c.query_row("SELECT COUNT(*) FROM users WHERE is_admin = 1 AND disabled = 0 AND id <> ?1", [id], |r| r.get(0))?)
 }
 
-async fn edit_user(State(st): State<AppState>, a: AdminUser, Path(id): Path<i64>, Json(b): Json<EditUser>) -> ApiResult<Json<User>> {
+async fn edit_user(
+    State(st): State<AppState>,
+    ClientIp(ip): ClientIp,
+    a: AdminUser,
+    Path(id): Path<i64>,
+    Json(b): Json<EditUser>,
+) -> ApiResult<Json<User>> {
+    // Para la auditoría: qué se cambió (nunca la contraseña en sí).
+    let mut what = Vec::new();
+    if b.password.is_some() {
+        what.push("password".to_string());
+    }
+    if let Some(v) = b.is_admin {
+        what.push(format!("is_admin={v}"));
+    }
+    if let Some(v) = b.disabled {
+        what.push(format!("disabled={v}"));
+    }
+    let disabling = b.disabled == Some(true);
     if let Some(p) = &b.password {
         validate_password(p)?;
     }
@@ -115,10 +140,12 @@ async fn edit_user(State(st): State<AppState>, a: AdminUser, Path(id): Path<i64>
         }
     }
     tracing::info!(by = %a.0.user.username, user = %user.username, admin = user.is_admin, disabled = user.disabled, "usuario editado");
+    let event = if disabling { "user_disabled" } else { "user_updated" };
+    st.recorder.audit(event, Some(a.0.user.id), Some(&a.0.user.username), Some(ip), Some(format!("{}: {}", user.username, what.join(", "))));
     Ok(Json(user))
 }
 
-async fn remove_user(State(st): State<AppState>, a: AdminUser, Path(id): Path<i64>) -> ApiResult<StatusCode> {
+async fn remove_user(State(st): State<AppState>, ClientIp(ip): ClientIp, a: AdminUser, Path(id): Path<i64>) -> ApiResult<StatusCode> {
     if id == a.0.user.id {
         return Err(ApiError::bad_request("You can't delete your own account"));
     }
@@ -139,6 +166,7 @@ async fn remove_user(State(st): State<AppState>, a: AdminUser, Path(id): Path<i6
         st.media.close(&w.session_id).await;
     }
     tracing::info!(by = %a.0.user.username, user = %user.username, "usuario borrado");
+    st.recorder.audit("user_deleted", Some(a.0.user.id), Some(&a.0.user.username), Some(ip), Some(format!("deleted {}", user.username)));
     Ok(StatusCode::NO_CONTENT)
 }
 

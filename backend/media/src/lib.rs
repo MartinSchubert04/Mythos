@@ -22,6 +22,7 @@ mod hls;
 mod http;
 mod probe;
 mod session;
+mod sniff;
 mod stream;
 mod subs;
 mod util;
@@ -112,6 +113,53 @@ pub struct PlayInfo {
     pub hdr: Option<bool>,
     pub audio_tracks: Vec<Track>,
     pub subtitle_tracks: Vec<Track>,
+    /// Extra: el motor tiene ffmpeg (HLS remux/transcode y subtítulos internos). Sin ffmpeg (modo
+    /// local en un dispositivo sin ffmpeg) `mode` siempre es `direct` y `hls_url` es `null`.
+    #[serde(default = "yes")]
+    pub transcode_available: bool,
+    /// Extra: según lo sondeado, el cliente (sus `caps`) puede reproducir el archivo tal cual.
+    /// `false` sin ffmpeg = probablemente no se vea/escuche: la UI debería ofrecer otro stream.
+    #[serde(default = "yes")]
+    pub direct_ok: bool,
+    /// Extra: de dónde salen los datos técnicos (confianza): ffprobe, cabeceras leídas en Rust o
+    /// adivinados por el nombre.
+    #[serde(default)]
+    pub probe_source: ProbeSource,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ProbeSource {
+    Ffprobe,
+    /// Cabeceras MP4/MKV leídas sin ffprobe (`sniff.rs`).
+    Sniff,
+    /// Por el nombre del archivo.
+    #[default]
+    Guess,
+}
+
+/// Extra: qué herramientas externas encontró el motor al arrancar.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MediaTools {
+    pub ffmpeg: bool,
+    pub ffprobe: bool,
+}
+
+/// Extra: `reqwest::ClientBuilder` con la verificación TLS adecuada a la plataforma. En Android
+/// usa las raíces de Mozilla embebidas (`webpki-root-certs`): el verificador de plataforma de
+/// rustls necesita inicializarse por JNI desde la app y, sin eso, no puede validar nada. En el
+/// resto, el verificador del sistema (lo que trae reqwest por defecto).
+pub fn http_client_builder() -> reqwest::ClientBuilder {
+    let b = reqwest::Client::builder();
+    #[cfg(target_os = "android")]
+    let b = b.tls_certs_only(
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter().filter_map(|c| reqwest::Certificate::from_der(c.as_ref()).ok()),
+    );
+    b
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -281,5 +329,17 @@ impl Media {
     /// Extra: cierra una sesión (lo mismo que `DELETE /{session}`).
     pub async fn close(&self, session_id: &str) {
         self.inner.close_session(session_id).await
+    }
+
+    /// Extra: qué herramientas (ffmpeg/ffprobe) hay. Sin ffmpeg no hay HLS ni subtítulos internos.
+    pub fn tools(&self) -> MediaTools {
+        self.inner.tools
+    }
+
+    /// Extra: apaga el motor (para el modo embebido): cierra las sesiones (mata ffmpeg), guarda el
+    /// uso de la caché, para el endpoint interno y la sesión de librqbit (suelta los puertos y los
+    /// archivos). Después de esto el `Media` (y sus clones) ya no sirve.
+    pub async fn shutdown(&self) {
+        self.inner.shutdown().await
     }
 }

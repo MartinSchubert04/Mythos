@@ -1951,7 +1951,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "mythos"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1959,6 +1959,7 @@ dependencies = [
  "base64",
  "flate2",
  "getrandom 0.4.3",
+ "http-body",
  "mythos-media",
  "reqwest",
  "rusqlite",
@@ -1975,7 +1976,7 @@ dependencies = [
 
 [[package]]
 name = "mythos-media"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1992,6 +1993,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "webpki-root-certs",
  "windows-sys 0.61.2",
 ]
 

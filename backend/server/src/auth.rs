@@ -1,6 +1,11 @@
 //! Autenticación: contraseñas argon2id, tokens de sesión aleatorios (en la DB solo su sha256),
 //! extractores `AuthUser`/`AdminUser`, middleware para `/api/media/**` (Bearer o `?t=`), rate limit
-//! de login por IP y las rutas `/api/auth/*` y `/api/me*`.
+//! de login por IP y las rutas `/api/auth/*` y `/api/me*` (incluidas las sesiones abiertas).
+//!
+//! Sesiones largas: el login es una puerta de entrada de una sola vez. Una sesión dura 180 días
+//! desde el último uso (se renueva sola) y para no escribir en la DB en cada request la renovación
+//! se guarda como mucho una vez por día; el "último uso" fino (y la IP) se lleva en memoria y se
+//! mezcla al listar las sesiones. El logout revoca la sesión.
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -17,7 +22,7 @@ use axum::{
     http::{header, request::Parts, HeaderMap, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Router,
 };
 use base64::Engine;
@@ -27,14 +32,15 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     db::{now_unix, Db},
-    error::{ApiError, ApiResult, Json},
+    error::{ApiError, ApiResult, Json, Path},
+    metrics::{client_ip, Recorder, ReqSlot},
 };
 
-/// Las sesiones duran 30 días desde el último uso.
-const SESSION_TTL_S: i64 = 30 * 24 * 3600;
-/// Para no escribir en la DB en cada request (los segmentos HLS llegan cada pocos segundos), la
-/// renovación de la sesión se hace como mucho una vez por hora.
-const RENEW_EVERY_S: i64 = 3600;
+/// Las sesiones duran 180 días desde el último uso.
+pub const SESSION_TTL_S: i64 = 180 * 24 * 3600;
+/// La renovación (y `last_used`/`last_ip` en la DB) se escribe como mucho una vez por día: es
+/// decir, cuando al vencimiento le queda menos que `TTL − 1 día`.
+const RENEW_EVERY_S: i64 = 24 * 3600;
 /// Caché en memoria token → usuario, para no ir a SQLite en cada request de media.
 const AUTH_CACHE_TTL: Duration = Duration::from_secs(60);
 /// Rate limit de login: 10 intentos fallidos por IP cada 5 minutos.
@@ -62,29 +68,62 @@ pub fn user_from_row(r: &rusqlite::Row) -> rusqlite::Result<User> {
     })
 }
 
-/// Estado de auth: la DB, la caché de tokens y el rate limiter.
+/// De qué dispositivo es una sesión (lo que se ve en `GET /api/me/sessions`).
+#[derive(Clone, Debug, Default)]
+pub struct SessionMeta {
+    /// Etiqueta que manda la UI en el login ("Pixel 8", "Desktop"...).
+    pub device: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+impl SessionMeta {
+    pub fn new(device: Option<&str>, headers: &HeaderMap) -> Self {
+        Self {
+            device: device.and_then(|d| clean(d, 64)),
+            user_agent: headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).and_then(|v| clean(v, 200)),
+        }
+    }
+}
+
+/// Recorta y saca caracteres de control (texto que viene del cliente y se muestra o loguea).
+fn clean(s: &str, max: usize) -> Option<String> {
+    let s: String = s.trim().chars().filter(|c| !c.is_control()).take(max).collect();
+    (!s.is_empty()).then_some(s)
+}
+
+/// Estado de auth: la DB, la caché de tokens, el rate limiter y el registro de auditoría.
 #[derive(Clone)]
 pub struct Auth {
     pub db: Db,
+    pub recorder: Recorder,
     inner: Arc<AuthInner>,
 }
 
 struct AuthInner {
     cache: Mutex<HashMap<String, (User, Instant)>>,
     fails: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
+    /// token_hash → (último uso en unix s, IP): fino, en memoria (la DB se actualiza 1 vez/día).
+    seen: Mutex<HashMap<String, (i64, IpAddr)>>,
     /// Hash de una contraseña cualquiera: si el usuario no existe se verifica contra este, así el
     /// tiempo de respuesta no revela qué usuarios existen.
     dummy_hash: String,
 }
 
 impl Auth {
+    #[cfg(test)]
     pub fn new(db: Db) -> Self {
+        Self::with_recorder(db, Recorder::disabled())
+    }
+
+    pub fn with_recorder(db: Db, recorder: Recorder) -> Self {
         let dummy_hash = hash_password("mythos-dummy-password").expect("argon2");
         Self {
             db,
+            recorder,
             inner: Arc::new(AuthInner {
                 cache: Mutex::new(HashMap::new()),
                 fails: Mutex::new(HashMap::new()),
+                seen: Mutex::new(HashMap::new()),
                 dummy_hash,
             }),
         }
@@ -95,41 +134,57 @@ impl Auth {
         self.inner.cache.lock().unwrap().clear();
     }
 
+    fn mark_seen(&self, hash: &str, ip: Option<IpAddr>) {
+        let Some(ip) = ip else { return };
+        let mut seen = self.inner.seen.lock().unwrap();
+        if seen.len() > 5000 {
+            seen.clear();
+        }
+        seen.insert(hash.to_string(), (now_unix(), ip));
+    }
+
     /// Devuelve el usuario dueño del token, o `None` si no es válido, expiró o está deshabilitado.
-    pub async fn authenticate(&self, token: &str) -> ApiResult<Option<User>> {
+    pub async fn authenticate(&self, token: &str, ip: Option<IpAddr>) -> ApiResult<Option<User>> {
         let hash = token_hash(token);
         if let Some((user, at)) = self.inner.cache.lock().unwrap().get(&hash) {
             if at.elapsed() < AUTH_CACHE_TTL {
-                return Ok(Some(user.clone()));
+                let user = user.clone();
+                self.mark_seen(&hash, ip);
+                return Ok(Some(user));
             }
         }
         let h = hash.clone();
+        let ip_s = ip.map(|i| i.to_string());
         let user = self
             .db
             .call(move |c| {
                 let now = now_unix();
                 let row = c
                     .query_row(
-                        "SELECT u.id, u.username, u.is_admin, u.disabled, u.created_at, s.last_used
+                        "SELECT u.id, u.username, u.is_admin, u.disabled, u.created_at, s.expires_at
                          FROM sessions s JOIN users u ON u.id = s.user_id
                          WHERE s.token_hash = ?1 AND s.expires_at > ?2",
                         params![h, now],
                         |r| Ok((user_from_row(r)?, r.get::<_, i64>(5)?)),
                     )
                     .optional()?;
-                let Some((user, last_used)) = row else { return Ok(None) };
+                let Some((user, expires_at)) = row else { return Ok(None) };
                 if user.disabled {
                     return Ok(None);
                 }
-                if now - last_used > RENEW_EVERY_S {
+                // Renovar solo si al vencimiento le queda menos que TTL − 1 día.
+                if expires_at - now < SESSION_TTL_S - RENEW_EVERY_S {
                     c.execute(
-                        "UPDATE sessions SET last_used = ?2, expires_at = ?3 WHERE token_hash = ?1",
-                        params![h, now, now + SESSION_TTL_S],
+                        "UPDATE sessions SET last_used = ?2, expires_at = ?3, last_ip = COALESCE(?4, last_ip) WHERE token_hash = ?1",
+                        params![h, now, now + SESSION_TTL_S, ip_s],
                     )?;
                 }
                 Ok(Some(user))
             })
             .await?;
+        if user.is_some() {
+            self.mark_seen(&hash, ip);
+        }
         let mut cache = self.inner.cache.lock().unwrap();
         if cache.len() > 2000 {
             cache.clear();
@@ -145,19 +200,9 @@ impl Auth {
         Ok(user)
     }
 
-    /// Verifica usuario y contraseña y abre una sesión nueva. Aplica el rate limit por IP.
-    pub async fn login(&self, ip: IpAddr, username: &str, password: &str) -> ApiResult<(String, User)> {
-        if let Some(wait) = self.blocked_for(ip) {
-            let mins = wait.as_secs().div_ceil(60).max(1);
-            return Err(ApiError::new(
-                StatusCode::TOO_MANY_REQUESTS,
-                format!("Too many failed login attempts. Try again in {mins} minute(s)."),
-            ));
-        }
+    /// Verifica usuario y contraseña contra la DB (sin rate limit ni sesión). `Ok(None)` = no.
+    pub async fn verify(&self, username: &str, password: &str) -> ApiResult<Option<User>> {
         let name = username.trim().to_string();
-        // Para el log de intentos fallidos: recortado (y con `?` en el log, escapado) para que un
-        // nombre raro no ensucie los logs.
-        let name_for_log: String = name.chars().take(64).collect();
         let row = self
             .db
             .call(move |c| {
@@ -174,45 +219,77 @@ impl Auth {
             None => (None, self.inner.dummy_hash.clone()),
         };
         let pw = password.to_string();
-        let ok = tokio::task::spawn_blocking(move || verify_password(&pw, &stored))
-            .await
-            .map_err(ApiError::internal)?;
-        let user = match (ok, user) {
-            (true, Some(u)) => u,
-            _ => {
-                self.record_fail(ip, &name_for_log);
-                return Err(ApiError::unauthorized("Invalid username or password"));
-            }
+        let ok = tokio::task::spawn_blocking(move || verify_password(&pw, &stored)).await.map_err(ApiError::internal)?;
+        Ok(if ok { user } else { None })
+    }
+
+    /// Verifica usuario y contraseña y abre una sesión nueva. Aplica el rate limit por IP.
+    pub async fn login(&self, ip: IpAddr, username: &str, password: &str, meta: SessionMeta) -> ApiResult<(String, User)> {
+        self.check_rate(ip)?;
+        // Para el log de intentos fallidos: recortado (y con `?` en el log, escapado) para que un
+        // nombre raro no ensucie los logs.
+        let name_for_log: String = username.trim().chars().take(64).collect();
+        let Some(user) = self.verify(username, password).await? else {
+            self.record_fail(ip, &name_for_log, None);
+            return Err(ApiError::unauthorized("Invalid username or password"));
         };
         if user.disabled {
+            self.record_fail(ip, &name_for_log, Some("disabled"));
             return Err(ApiError::unauthorized("This account is disabled"));
         }
         self.inner.fails.lock().unwrap().remove(&ip);
+        let token = self.open_session(&user, ip, meta).await?;
+        Ok((token, user))
+    }
+
+    /// Error 429 si la IP está bloqueada por intentos fallidos.
+    pub fn check_rate(&self, ip: IpAddr) -> ApiResult<()> {
+        match self.blocked_for(ip) {
+            Some(wait) => {
+                let mins = wait.as_secs().div_ceil(60).max(1);
+                Err(ApiError::new(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!("Too many failed login attempts. Try again in {mins} minute(s)."),
+                ))
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// Crea una sesión para `user` (ya autenticado) y devuelve el token.
+    pub async fn open_session(&self, user: &User, ip: IpAddr, meta: SessionMeta) -> ApiResult<String> {
         let token = new_token();
         let (h, uid) = (token_hash(&token), user.id);
+        let device = meta.device.clone();
+        let ip_s = ip.to_string();
         self.db
             .call(move |c| {
                 let now = now_unix();
                 c.execute(
-                    "INSERT INTO sessions (token_hash, user_id, created_at, last_used, expires_at)
-                     VALUES (?1, ?2, ?3, ?3, ?4)",
-                    params![h, uid, now, now + SESSION_TTL_S],
+                    "INSERT INTO sessions (token_hash, user_id, created_at, last_used, expires_at, device, user_agent, last_ip)
+                     VALUES (?1, ?2, ?3, ?3, ?4, ?5, ?6, ?7)",
+                    params![h, uid, now, now + SESSION_TTL_S, meta.device, meta.user_agent, ip_s],
                 )?;
                 Ok(())
             })
             .await?;
-        tracing::info!(user = %user.username, %ip, "login");
-        Ok((token, user))
+        tracing::info!(user = %user.username, %ip, device = ?device, "login");
+        self.recorder.audit("login_ok", Some(user.id), Some(&user.username), Some(ip), device);
+        Ok(token)
     }
 
-    pub async fn logout(&self, token_hash: String) -> ApiResult<()> {
+    pub async fn logout(&self, u: &AuthUser, ip: IpAddr) -> ApiResult<()> {
+        let token_hash = u.token_hash.clone();
         self.inner.cache.lock().unwrap().remove(&token_hash);
+        self.inner.seen.lock().unwrap().remove(&token_hash);
         self.db
             .call(move |c| {
                 c.execute("DELETE FROM sessions WHERE token_hash = ?1", [token_hash])?;
                 Ok(())
             })
-            .await
+            .await?;
+        self.recorder.audit("logout", Some(u.user.id), Some(&u.user.username), Some(ip), None);
+        Ok(())
     }
 
     /// Si la IP está bloqueada devuelve cuánto falta.
@@ -229,17 +306,22 @@ impl Auth {
         }
     }
 
-    fn record_fail(&self, ip: IpAddr, username: &str) {
-        let mut fails = self.inner.fails.lock().unwrap();
-        if fails.len() > 10_000 {
-            fails.retain(|_, q| q.back().is_some_and(|t| t.elapsed() < LOGIN_WINDOW));
-        }
-        let q = fails.entry(ip).or_default();
-        q.push_back(Instant::now());
-        if q.len() > LOGIN_MAX_FAILS {
-            q.pop_front();
-        }
-        tracing::warn!(%ip, user = ?username, fails = q.len(), "login fallido");
+    /// Anota un login fallido (rate limit + auditoría).
+    pub fn record_fail(&self, ip: IpAddr, username: &str, why: Option<&str>) {
+        let n = {
+            let mut fails = self.inner.fails.lock().unwrap();
+            if fails.len() > 10_000 {
+                fails.retain(|_, q| q.back().is_some_and(|t| t.elapsed() < LOGIN_WINDOW));
+            }
+            let q = fails.entry(ip).or_default();
+            q.push_back(Instant::now());
+            if q.len() > LOGIN_MAX_FAILS {
+                q.pop_front();
+            }
+            q.len()
+        };
+        tracing::warn!(%ip, user = ?username, fails = n, "login fallido");
+        self.recorder.audit("login_fail", None, Some(username), Some(ip), why.map(str::to_string));
     }
 }
 
@@ -342,12 +424,16 @@ fn query_token(parts_query: Option<&str>) -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
-async fn resolve(auth: &Auth, token: Option<String>) -> Result<AuthUser, ApiError> {
+async fn resolve(auth: &Auth, token: Option<String>, ip: Option<IpAddr>) -> Result<AuthUser, ApiError> {
     let token = token.ok_or_else(|| ApiError::unauthorized("Missing session token"))?;
-    match auth.authenticate(&token).await? {
+    match auth.authenticate(&token, ip).await? {
         Some(user) => Ok(AuthUser { user, token_hash: token_hash(&token) }),
         None => Err(ApiError::unauthorized("Session expired, please log in again")),
     }
+}
+
+fn request_ip(ext: &axum::http::Extensions, headers: &HeaderMap) -> IpAddr {
+    client_ip(ext.get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip()), headers).0
 }
 
 impl<S> FromRequestParts<S> for AuthUser
@@ -362,7 +448,11 @@ where
             return Ok(u.clone());
         }
         let auth = Auth::from_ref(state);
-        let u = resolve(&auth, bearer(&parts.headers).map(str::to_string)).await?;
+        let ip = request_ip(&parts.extensions, &parts.headers);
+        let u = resolve(&auth, bearer(&parts.headers).map(str::to_string), Some(ip)).await?;
+        if let Some(slot) = parts.extensions.get::<ReqSlot>() {
+            slot.set_user(u.user.id);
+        }
         parts.extensions.insert(u.clone());
         Ok(u)
     }
@@ -387,8 +477,12 @@ where
 /// Middleware de `/api/media/**`: acepta Bearer o `?t=` (el `<video>` no manda headers).
 pub async fn media_auth(State(auth): State<Auth>, mut req: Request, next: Next) -> Response {
     let token = bearer(req.headers()).map(str::to_string).or_else(|| query_token(req.uri().query()));
-    match resolve(&auth, token).await {
+    let ip = request_ip(req.extensions(), req.headers());
+    match resolve(&auth, token, Some(ip)).await {
         Ok(u) => {
+            if let Some(slot) = req.extensions().get::<ReqSlot>() {
+                slot.set_user(u.user.id);
+            }
             req.extensions_mut().insert(u);
             next.run(req).await
         }
@@ -396,32 +490,21 @@ pub async fn media_auth(State(auth): State<Auth>, mut req: Request, next: Next) 
     }
 }
 
-/// IP del cliente. Si la conexión viene de loopback o de una red privada (tailscale serve, la red
-/// de Docker), se confía en el último valor de `X-Forwarded-For`, que es el que agregó el proxy.
+/// IP del cliente. Solo si la conexión viene de loopback (tailscale serve, el proxy de Vite) se
+/// confía en el último valor de `X-Forwarded-For`, que es el que agregó el proxy.
 pub struct ClientIp(pub IpAddr);
 
 impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
     type Rejection = std::convert::Infallible;
 
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-        let peer = parts
-            .extensions
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|c| c.0.ip())
-            .unwrap_or(IpAddr::from([127, 0, 0, 1]));
-        let trusted = match peer {
-            IpAddr::V4(v4) => v4.is_loopback() || v4.is_private(),
-            IpAddr::V6(v6) => v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v| v.is_loopback() || v.is_private()),
-        };
-        let forwarded = trusted
-            .then(|| parts.headers.get("x-forwarded-for")?.to_str().ok()?.rsplit(',').next()?.trim().parse().ok())
-            .flatten();
-        Ok(ClientIp(forwarded.unwrap_or(peer)))
+        Ok(ClientIp(request_ip(&parts.extensions, &parts.headers)))
     }
 }
 
 // ---------- rutas ----------
 
+/// Todas las rutas de cuenta del modo server: login, logout, `/me`, sesiones y contraseña.
 pub fn routes<S>() -> Router<S>
 where
     Auth: FromRef<S>,
@@ -430,34 +513,143 @@ where
     Router::new()
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
-        .route("/me", get(me))
         .route("/me/password", put(change_password))
+        .merge(account_routes())
+}
+
+/// `/me` y las sesiones abiertas (comunes a los dos modos). En modo local, login, logout y
+/// cambio de contraseña los pone `local.rs`.
+pub fn account_routes<S>() -> Router<S>
+where
+    Auth: FromRef<S>,
+    S: Clone + Send + Sync + 'static,
+{
+    Router::new()
+        .route("/me", get(me))
+        .route("/me/sessions", get(list_sessions).delete(revoke_other_sessions))
+        .route("/me/sessions/{id}", delete(revoke_session))
 }
 
 #[derive(Deserialize)]
-struct LoginBody {
-    username: String,
-    password: String,
+pub struct LoginBody {
+    pub username: String,
+    pub password: String,
+    /// Etiqueta del dispositivo para la lista de sesiones (opcional).
+    pub device: Option<String>,
 }
 
 #[derive(Serialize)]
-struct LoginResponse {
-    token: String,
-    user: User,
+pub struct LoginResponse {
+    pub token: String,
+    pub user: User,
 }
 
-async fn login(State(auth): State<Auth>, ClientIp(ip): ClientIp, Json(b): Json<LoginBody>) -> ApiResult<Json<LoginResponse>> {
-    let (token, user) = auth.login(ip, &b.username, &b.password).await?;
+async fn login(State(auth): State<Auth>, ClientIp(ip): ClientIp, headers: HeaderMap, Json(b): Json<LoginBody>) -> ApiResult<Json<LoginResponse>> {
+    let meta = SessionMeta::new(b.device.as_deref(), &headers);
+    let (token, user) = auth.login(ip, &b.username, &b.password, meta).await?;
     Ok(Json(LoginResponse { token, user }))
 }
 
-async fn logout(State(auth): State<Auth>, u: AuthUser) -> ApiResult<StatusCode> {
-    auth.logout(u.token_hash).await?;
+async fn logout(State(auth): State<Auth>, ClientIp(ip): ClientIp, u: AuthUser) -> ApiResult<StatusCode> {
+    auth.logout(&u, ip).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn me(u: AuthUser) -> Json<User> {
     Json(u.user)
+}
+
+/// Una sesión abierta (nunca el token).
+#[derive(Serialize, Debug)]
+pub struct SessionInfo {
+    pub id: i64,
+    pub device: Option<String>,
+    pub user_agent: Option<String>,
+    pub last_ip: Option<String>,
+    /// unix s
+    pub created_at: i64,
+    pub last_used_at: i64,
+    pub expires_at: i64,
+    /// Es la sesión de este request.
+    pub current: bool,
+}
+
+async fn list_sessions(State(auth): State<Auth>, u: AuthUser) -> ApiResult<Json<Vec<SessionInfo>>> {
+    let uid = u.user.id;
+    let rows = auth
+        .db
+        .call(move |c| {
+            let mut st = c.prepare(
+                "SELECT rowid, token_hash, device, user_agent, last_ip, created_at, last_used, expires_at
+                 FROM sessions WHERE user_id = ?1 AND expires_at > ?2",
+            )?;
+            let rows = st
+                .query_map(params![uid, now_unix()], |r| {
+                    Ok((
+                        r.get::<_, String>(1)?,
+                        SessionInfo {
+                            id: r.get(0)?,
+                            device: r.get(2)?,
+                            user_agent: r.get(3)?,
+                            last_ip: r.get(4)?,
+                            created_at: r.get(5)?,
+                            last_used_at: r.get(6)?,
+                            expires_at: r.get(7)?,
+                            current: false,
+                        },
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await?;
+    let seen = auth.inner.seen.lock().unwrap().clone();
+    let mut out: Vec<SessionInfo> = rows
+        .into_iter()
+        .map(|(hash, mut s)| {
+            if let Some((at, ip)) = seen.get(&hash) {
+                if *at >= s.last_used_at {
+                    s.last_used_at = *at;
+                    s.last_ip = Some(ip.to_string());
+                }
+            }
+            s.current = hash == u.token_hash;
+            s
+        })
+        .collect();
+    out.sort_by_key(|s| std::cmp::Reverse(s.last_used_at));
+    Ok(Json(out))
+}
+
+async fn revoke_session(State(auth): State<Auth>, ClientIp(ip): ClientIp, u: AuthUser, Path(id): Path<i64>) -> ApiResult<StatusCode> {
+    let uid = u.user.id;
+    let n = auth
+        .db
+        .call(move |c| Ok(c.execute("DELETE FROM sessions WHERE rowid = ?1 AND user_id = ?2", params![id, uid])?))
+        .await?;
+    if n == 0 {
+        return Err(ApiError::not_found("Session not found"));
+    }
+    auth.clear_cache();
+    auth.recorder.audit("session_revoked", Some(uid), Some(&u.user.username), Some(ip), Some(format!("session {id}")));
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+struct Revoked {
+    revoked: usize,
+}
+
+/// "Cerrar sesión en los demás dispositivos": borra todas menos la actual.
+async fn revoke_other_sessions(State(auth): State<Auth>, ClientIp(ip): ClientIp, u: AuthUser) -> ApiResult<Json<Revoked>> {
+    let (uid, keep) = (u.user.id, u.token_hash.clone());
+    let n = auth
+        .db
+        .call(move |c| Ok(c.execute("DELETE FROM sessions WHERE user_id = ?1 AND token_hash <> ?2", params![uid, keep])?))
+        .await?;
+    auth.clear_cache();
+    auth.recorder.audit("session_revoked", Some(uid), Some(&u.user.username), Some(ip), Some(format!("{n} other sessions")));
+    Ok(Json(Revoked { revoked: n }))
 }
 
 #[derive(Deserialize)]
@@ -467,7 +659,7 @@ struct PasswordBody {
 }
 
 /// Cambia la contraseña propia y cierra las demás sesiones del usuario (la actual sigue).
-async fn change_password(State(auth): State<Auth>, u: AuthUser, Json(b): Json<PasswordBody>) -> ApiResult<StatusCode> {
+async fn change_password(State(auth): State<Auth>, ClientIp(ip): ClientIp, u: AuthUser, Json(b): Json<PasswordBody>) -> ApiResult<StatusCode> {
     validate_password(&b.new)?;
     let uid = u.user.id;
     let keep = u.token_hash.clone();
@@ -484,6 +676,7 @@ async fn change_password(State(auth): State<Auth>, u: AuthUser, Json(b): Json<Pa
         })
         .await?;
     auth.clear_cache();
+    auth.recorder.audit("password_changed", Some(uid), Some(&u.user.username), Some(ip), None);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -639,5 +832,44 @@ mod tests {
         assert_eq!(e.status, StatusCode::CONFLICT);
         assert_eq!(create_user(&c, "bad name", "secret123", false).unwrap_err().status, StatusCode::BAD_REQUEST);
         assert_eq!(create_user(&c, "short", "123", false).unwrap_err().status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn sessions_list_and_revoke() {
+        let (_auth, app) = setup().await;
+        let (st, v) = call(&app, "POST", "/api/auth/login", None, Some(r#"{"username":"bob","password":"hunter22","device":"Pixel 8"}"#)).await;
+        assert_eq!(st, StatusCode::OK);
+        let phone = v["token"].as_str().unwrap().to_string();
+        let desk = login_ok(&app, "bob", "hunter22").await;
+        let other = login_ok(&app, "admin", "secret123").await;
+
+        let (st, v) = call(&app, "GET", "/api/me/sessions", Some(&desk), None).await;
+        assert_eq!(st, StatusCode::OK);
+        let list = v.as_array().unwrap();
+        assert_eq!(list.len(), 2, "solo las de bob: {v}");
+        assert!(list.iter().any(|s| s["device"] == "Pixel 8" && s["current"] == false));
+        assert!(list.iter().any(|s| s["current"] == true));
+        // Nunca el token ni su hash.
+        let text = v.to_string();
+        assert!(!text.contains(&phone) && !text.contains(&token_hash(&phone)) && !text.contains("token"));
+        let exp = list[0]["expires_at"].as_i64().unwrap() - now_unix();
+        assert!(exp > 170 * 24 * 3600, "sesiones largas");
+
+        // Borrar la del teléfono por id.
+        let id = list.iter().find(|s| s["device"] == "Pixel 8").unwrap()["id"].as_i64().unwrap();
+        let (st, _) = call(&app, "DELETE", &format!("/api/me/sessions/{id}"), Some(&other), None).await;
+        assert_eq!(st, StatusCode::NOT_FOUND, "no se puede borrar una sesión ajena");
+        let (st, _) = call(&app, "DELETE", &format!("/api/me/sessions/{id}"), Some(&desk), None).await;
+        assert_eq!(st, StatusCode::NO_CONTENT);
+        assert_eq!(call(&app, "GET", "/api/me", Some(&phone), None).await.0, StatusCode::UNAUTHORIZED);
+
+        // "Cerrar las demás".
+        let t3 = login_ok(&app, "bob", "hunter22").await;
+        let (st, v) = call(&app, "DELETE", "/api/me/sessions", Some(&desk), None).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["revoked"], 1);
+        assert_eq!(call(&app, "GET", "/api/me", Some(&t3), None).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(call(&app, "GET", "/api/me", Some(&desk), None).await.0, StatusCode::OK);
+        assert_eq!(call(&app, "GET", "/api/me", Some(&other), None).await.0, StatusCode::OK);
     }
 }

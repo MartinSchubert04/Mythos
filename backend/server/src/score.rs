@@ -45,11 +45,14 @@ pub struct Prefs {
     pub caps: Option<ClientCaps>,
     /// Años aceptables según Cinemeta (película: año ±1; serie: su rango ±1).
     pub years: Option<(u16, u16)>,
+    /// El server no tiene ffmpeg (modo local sin ffmpeg): lo que no se reproduce directo no se
+    /// puede convertir, así que se hunde en la lista.
+    pub direct_only: bool,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { preferred: Quality::P1080, max_size_bytes: None, duration_s: 7200.0, caps: None, years: None }
+        Self { preferred: Quality::P1080, max_size_bytes: None, duration_s: 7200.0, caps: None, years: None, direct_only: false }
     }
 }
 
@@ -189,6 +192,10 @@ pub fn score(s: &Stream, downloaded: bool, p: &Prefs) -> f64 {
     match &p.caps {
         Some(caps) => {
             score += match playback(s, caps) {
+                // Sin ffmpeg: remux/transcode no existen; desconocido es un riesgo.
+                Playback::Remux if p.direct_only => -250.0,
+                Playback::Transcode if p.direct_only => -400.0,
+                Playback::Unknown if p.direct_only => -30.0,
                 Playback::Direct => 45.0,
                 Playback::Remux => 10.0,
                 Playback::Transcode if s.quality == Quality::P2160 || has("HDR") || has("DV") => -90.0,
@@ -371,6 +378,20 @@ mod tests {
         let mut russian = with_en.clone();
         russian.cyrillic = true;
         assert!(sc(&with_en) > sc(&russian));
+    }
+
+    #[test]
+    fn direct_only_sinks_non_direct() {
+        let caps = parse_caps("h264,aac,opus").unwrap();
+        let mut mp4 = st(Quality::P1080, 100, 2.0, &["x264"]);
+        mp4.media = MediaGuess { container: Some("mp4"), video: Some("h264"), audio: vec!["aac"] };
+        let mut mkv = mp4.clone();
+        mkv.media.container = Some("mkv");
+        let with = Prefs { caps: Some(caps.clone()), direct_only: true, ..Prefs::default() };
+        let without = Prefs { caps: Some(caps), ..Prefs::default() };
+        let gap_direct_only = score(&mp4, false, &with) - score(&mkv, false, &with);
+        let gap_normal = score(&mp4, false, &without) - score(&mkv, false, &without);
+        assert!(gap_direct_only > gap_normal + 200.0, "{gap_direct_only} vs {gap_normal}");
     }
 
     #[test]

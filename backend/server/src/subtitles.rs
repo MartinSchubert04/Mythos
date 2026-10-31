@@ -42,7 +42,7 @@ impl Subtitles {
     /// Cliente propio: solo sigue redirects a hosts permitidos (si no, un 302 lo convertiría en
     /// proxy abierto).
     pub fn new() -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
+        let http = mythos_media::http_client_builder()
             .user_agent(concat!("Mythos/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(6))
             .timeout(Duration::from_secs(20))

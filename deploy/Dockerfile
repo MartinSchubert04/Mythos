@@ -29,7 +29,7 @@ COPY backend/server/src server/src
 COPY backend/media/src media/src
 # `touch` + borrar las huellas de los crates propios: COPY conserva fechas viejas y cargo podría
 # creer que el binario vacío de arriba sigue vigente.
-RUN touch server/src/main.rs media/src/lib.rs \
+RUN touch server/src/main.rs server/src/lib.rs media/src/lib.rs \
  && rm -rf target/release/.fingerprint/mythos-* \
  && cargo build --release --locked -p mythos \
  && cp target/release/mythos /mythos

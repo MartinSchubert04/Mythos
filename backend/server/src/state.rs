@@ -8,7 +8,10 @@ use axum::extract::FromRef;
 use mythos_media::Media;
 use serde::Serialize;
 
-use crate::{auth::Auth, cinemeta::Cinemeta, config::Config, db::Db, streams::StreamCtx, subtitles::Subtitles};
+use crate::{
+    auth::Auth, cinemeta::Cinemeta, config::Config, db::Db, local::LocalCtx, metrics::Recorder, streams::StreamCtx,
+    subtitles::Subtitles,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -21,6 +24,20 @@ pub struct AppState {
     pub subs: Arc<Subtitles>,
     /// Qué está viendo cada usuario (lo anota `/api/play` con `meta_id`), por id de usuario.
     pub watching: Arc<Mutex<HashMap<i64, Watching>>>,
+    /// Métricas y auditoría (deshabilitado en modo local).
+    pub recorder: Recorder,
+    /// Se avisa en cada cambio sincronizable (progreso, biblioteca, settings): el modo local
+    /// sincroniza poco después.
+    pub changes: Arc<tokio::sync::Notify>,
+    /// Solo en modo local.
+    pub local: Option<Arc<LocalCtx>>,
+}
+
+impl AppState {
+    /// Hubo un cambio sincronizable.
+    pub fn changed(&self) {
+        self.changes.notify_one();
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -41,7 +58,7 @@ impl FromRef<AppState> for Auth {
 
 /// Cliente HTTP para los upstreams (Cinemeta, Torrentio, OpenSubtitles).
 pub fn http_client() -> anyhow::Result<reqwest::Client> {
-    Ok(reqwest::Client::builder()
+    Ok(mythos_media::http_client_builder()
         .user_agent(concat!("Mythos/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(std::time::Duration::from_secs(6))
         .timeout(std::time::Duration::from_secs(25))

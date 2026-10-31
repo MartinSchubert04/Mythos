@@ -63,6 +63,87 @@ CREATE TABLE library (
 );
 "#, r#"
 CREATE INDEX progress_series ON progress(user_id, series_id) WHERE series_id IS NOT NULL;
+"#, r#"
+-- Sesiones largas: de qué dispositivo es cada una (para GET /api/me/sessions).
+ALTER TABLE sessions ADD COLUMN device TEXT;
+ALTER TABLE sessions ADD COLUMN user_agent TEXT;
+ALTER TABLE sessions ADD COLUMN last_ip TEXT;
+
+-- Sincronización: cada escritura de progreso/biblioteca/settings toma un número de secuencia
+-- creciente (`seq`, el cursor de GET /api/sync?since=) y guarda `updated_ms` (reloj del
+-- dispositivo que hizo el cambio, para last-write-wins). Los borrados quedan como lápidas
+-- (`deleted = 1`). Lo que ya existía arranca con seq = 1 y la fecha que tenía.
+CREATE TABLE sync_state (id INTEGER PRIMARY KEY CHECK (id = 1), seq INTEGER NOT NULL);
+INSERT INTO sync_state (id, seq) VALUES (1, 1);
+ALTER TABLE progress ADD COLUMN updated_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE progress ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE progress ADD COLUMN seq INTEGER NOT NULL DEFAULT 1;
+UPDATE progress SET updated_ms = COALESCE(CAST(ROUND((julianday(updated_at) - 2440587.5) * 86400000.0) AS INTEGER), 0);
+CREATE INDEX progress_seq ON progress(user_id, seq);
+ALTER TABLE library ADD COLUMN updated_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE library ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE library ADD COLUMN seq INTEGER NOT NULL DEFAULT 1;
+UPDATE library SET updated_ms = COALESCE(CAST(ROUND((julianday(added_at) - 2440587.5) * 86400000.0) AS INTEGER), 0);
+CREATE INDEX library_seq ON library(user_id, seq);
+ALTER TABLE settings ADD COLUMN updated_ms INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE settings ADD COLUMN seq INTEGER NOT NULL DEFAULT 1;
+
+-- Métricas (admin): requests crudos (~14 días) y agregados por hora (~90 días). `route` es la
+-- plantilla (/api/media/{session}/file), nunca la URL real (que puede traer `?t=`).
+CREATE TABLE request_log (
+    id       INTEGER PRIMARY KEY,
+    ts_ms    INTEGER NOT NULL,
+    ip       TEXT,
+    ts_login TEXT,                            -- Tailscale-User-Login, si vino por tailscale serve
+    user_id  INTEGER,
+    method   TEXT NOT NULL,
+    route    TEXT NOT NULL,
+    status   INTEGER NOT NULL,
+    dur_ms   INTEGER NOT NULL,                -- hasta los headers de la respuesta
+    bytes    INTEGER NOT NULL                 -- cuerpo enviado (aprox. en streams cortados)
+);
+CREATE INDEX request_log_ts ON request_log(ts_ms);
+CREATE TABLE request_hourly (
+    hour     INTEGER NOT NULL,                -- unix ms del comienzo de la hora
+    method   TEXT NOT NULL,
+    route    TEXT NOT NULL,
+    status   INTEGER NOT NULL,
+    user_id  INTEGER NOT NULL DEFAULT 0,      -- 0 = sin login
+    ip       TEXT NOT NULL DEFAULT '',
+    ts_login TEXT NOT NULL DEFAULT '',
+    count    INTEGER NOT NULL,
+    bytes    INTEGER NOT NULL,
+    dur_sum  INTEGER NOT NULL,
+    -- histograma de latencia (ver metrics::BUCKETS_MS)
+    h0 INTEGER NOT NULL DEFAULT 0, h1 INTEGER NOT NULL DEFAULT 0, h2 INTEGER NOT NULL DEFAULT 0,
+    h3 INTEGER NOT NULL DEFAULT 0, h4 INTEGER NOT NULL DEFAULT 0, h5 INTEGER NOT NULL DEFAULT 0,
+    h6 INTEGER NOT NULL DEFAULT 0, h7 INTEGER NOT NULL DEFAULT 0, h8 INTEGER NOT NULL DEFAULT 0,
+    h9 INTEGER NOT NULL DEFAULT 0, h10 INTEGER NOT NULL DEFAULT 0, h11 INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (hour, method, route, status, user_id, ip, ts_login)
+);
+CREATE TABLE audit (
+    id       INTEGER PRIMARY KEY,
+    ts_ms    INTEGER NOT NULL,
+    event    TEXT NOT NULL,                   -- login_ok, login_fail, logout, user_created...
+    user_id  INTEGER,
+    username TEXT,
+    ip       TEXT,
+    detail   TEXT
+);
+CREATE INDEX audit_ts ON audit(ts_ms);
+
+-- Modo local: a qué cuenta del server remoto corresponde cada cuenta local y cómo va la
+-- sincronización. `remote_token` es una sesión del remoto (solo en este dispositivo).
+CREATE TABLE local_link (
+    user_id        INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    remote_url     TEXT NOT NULL,
+    remote_token   TEXT,
+    remote_user_id INTEGER,
+    remote_cursor  INTEGER NOT NULL DEFAULT 0,   -- último `cursor` bajado del remoto
+    pushed_seq     INTEGER NOT NULL DEFAULT 0,   -- último seq local ya subido
+    last_sync_ms   INTEGER,
+    last_error     TEXT
+);
 "#];
 
 #[derive(Clone)]
@@ -76,6 +157,7 @@ impl Db {
         Self::init(conn)
     }
 
+    /// Base en memoria (tests).
     #[cfg(test)]
     pub fn open_in_memory() -> anyhow::Result<Self> {
         Self::init(Connection::open_in_memory()?)
@@ -115,4 +197,71 @@ impl Db {
 
 pub fn now_unix() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+/// Milisegundos unix (reloj de este dispositivo).
+pub fn now_ms() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+/// Siguiente número de secuencia de cambios (cursor de la sincronización). Llamarlo dentro de la
+/// misma transacción que la escritura.
+pub fn next_seq(c: &Connection) -> rusqlite::Result<i64> {
+    c.query_row("UPDATE sync_state SET seq = seq + 1 WHERE id = 1 RETURNING seq", [], |r| r.get(0))
+}
+
+/// Último número de secuencia usado.
+pub fn current_seq(c: &Connection) -> rusqlite::Result<i64> {
+    c.query_row("SELECT seq FROM sync_state WHERE id = 1", [], |r| r.get(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Una base como la que hay hoy en el server (migraciones 1 y 2, con datos) migra en el lugar
+    /// sin perder nada, y lo existente queda listo para sincronizar.
+    #[test]
+    fn migrates_v2_in_place() {
+        let path = std::env::temp_dir().join(format!("mythos-mig-{}.db", now_ms()));
+        {
+            let c = Connection::open(&path).unwrap();
+            for (i, sql) in MIGRATIONS.iter().take(2).enumerate() {
+                c.execute_batch(sql).unwrap();
+                c.pragma_update(None, "user_version", (i + 1) as i64).unwrap();
+            }
+            c.execute_batch(
+                "INSERT INTO users (id, username, password_hash) VALUES (1, 'ana', 'h');
+                 INSERT INTO sessions (token_hash, user_id, created_at, last_used, expires_at) VALUES ('t', 1, 1, 1, 99999999999);
+                 INSERT INTO settings (user_id, ui, rd_key) VALUES (1, '{\"theme\":\"dark\"}', 'KEY');
+                 INSERT INTO progress (user_id, meta_id, type, name, position_s, duration_s, updated_at)
+                   VALUES (1, 'tt1', 'movie', 'X', 10, 100, '2026-01-02T03:04:05.678Z');
+                 INSERT INTO library (user_id, type, id, data, added_at) VALUES (1, 'movie', 'tt2', '{}', '2026-01-01T00:00:00.000Z');",
+            )
+            .unwrap();
+        }
+        let db = Db::open(&path).unwrap();
+        let c = db.conn.lock().unwrap();
+        let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v as usize, MIGRATIONS.len());
+        let (ms, del, seq): (i64, bool, i64) = c.query_row("SELECT updated_ms, deleted, seq FROM progress", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!(ms, 1767323045678);
+        assert!(!del);
+        assert_eq!(seq, 1);
+        let lib_ms: i64 = c.query_row("SELECT updated_ms FROM library", [], |r| r.get(0)).unwrap();
+        assert_eq!(lib_ms, 1767225600000);
+        let key: String = c.query_row("SELECT rd_key FROM settings", [], |r| r.get(0)).unwrap();
+        assert_eq!(key, "KEY");
+        let sessions: i64 = c.query_row("SELECT COUNT(*) FROM sessions WHERE device IS NULL", [], |r| r.get(0)).unwrap();
+        assert_eq!(sessions, 1, "las sesiones viejas siguen valiendo");
+        assert_eq!(current_seq(&c).unwrap(), 1);
+        assert_eq!(next_seq(&c).unwrap(), 2);
+        drop(c);
+        drop(db);
+        // Reabrir no vuelve a migrar.
+        Db::open(&path).unwrap();
+        for ext in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{ext}", path.display()));
+        }
+    }
 }

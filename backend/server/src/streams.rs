@@ -161,6 +161,7 @@ async fn streams(
         duration_s,
         caps: q.caps.as_deref().and_then(score::parse_caps),
         years,
+        direct_only: !st.media.tools().ffmpeg,
     };
     let media = &st.media;
     score::rank(

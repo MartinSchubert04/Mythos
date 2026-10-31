@@ -28,7 +28,8 @@ use crate::session::{Backing, PlaySession, TorrentFile};
 use crate::stream::Role;
 use crate::util::{self, now_unix};
 use crate::window::{self, FileGeom};
-use crate::{ClientCaps, MediaConfig, MediaState, MediaStats, PlayInfo, PlayMode, Source, TorrentStat, Track, Tuning};
+use crate::{ClientCaps, MediaConfig, MediaState, MediaStats, MediaTools, PlayInfo, PlayMode, ProbeSource, Source, TorrentStat, Track, Tuning};
+use tokio_util::sync::CancellationToken;
 use anyhow::{bail, Context};
 use librqbit::api::TorrentIdOrHash;
 use librqbit::dht::{DhtPersistenceConfig, Id20};
@@ -94,6 +95,10 @@ pub struct Engine {
     pub hls_dir: PathBuf,
     pub subs_dir: PathBuf,
     meta_dir: PathBuf,
+    /// ffmpeg/ffprobe encontrados al arrancar (sin ffmpeg: solo reproducción directa).
+    pub tools: MediaTools,
+    /// Se cancela en `shutdown`: para el endpoint interno y el keeper.
+    stop: CancellationToken,
 }
 
 impl Engine {
@@ -111,11 +116,14 @@ impl Engine {
         if let Err(e) = librqbit::try_increase_nofile_limit() {
             warn!("could not raise the open files limit: {e:#}");
         }
-        let http = reqwest::Client::builder()
+        let http = crate::http_client_builder()
             .user_agent(concat!("mythos/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(10))
             .build()?;
-        let trackers = load_trackers(&cfg, &http).await;
+        let (trackers, tools) = tokio::join!(load_trackers(&cfg, &http), detect_tools(&cfg));
+        if !tools.ffmpeg || !tools.ffprobe {
+            warn!(ffmpeg = tools.ffmpeg, ffprobe = tools.ffprobe, "ffmpeg/ffprobe not found: direct play only without ffmpeg (no HLS, no internal subtitles)");
+        }
         info!(trackers = trackers.len(), "starting torrent session");
         let rq = build_session(&cfg, &tuning, &torrents_dir, &trackers).await?;
         let engine = Arc::new(Self {
@@ -132,6 +140,8 @@ impl Engine {
             hls_dir,
             subs_dir,
             meta_dir,
+            tools,
+            stop: CancellationToken::new(),
             cfg,
         });
         // Endpoint interno para ffmpeg/ffprobe (127.0.0.1, puerto efímero).
@@ -139,13 +149,29 @@ impl Engine {
         let _ = engine.internal.set(l.local_addr()?);
         info!(addr = %l.local_addr()?, "internal media endpoint (ffmpeg/ffprobe)");
         let router = crate::http::internal_router(engine.clone());
+        let stop = engine.stop.clone();
         tokio::spawn(async move {
-            if let Err(e) = axum::serve(l, router).await {
+            if let Err(e) = axum::serve(l, router).with_graceful_shutdown(stop.cancelled_owned()).await {
                 warn!("internal media endpoint stopped: {e:#}");
             }
         });
-        tokio::spawn(keeper(Arc::downgrade(&engine)));
+        tokio::spawn(keeper(Arc::downgrade(&engine), engine.stop.clone()));
         Ok(engine)
+    }
+
+    /// Apaga todo (modo embebido). Idempotente.
+    pub async fn shutdown(&self) {
+        if self.stop.is_cancelled() {
+            return;
+        }
+        self.stop.cancel();
+        let ids: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
+        for id in ids {
+            self.close_session(&id).await;
+        }
+        self.usage.lock().unwrap().save_if_dirty();
+        self.rq.stop().await;
+        info!("media engine stopped");
     }
 
     /// URL interna (para ffmpeg/ffprobe) del archivo de una sesión.
@@ -357,15 +383,9 @@ impl Engine {
         };
         sess.set_state(MediaState::Probing);
         let t_src = t0.elapsed();
-        let p = match probe::run(&self.cfg.ffprobe, &self.internal_url(&id, Role::Probe), &sess.file_name, PROBE_TIMEOUT).await {
-            Ok(p) => p,
-            Err(e) => {
-                warn!(file = %sess.file_name, "ffprobe failed, guessing from the name: {e:#}");
-                probe::guess(&sess.file_name)
-            }
-        };
+        let (p, source) = self.probe(&id, &sess).await;
         sess.set_duration(p.duration, p.bit_rate);
-        let info = build_info(&id, &sess, &p, &caps);
+        let info = build_info(&id, &sess, &p, &caps, source, self.tools.ffmpeg);
         *sess.info.lock().unwrap() = Some(info.clone());
         *sess.probe.lock().unwrap() = Some(p);
         *sess.caps.lock().unwrap() = caps;
@@ -384,6 +404,30 @@ impl Engine {
             "opened"
         );
         Ok(info)
+    }
+
+    /// ffprobe si está; si no (o falla), las cabeceras en Rust (`sniff`); si no, por el nombre.
+    async fn probe(&self, id: &str, sess: &PlaySession) -> (Probe, ProbeSource) {
+        let url = self.internal_url(id, Role::Probe);
+        if self.tools.ffprobe {
+            match probe::run(&self.cfg.ffprobe, &url, &sess.file_name, PROBE_TIMEOUT).await {
+                Ok(p) => return (p, ProbeSource::Ffprobe),
+                Err(e) => warn!(file = %sess.file_name, "ffprobe failed, trying the built-in sniffer: {e:#}"),
+            }
+        }
+        match crate::sniff::run(&self.http, &url, sess.size, &sess.file_name, PROBE_TIMEOUT).await {
+            Ok(mut p) => {
+                // El sniffer no ve el bitrate: el de duración y tamaño alcanza para la ventana.
+                if p.bit_rate.is_none() {
+                    p.bit_rate = p.duration.filter(|d| *d > 0.0).map(|d| (sess.size as f64 * 8.0 / d) as u64);
+                }
+                (p, ProbeSource::Sniff)
+            }
+            Err(e) => {
+                warn!(file = %sess.file_name, "built-in sniffer failed, guessing from the name: {e:#}");
+                (probe::guess(&sess.file_name), ProbeSource::Guess)
+            }
+        }
     }
 
     pub fn prefetch(self: &Arc<Self>, src: Source) -> anyhow::Result<()> {
@@ -631,8 +675,10 @@ impl Engine {
     }
 }
 
-fn build_info(id: &str, sess: &PlaySession, p: &Probe, caps: &ClientCaps) -> PlayInfo {
-    let mode = probe::choose_mode(p, caps);
+fn build_info(id: &str, sess: &PlaySession, p: &Probe, caps: &ClientCaps, source: ProbeSource, ffmpeg: bool) -> PlayInfo {
+    let wanted = probe::choose_mode(p, caps);
+    // Sin ffmpeg lo único posible es directo; `direct_ok` le avisa a la UI si va a andar.
+    let mode = if ffmpeg { wanted } else { PlayMode::Direct };
     let v = p.video.as_ref();
     let text_subs = ["subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"];
     PlayInfo {
@@ -649,8 +695,34 @@ fn build_info(id: &str, sess: &PlaySession, p: &Probe, caps: &ClientCaps) -> Pla
         height: v.and_then(|v| v.height),
         hdr: v.map(|v| v.hdr),
         audio_tracks: p.audio.iter().map(|a| a.track.clone()).collect(),
-        subtitle_tracks: p.subs.iter().filter(|s| text_subs.contains(&s.codec.as_str())).cloned().collect::<Vec<Track>>(),
+        // Los internos se extraen con ffmpeg: sin ffmpeg no se ofrecen.
+        subtitle_tracks: if ffmpeg {
+            p.subs.iter().filter(|s| text_subs.contains(&s.codec.as_str())).cloned().collect::<Vec<Track>>()
+        } else {
+            Vec::new()
+        },
+        transcode_available: ffmpeg,
+        direct_ok: wanted == PlayMode::Direct,
+        probe_source: source,
     }
+}
+
+/// `-version` de ffmpeg y ffprobe (en paralelo, 5 s como mucho). Ruta vacía = deshabilitado.
+async fn detect_tools(cfg: &MediaConfig) -> MediaTools {
+    async fn ok(path: &Path) -> bool {
+        if path.as_os_str().is_empty() {
+            return false;
+        }
+        let mut cmd = tokio::process::Command::new(path);
+        cmd.arg("-version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        matches!(tokio::time::timeout(Duration::from_secs(5), cmd.status()).await, Ok(Ok(s)) if s.success())
+    }
+    let (ffmpeg, ffprobe) = tokio::join!(ok(&cfg.ffmpeg), ok(&cfg.ffprobe));
+    MediaTools { ffmpeg, ffprobe }
 }
 
 /// El video más grande; si no hay videos, el archivo más grande. Ignora archivos de relleno.
@@ -778,11 +850,15 @@ async fn build_session(cfg: &MediaConfig, tuning: &Tuning, out: &Path, trackers:
 
 /// Tareas periódicas: cerrar sesiones abandonadas, matar ffmpeg ocioso, pausar torrents sin uso,
 /// LRU y guardar el uso a disco.
-async fn keeper(engine: Weak<Engine>) {
+async fn keeper(engine: Weak<Engine>, stop: CancellationToken) {
     let mut tick = tokio::time::interval(Duration::from_secs(5));
     let mut n: u64 = 0;
     loop {
-        tick.tick().await;
+        tokio::select! {
+            _ = tick.tick() => {}
+            _ = stop.cancelled() => return,
+        }
+
         let Some(e) = engine.upgrade() else { return };
         n += 1;
         let sessions: Vec<Arc<PlaySession>> = e.sessions.lock().unwrap().values().cloned().collect();

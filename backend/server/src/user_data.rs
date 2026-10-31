@@ -13,10 +13,16 @@ use serde_json::{Map, Value};
 use crate::{
     auth::AuthUser,
     cinemeta::{check_id, check_type, MetaPreview},
-    db::Db,
+    db::{next_seq, now_ms, Db},
     error::{ApiError, ApiResult, Json, Path, Query},
     state::AppState,
 };
+
+// Toda escritura de progreso, biblioteca o settings toma un `seq` nuevo (cursor de la
+// sincronización) y un `updated_ms` = ahora, pero nunca menor al que ya tenía + 1: así un cambio
+// hecho acá siempre le gana (last-write-wins) a lo que había, aunque eso viniera de un
+// dispositivo con el reloj adelantado. Los borrados dejan una lápida (`deleted = 1`) para que la
+// sincronización los propague. Ver `sync.rs`.
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -100,6 +106,9 @@ async fn get_settings(State(st): State<AppState>, u: AuthUser) -> ApiResult<Json
 /// `preferred_quality`/`max_size_gb` en `null` se borran; `rd_key` vacío borra la clave.
 async fn put_settings(State(st): State<AppState>, u: AuthUser, Json(b): Json<SettingsIn>) -> ApiResult<Json<SettingsOut>> {
     let mut p = load_prefs(&st.db, u.user.id).await?;
+    let ui_changed = b.ui.as_ref().is_some_and(|m| !m.is_empty());
+    let q_changed = b.preferred_quality.is_some();
+    let max_changed = b.max_size_gb.is_some();
     if let Some(ui) = b.ui {
         for (k, v) in ui {
             if v.is_null() {
@@ -135,47 +144,65 @@ async fn put_settings(State(st): State<AppState>, u: AuthUser, Json(b): Json<Set
         p.rd_key = (!k.is_empty()).then_some(k);
     }
     let (uid, q, max, rd) = (u.user.id, p.preferred_quality.clone(), p.max_size_gb, p.rd_key.clone());
+    // Solo la clave de RD no se sincroniza: si fue lo único que cambió, no hace falta un seq nuevo.
+    let synced_change = ui_changed || q_changed || max_changed;
     st.db
         .call(move |c| {
-            c.execute(
-                "INSERT INTO settings (user_id, ui, preferred_quality, max_size_gb, rd_key) VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT(user_id) DO UPDATE SET ui = ?2, preferred_quality = ?3, max_size_gb = ?4, rd_key = ?5",
-                params![uid, ui_json, q, max, rd],
-            )?;
+            let tx = c.transaction()?;
+            if synced_change {
+                let seq = next_seq(&tx)?;
+                tx.execute(
+                    "INSERT INTO settings (user_id, ui, preferred_quality, max_size_gb, rd_key, updated_ms, seq)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                     ON CONFLICT(user_id) DO UPDATE SET ui = ?2, preferred_quality = ?3, max_size_gb = ?4, rd_key = ?5,
+                       updated_ms = MAX(?6, settings.updated_ms + 1), seq = ?7",
+                    params![uid, ui_json, q, max, rd, now_ms(), seq],
+                )?;
+            } else {
+                tx.execute(
+                    "INSERT INTO settings (user_id, ui, preferred_quality, max_size_gb, rd_key) VALUES (?1, ?2, ?3, ?4, ?5)
+                     ON CONFLICT(user_id) DO UPDATE SET rd_key = ?5",
+                    params![uid, ui_json, q, max, rd],
+                )?;
+            }
+            tx.commit()?;
             Ok(())
         })
         .await?;
+    if synced_change {
+        st.changed();
+    }
     Ok(Json(p.into()))
 }
 
 // ---------- progreso ----------
 
-#[derive(Serialize, Deserialize)]
-struct Progress {
-    meta_id: String,
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Progress {
+    pub meta_id: String,
     #[serde(rename = "type")]
-    kind: String,
+    pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    series_id: Option<String>,
-    name: String,
+    pub series_id: Option<String>,
+    pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    poster: Option<String>,
+    pub poster: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    background: Option<String>,
+    pub background: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    episode_label: Option<String>,
-    position_s: f64,
-    duration_s: f64,
+    pub episode_label: Option<String>,
+    pub position_s: f64,
+    pub duration_s: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    stream_key: Option<String>,
+    pub stream_key: Option<String>,
     #[serde(default, skip_deserializing)]
-    updated_at: String,
+    pub updated_at: String,
 }
 
-const PROGRESS_COLS: &str =
+pub const PROGRESS_COLS: &str =
     "meta_id, type, series_id, name, poster, background, episode_label, position_s, duration_s, stream_key, updated_at";
 
-fn progress_from_row(r: &rusqlite::Row) -> rusqlite::Result<Progress> {
+pub fn progress_from_row(r: &rusqlite::Row) -> rusqlite::Result<Progress> {
     Ok(Progress {
         meta_id: r.get(0)?,
         kind: r.get(1)?,
@@ -191,7 +218,8 @@ fn progress_from_row(r: &rusqlite::Row) -> rusqlite::Result<Progress> {
     })
 }
 
-async fn put_progress(State(st): State<AppState>, u: AuthUser, Json(p): Json<Progress>) -> ApiResult<StatusCode> {
+/// Validación común (API y sincronización).
+pub fn check_progress(p: &Progress) -> ApiResult<()> {
     check_type(&p.kind)?;
     check_id(&p.meta_id)?;
     if let Some(s) = &p.series_id {
@@ -203,24 +231,40 @@ async fn put_progress(State(st): State<AppState>, u: AuthUser, Json(p): Json<Pro
     if p.name.trim().is_empty() || p.name.len() > 500 {
         return Err(ApiError::bad_request("name is required"));
     }
+    let long = [&p.poster, &p.background, &p.episode_label, &p.stream_key].iter().any(|f| f.as_ref().is_some_and(|s| s.len() > 2000));
+    if long {
+        return Err(ApiError::bad_request("Progress field is too long"));
+    }
+    Ok(())
+}
+
+async fn put_progress(State(st): State<AppState>, u: AuthUser, Json(p): Json<Progress>) -> ApiResult<StatusCode> {
+    check_progress(&p)?;
     let uid = u.user.id;
     st.db
         .call(move |c| {
-            c.execute(
+            let tx = c.transaction()?;
+            let seq = next_seq(&tx)?;
+            tx.execute(
                 "INSERT INTO progress (user_id, meta_id, type, series_id, name, poster, background, episode_label,
-                                       position_s, duration_s, stream_key, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                                       position_s, duration_s, stream_key, updated_ms, updated_at, deleted, seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                         strftime('%Y-%m-%dT%H:%M:%fZ', ?12 / 1000.0, 'unixepoch'), 0, ?13)
                  ON CONFLICT(user_id, meta_id) DO UPDATE SET type = ?3, series_id = ?4, name = ?5, poster = ?6,
                    background = ?7, episode_label = ?8, position_s = ?9, duration_s = ?10, stream_key = ?11,
-                   updated_at = excluded.updated_at",
+                   updated_ms = MAX(?12, progress.updated_ms + 1),
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', MAX(?12, progress.updated_ms + 1) / 1000.0, 'unixepoch'),
+                   deleted = 0, seq = ?13",
                 params![
                     uid, p.meta_id, p.kind, p.series_id, p.name, p.poster, p.background, p.episode_label,
-                    p.position_s, p.duration_s, p.stream_key
+                    p.position_s, p.duration_s, p.stream_key, now_ms(), seq
                 ],
             )?;
+            tx.commit()?;
             Ok(())
         })
         .await?;
+    st.changed();
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -233,7 +277,7 @@ async fn continue_watching(State(st): State<AppState>, u: AuthUser) -> ApiResult
         .call(move |c| {
             let mut stmt = c.prepare_cached(&format!(
                 "SELECT {PROGRESS_COLS} FROM progress
-                 WHERE user_id = ?1 AND (duration_s <= 0 OR position_s / duration_s <= 0.92)
+                 WHERE user_id = ?1 AND deleted = 0 AND (duration_s <= 0 OR position_s / duration_s <= 0.92)
                  ORDER BY updated_at DESC LIMIT 200"
             ))?;
             let rows = stmt.query_map([uid], progress_from_row)?.collect::<Result<Vec<_>, _>>()?;
@@ -264,7 +308,7 @@ async fn series_progress(State(st): State<AppState>, u: AuthUser, Query(q): Quer
         .db
         .call(move |c| {
             let mut stmt = c.prepare_cached(&format!(
-                "SELECT {PROGRESS_COLS} FROM progress WHERE user_id = ?1 AND series_id = ?2 ORDER BY updated_at DESC"
+                "SELECT {PROGRESS_COLS} FROM progress WHERE user_id = ?1 AND series_id = ?2 AND deleted = 0 ORDER BY updated_at DESC"
             ))?;
             let rows = stmt.query_map(params![uid, series_id], progress_from_row)?.collect::<Result<Vec<_>, _>>()?;
             Ok(rows)
@@ -278,7 +322,7 @@ async fn get_progress(State(st): State<AppState>, u: AuthUser, Path(meta_id): Pa
     st.db
         .call(move |c| {
             Ok(c.query_row(
-                &format!("SELECT {PROGRESS_COLS} FROM progress WHERE user_id = ?1 AND meta_id = ?2"),
+                &format!("SELECT {PROGRESS_COLS} FROM progress WHERE user_id = ?1 AND meta_id = ?2 AND deleted = 0"),
                 params![uid, meta_id],
                 progress_from_row,
             )
@@ -289,14 +333,27 @@ async fn get_progress(State(st): State<AppState>, u: AuthUser, Path(meta_id): Pa
         .ok_or_else(|| ApiError::not_found("No progress for this title"))
 }
 
+/// Deja una lápida (para que el borrado se sincronice).
 async fn delete_progress(State(st): State<AppState>, u: AuthUser, Path(meta_id): Path<String>) -> ApiResult<StatusCode> {
     let uid = u.user.id;
-    st.db
+    let n = st
+        .db
         .call(move |c| {
-            c.execute("DELETE FROM progress WHERE user_id = ?1 AND meta_id = ?2", params![uid, meta_id])?;
-            Ok(())
+            let tx = c.transaction()?;
+            let seq = next_seq(&tx)?;
+            let n = tx.execute(
+                "UPDATE progress SET deleted = 1, seq = ?3, updated_ms = MAX(?4, updated_ms + 1),
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', MAX(?4, updated_ms + 1) / 1000.0, 'unixepoch')
+                 WHERE user_id = ?1 AND meta_id = ?2 AND deleted = 0",
+                params![uid, meta_id, seq, now_ms()],
+            )?;
+            tx.commit()?;
+            Ok(n)
         })
         .await?;
+    if n > 0 {
+        st.changed();
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -307,7 +364,7 @@ async fn library(State(st): State<AppState>, u: AuthUser) -> ApiResult<Json<Vec<
     let items = st
         .db
         .call(move |c| {
-            let mut stmt = c.prepare_cached("SELECT data FROM library WHERE user_id = ?1 ORDER BY added_at DESC")?;
+            let mut stmt = c.prepare_cached("SELECT data FROM library WHERE user_id = ?1 AND deleted = 0 ORDER BY added_at DESC")?;
             let rows = stmt.query_map([uid], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
             Ok(rows.iter().filter_map(|d| serde_json::from_str(d).ok()).collect())
         })
@@ -332,24 +389,44 @@ async fn library_add(
     let uid = u.user.id;
     st.db
         .call(move |c| {
-            c.execute(
-                "INSERT INTO library (user_id, type, id, data) VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT(user_id, type, id) DO UPDATE SET data = ?4",
-                params![uid, kind, id, data],
+            let tx = c.transaction()?;
+            let seq = next_seq(&tx)?;
+            // Volver a agregar algo borrado lo pone primero (added_at nuevo).
+            tx.execute(
+                "INSERT INTO library (user_id, type, id, data, updated_ms, deleted, seq) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)
+                 ON CONFLICT(user_id, type, id) DO UPDATE SET data = ?4,
+                   added_at = CASE WHEN library.deleted = 1 THEN excluded.added_at ELSE library.added_at END,
+                   updated_ms = MAX(?5, library.updated_ms + 1), deleted = 0, seq = ?6",
+                params![uid, kind, id, data, now_ms(), seq],
             )?;
+            tx.commit()?;
             Ok(())
         })
         .await?;
+    st.changed();
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Deja una lápida (para que el borrado se sincronice).
 async fn library_remove(State(st): State<AppState>, u: AuthUser, Path((kind, id)): Path<(String, String)>) -> ApiResult<StatusCode> {
     let uid = u.user.id;
-    st.db
+    let n = st
+        .db
         .call(move |c| {
-            c.execute("DELETE FROM library WHERE user_id = ?1 AND type = ?2 AND id = ?3", params![uid, kind, id])?;
-            Ok(())
+            let tx = c.transaction()?;
+            let seq = next_seq(&tx)?;
+            let n = tx.execute(
+                "UPDATE library SET deleted = 1, seq = ?4, updated_ms = MAX(?5, updated_ms + 1)
+                 WHERE user_id = ?1 AND type = ?2 AND id = ?3 AND deleted = 0",
+                params![uid, kind, id, seq, now_ms()],
+            )?;
+            tx.commit()?;
+            Ok(n)
         })
         .await?;
+    if n > 0 {
+        st.changed();
+    }
     Ok(StatusCode::NO_CONTENT)
 }
+
