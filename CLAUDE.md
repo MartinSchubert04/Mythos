@@ -17,6 +17,7 @@ iguales.
 | Modo local (server embebido en desktop y Android, sincronización, Auto/Solo server/Solo local) | `docs/local-mode.md` |
 | Desktop: actualizaciones desde los Releases (cuándo se instala, relanzar) | `apps/desktop/src-tauri/src/updater.rs` |
 | Desktop: vidrio esmerilado (Acrylic + opacidad sobre cualquier tema) | `apps/web/src/lib/glass.svelte.ts` |
+| Rendimiento: tamaño de las imágenes (`/api/media/img`), modo liviano en equipos flojos, qué evitar | `apps/web/src/lib/images.ts`, `apps/web/src/lib/perf.ts`, `DESIGN.md` (5b y 7) |
 
 ## Estructura
 
