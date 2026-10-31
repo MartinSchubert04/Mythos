@@ -1,0 +1,448 @@
+// Modo mock: un server de mentira dentro del navegador, solo para desarrollo (VITE_MOCK=1 o
+// `npm run dev:mock`). Contesta el contrato con datos reales de Cinemeta guardados en
+// fixtures.json y un video de prueba publico. El build de produccion no lo incluye.
+import fixtures from "./fixtures.json";
+import type {
+  AdminStats,
+  Episode,
+  MediaStatus,
+  Meta,
+  MetaPreview,
+  PlayInfo,
+  Progress,
+  Settings,
+  Stream,
+  TorrentStat,
+  User,
+} from "../types";
+
+// Big Buck Bunny entero (Blender Foundation, CC BY), de Wikimedia Commons.
+const VIDEO_DIRECT = "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.720p.vp9.webm";
+const VIDEO_HLS = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
+const DURATION = 634; // Big Buck Bunny (la version de Wikimedia)
+
+type Fx = { catalogs: Record<string, MetaPreview[]>; metas: Record<string, Meta> };
+const fx = fixtures as unknown as Fx;
+
+const KEY = "mythos.mock";
+type Db = {
+  users: User[];
+  passwords: Record<string, string>;
+  progress: Progress[];
+  library: MetaPreview[];
+  settings: Record<string, Settings>;
+  nextId: number;
+};
+function load(): Db {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY) ?? "");
+    if (d?.users) return d;
+  } catch {}
+  const now = new Date().toISOString();
+  const got = fx.metas.tt0944947;
+  const inception = fx.metas.tt1375666;
+  return {
+    users: [
+      { id: 1, username: "admin", is_admin: true, disabled: false, created_at: now },
+      { id: 2, username: "test", is_admin: false, disabled: false, created_at: now },
+      { id: 3, username: "guest", is_admin: false, disabled: true, created_at: now },
+    ],
+    passwords: { admin: "admin", test: "test", guest: "guest" },
+    progress: [
+      {
+        meta_id: "tt0944947:1:3",
+        type: "series",
+        series_id: "tt0944947",
+        name: got.name,
+        poster: got.poster,
+        background: got.background,
+        episode_label: "S01E03 · Lord Snow",
+        position_s: 130,
+        duration_s: 634,
+        updated_at: now,
+      },
+      {
+        meta_id: "tt1375666",
+        type: "movie",
+        name: inception.name,
+        poster: inception.poster,
+        background: inception.background,
+        position_s: 210,
+        duration_s: 634,
+        updated_at: now,
+      },
+    ],
+    library: [fx.catalogs["movie/top"][1], fx.catalogs["series/top"][0], fx.catalogs["movie/imdbRating"][0]],
+    settings: {},
+    nextId: 4,
+  };
+}
+const db = load();
+const save = () => localStorage.setItem(KEY, JSON.stringify(db));
+
+const tokens = new Map<string, string>(); // token -> username
+function userOf(req: Request): User | null {
+  const url = new URL(req.url);
+  const t = req.headers.get("Authorization")?.replace(/^Bearer /, "") ?? url.searchParams.get("t") ?? "";
+  // Los tokens del mock son "mock-<usuario>": sobreviven a recargar la pagina.
+  const name = tokens.get(t) ?? (t.startsWith("mock-") ? t.slice(5) : "");
+  return db.users.find((u) => u.username === name && !u.disabled) ?? null;
+}
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+const err = (status: number, error: string) => json({ error }, status);
+const none = (status = 204) => new Response(null, { status });
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function allPreviews(): MetaPreview[] {
+  const seen = new Set<string>();
+  const out: MetaPreview[] = [];
+  for (const l of Object.values(fx.catalogs))
+    for (const m of l)
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        out.push(m);
+      }
+  return out;
+}
+
+function metaFor(type: string, id: string): Meta | null {
+  if (fx.metas[id]) return fx.metas[id];
+  const p = allPreviews().find((m) => m.id === id);
+  if (!p) return null;
+  const m: Meta = {
+    ...p,
+    runtime: type === "movie" ? `${95 + (id.charCodeAt(5) % 60)} min` : "55 min",
+    cast: ["Alex Morgan", "Sam Rivera", "Jordan Lee", "Taylor Kim"],
+    director: ["Chris Doe"],
+    trailer_youtube_id: "YoHD9XEInc0",
+  };
+  if (type === "series") {
+    const eps: Episode[] = [];
+    for (let s = 1; s <= 3; s++)
+      for (let e = 1; e <= 8; e++)
+        eps.push({
+          id: `${id}:${s}:${e}`,
+          season: s,
+          episode: e,
+          name: `Episode ${e}`,
+          overview: "An episode of the series. In mock mode every episode plays the same test video.",
+          thumbnail: p.background,
+          released: `20${10 + s}-0${Math.min(9, e)}-01T00:00:00.000Z`,
+        });
+    m.videos = eps;
+  }
+  return m;
+}
+
+const QUALITIES = ["2160p", "1080p", "1080p", "720p", "1080p", "480p", "720p", "2160p"] as const;
+function streamsFor(id: string): Stream[] {
+  const base = id.replace(/\W/g, "").padEnd(40, "0").slice(0, 40).toLowerCase();
+  const names = [
+    ["2160p.UHD.BluRay.x265.10bit.HDR.DTS-HD.MA.5.1-GRP", ["HDR", "HEVC", "10bit", "5.1"], 31.2e9, 212, "ThePirateBay", ["🇬🇧"]],
+    ["1080p.BluRay.x264.DTS-HD.MA.5.1-FGT", ["x264", "5.1", "BluRay"], 12.4e9, 845, "1337x", ["🇬🇧"]],
+    ["1080p.WEB-DL.DDP5.1.H.264-NTb", ["WEB-DL", "x264", "5.1"], 6.1e9, 1290, "EZTV", ["🇬🇧", "🇪🇸"]],
+    ["720p.BluRay.x264-SPARKS", ["x264", "BluRay"], 4.4e9, 96, "YTS", ["🇬🇧"]],
+    ["1080p.BluRay.REMUX.AVC.TrueHD.Atmos-FraMeSToR", ["REMUX", "Atmos"], 34.8e9, 31, "RARBG", ["multi"]],
+    ["480p.DVDRip.XviD-AMIABLE", ["XviD"], 0.7e9, 6, "ThePirateBay", ["🇬🇧"]],
+    ["720p.HDTV.x264-KILLERS", ["x264", "HDTV"], 1.1e9, 3, "EZTV", ["🇬🇧"]],
+    ["2160p.WEB-DL.DV.HEVC.Atmos-FLUX", ["DV", "HDR", "HEVC", "Atmos"], 18.9e9, 47, "TorrentGalaxy", ["🇬🇧", "🇫🇷"]],
+  ] as const;
+  return names.map(([t, tags, size, seeders, source, languages], i) => ({
+    key: `${base.slice(0, 39)}${i}:0`,
+    info_hash: `${base.slice(0, 39)}${i}`,
+    file_idx: 0,
+    title: `Mock.Title.${t}`,
+    file_name: `Mock.Title.${t}.mkv`,
+    quality: QUALITIES[i],
+    size_bytes: size,
+    seeders,
+    source,
+    tags: [...tags],
+    languages: [...languages],
+    cached: i === 2,
+    score: 100 - i * 9,
+  }));
+}
+
+// ---- sesiones de reproduccion simuladas
+
+type Sess = { started: number; total: number; peersMax: number; slow: boolean };
+const sessions = new Map<string, Sess>();
+
+function status(s: Sess): MediaStatus {
+  const t = (Date.now() - s.started) / 1000;
+  const state: MediaStatus["state"] = t < 1.2 ? "metadata" : t < 2 ? "probing" : t < 3.2 ? "buffering" : "ready";
+  const bps = s.slow ? 90e3 + Math.random() * 60e3 : Math.min(9e6, 1.5e6 * t) * (0.85 + Math.random() * 0.3);
+  const done = Math.min(s.total, (s.slow ? 1e5 : 4e6) * t * t);
+  return {
+    state,
+    down_bps: state === "metadata" ? 0 : bps,
+    up_bps: bps * 0.08,
+    peers: Math.min(s.peersMax, Math.floor(t * 6)),
+    downloaded_bytes: done,
+    total_bytes: s.total,
+    progress: done / s.total,
+    buffered_ahead_s: state === "ready" ? 120 : state === "buffering" ? (t - 2) * 6 : 0,
+  };
+}
+
+function vtt(lang: string): string {
+  const lines: string[] = ["WEBVTT", ""];
+  const say: Record<string, string[]> = {
+    eng: ["Mock subtitles in English.", "Big Buck Bunny wakes up.", "<i>Something is wrong in the forest.</i>", "These cues follow the real time."],
+    spa: ["Subtítulos de prueba en español.", "Big Buck Bunny se despierta.", "<i>Algo pasa en el bosque.</i>", "Estas líneas siguen el tiempo real."],
+  };
+  const l = say[lang] ?? say.eng;
+  for (let i = 0; i < 120; i++) {
+    const a = i * 5 + 1;
+    const f = (s: number) => `00:${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}.000`;
+    lines.push(`${f(a)} --> ${f(a + 3)}`, l[i % l.length], "");
+  }
+  return lines.join("\n");
+}
+
+const torrents: TorrentStat[] = [
+  {
+    info_hash: "a".repeat(40),
+    name: "Mock.Title.1080p.WEB-DL.DDP5.1.H.264-NTb",
+    size_bytes: 6.1e9,
+    downloaded_bytes: 2.2e9,
+    down_bps: 5.2e6,
+    up_bps: 0.4e6,
+    peers: 37,
+    state: "live",
+    last_used_at: new Date().toISOString(),
+  },
+  {
+    info_hash: "b".repeat(40),
+    name: "Game.of.Thrones.S01E03.1080p.BluRay.x264",
+    size_bytes: 2.4e9,
+    downloaded_bytes: 2.4e9,
+    down_bps: 0,
+    up_bps: 0.2e6,
+    peers: 4,
+    state: "paused",
+    last_used_at: new Date(Date.now() - 36e5).toISOString(),
+  },
+];
+
+async function route(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const path = url.pathname;
+  const m = req.method;
+  const body = async <T>() => (await req.json()) as T;
+  // Un poco de latencia para ver los esqueletos.
+  await wait(path.includes("/status") ? 40 : 160 + Math.random() * 380);
+
+  if (path === "/api/health") return json({ ok: true, version: "mock" });
+  if (path === "/api/auth/login" && m === "POST") {
+    const { username, password } = await body<{ username: string; password: string }>();
+    const u = db.users.find((x) => x.username === username);
+    if (!u || db.passwords[username] !== password || u.disabled) return err(401, "Wrong username or password");
+    const token = `mock-${username}`;
+    tokens.set(token, username);
+    return json({ token, user: u });
+  }
+  const me = userOf(req);
+  if (!me) return err(401, "Not signed in");
+
+  let r: RegExpMatchArray | null;
+  if (path === "/api/auth/logout") return none();
+  if (path === "/api/me") return json(me);
+  if (path === "/api/me/password") {
+    const b = await body<{ current: string; new: string }>();
+    if (db.passwords[me.username] !== b.current) return err(400, "The current password is wrong");
+    db.passwords[me.username] = b.new;
+    save();
+    return none();
+  }
+  if (path === "/api/me/settings") {
+    const cur: Settings = db.settings[me.username] ?? { ui: {}, has_rd_key: false, preferred_quality: "1080p", max_size_gb: 20 };
+    if (m === "PUT") {
+      const b = await body<Partial<Settings> & { rd_key?: string }>();
+      if (b.ui) cur.ui = { ...cur.ui, ...b.ui };
+      if (b.preferred_quality !== undefined) cur.preferred_quality = b.preferred_quality;
+      if (b.max_size_gb !== undefined) cur.max_size_gb = b.max_size_gb;
+      if (b.rd_key !== undefined) cur.has_rd_key = b.rd_key !== "";
+      db.settings[me.username] = cur;
+      save();
+    }
+    return json(cur);
+  }
+  if ((r = path.match(/^\/api\/catalog\/(movie|series)\/(\w+)$/))) {
+    const genre = url.searchParams.get("genre");
+    const skip = Number(url.searchParams.get("skip") ?? 0);
+    let list = fx.catalogs[`${r[1]}/${r[2]}${genre ? `/${genre}` : ""}`];
+    if (!list) {
+      list = (fx.catalogs[`${r[1]}/top`] ?? []).filter((x) => !genre || x.genres?.includes(genre));
+      if (r[2] === "imdbRating") list = [...list].sort((a, b) => Number(b.imdb_rating ?? 0) - Number(a.imdb_rating ?? 0));
+    }
+    return json(list.slice(skip, skip + 30));
+  }
+  if ((r = path.match(/^\/api\/genres\/(movie|series)$/)))
+    return json(["Action", "Adventure", "Animation", "Comedy", "Crime", "Drama", "Fantasy", "Horror", "Sci-Fi", "Thriller"]);
+  if (path === "/api/search") {
+    const q = (url.searchParams.get("q") ?? "").toLowerCase();
+    const hits = allPreviews().filter((x) => x.name.toLowerCase().includes(q));
+    return json({ movies: hits.filter((x) => x.type === "movie"), series: hits.filter((x) => x.type === "series") });
+  }
+  if ((r = path.match(/^\/api\/meta\/(movie|series)\/(.+)$/))) {
+    const meta = metaFor(r[1], decodeURIComponent(r[2]));
+    return meta ? json(meta) : err(404, "Not found");
+  }
+  if ((r = path.match(/^\/api\/streams\/(movie|series)\/(.+)$/))) {
+    await wait(500);
+    return json(streamsFor(decodeURIComponent(r[2])));
+  }
+  if ((r = path.match(/^\/api\/subtitles\/(movie|series)\/(.+)$/)))
+    return json([
+      { id: "os-1", lang: "eng", url: "/api/media/subs/external?u=mock-eng" },
+      { id: "os-2", lang: "spa", url: "/api/media/subs/external?u=mock-spa" },
+      { id: "os-3", lang: "por", url: "/api/media/subs/external?u=mock-por" },
+    ]);
+  if (path === "/api/prefetch") return none(202);
+  if (path === "/api/play" && m === "POST") {
+    const b = await body<{ stream_key: string }>();
+    await wait(700);
+    const idx = Number(b.stream_key.split(":")[0].slice(-1));
+    const session = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    // El stream 3 se traba (para probar "Try another stream"); el 4 va por HLS (hls.js).
+    sessions.set(session, { started: Date.now(), total: 6e9, peersMax: idx === 3 ? 2 : 40, slow: idx === 3 });
+    const hls = idx === 4;
+    const info: PlayInfo = {
+      session_id: session,
+      mode: hls ? "remux" : "direct",
+      // Una IP que no contesta: el video se queda esperando datos (como un torrent sin peers).
+      direct_url: idx === 3 ? "http://10.255.255.1/never.mp4" : VIDEO_DIRECT,
+      hls_url: hls ? VIDEO_HLS : undefined,
+      file_name: `Mock.${b.stream_key}.mkv`,
+      size_bytes: 6e9,
+      duration_s: DURATION,
+      container: hls ? "mp4" : "webm",
+      video_codec: hls ? "h264" : "vp9",
+      width: 1280,
+      height: 720,
+      audio_tracks: [
+        { index: 1, codec: hls ? "aac" : "opus", lang: "eng", title: "English 5.1", default: true },
+        { index: 2, codec: hls ? "aac" : "opus", lang: "spa", title: "Spanish" },
+      ],
+      subtitle_tracks: [
+        { index: 3, codec: "subrip", lang: "eng", title: "English" },
+        { index: 4, codec: "subrip", lang: "spa", title: "Spanish (Forced)" },
+      ],
+    };
+    return json(info);
+  }
+  if ((r = path.match(/^\/api\/media\/subs\/external$/))) return new Response(vtt((url.searchParams.get("u") ?? "").slice(5)));
+  if ((r = path.match(/^\/api\/media\/([^/]+)\/subs\/(\d+)\.vtt$/))) return new Response(vtt(r[2] === "4" ? "spa" : "eng"));
+  if ((r = path.match(/^\/api\/media\/([^/]+)\/status$/))) {
+    const s = sessions.get(r[1]);
+    return s ? json(status(s)) : err(404, "No such session");
+  }
+  if ((r = path.match(/^\/api\/media\/([^/]+)$/)) && m === "DELETE") {
+    sessions.delete(r[1]);
+    return none();
+  }
+  if (path === "/api/progress/continue")
+    return json(
+      [...db.progress]
+        .filter((p) => p.position_s / p.duration_s < 0.92)
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+        .slice(0, 20),
+    );
+  if (path === "/api/progress" && m === "GET") return json(db.progress.filter((p) => p.series_id === url.searchParams.get("series_id")));
+  if (path === "/api/progress" && m === "PUT") {
+    const p = await body<Progress>();
+    db.progress = db.progress.filter((x) => x.meta_id !== p.meta_id);
+    db.progress.push({ ...p, updated_at: new Date().toISOString() });
+    save();
+    return none();
+  }
+  if ((r = path.match(/^\/api\/progress\/(.+)$/))) {
+    const id = decodeURIComponent(r[1]);
+    if (m === "DELETE") {
+      db.progress = db.progress.filter((x) => x.meta_id !== id);
+      save();
+      return none();
+    }
+    const p = db.progress.find((x) => x.meta_id === id);
+    return p ? json(p) : err(404, "No progress");
+  }
+  if (path === "/api/library") return json(db.library);
+  if ((r = path.match(/^\/api\/library\/(movie|series)\/(.+)$/))) {
+    const id = decodeURIComponent(r[2]);
+    db.library = db.library.filter((x) => x.id !== id);
+    if (m === "PUT") db.library.unshift(await body<MetaPreview>());
+    save();
+    return none();
+  }
+  if (path.startsWith("/api/admin/") && !me.is_admin) return err(403, "Admins only");
+  if (path === "/api/admin/users" && m === "GET") return json(db.users);
+  if (path === "/api/admin/users" && m === "POST") {
+    const b = await body<{ username: string; password: string; is_admin: boolean }>();
+    if (db.users.some((u) => u.username === b.username)) return err(409, "That username is taken");
+    const u: User = { id: db.nextId++, username: b.username, is_admin: b.is_admin, disabled: false, created_at: new Date().toISOString() };
+    db.users.push(u);
+    db.passwords[u.username] = b.password;
+    save();
+    return json(u);
+  }
+  if ((r = path.match(/^\/api\/admin\/users\/(\d+)$/))) {
+    const u = db.users.find((x) => x.id === Number(r![1]));
+    if (!u) return err(404, "No such user");
+    if (m === "DELETE") {
+      if (u.id === me.id) return err(400, "You can't delete yourself");
+      db.users = db.users.filter((x) => x !== u);
+      save();
+      return none();
+    }
+    const b = await body<{ password?: string; is_admin?: boolean; disabled?: boolean }>();
+    if (b.password) db.passwords[u.username] = b.password;
+    if (b.is_admin !== undefined) u.is_admin = b.is_admin;
+    if (b.disabled !== undefined) u.disabled = b.disabled;
+    save();
+    return json(u);
+  }
+  if (path === "/api/admin/torrents") {
+    for (const t of torrents)
+      if (t.state === "live") {
+        t.down_bps = 3e6 + Math.random() * 5e6;
+        t.downloaded_bytes = Math.min(t.size_bytes, t.downloaded_bytes + t.down_bps * 2);
+        t.peers = 30 + Math.floor(Math.random() * 15);
+      }
+    return json(torrents);
+  }
+  if ((r = path.match(/^\/api\/admin\/torrents\/(\w+)$/))) {
+    const i = torrents.findIndex((t) => t.info_hash === r![1]);
+    if (i >= 0) torrents.splice(i, 1);
+    return none();
+  }
+  if (path === "/api/admin/stats") {
+    const s: AdminStats = {
+      cache_bytes: 182e9,
+      cache_limit_bytes: 300e9,
+      disk_free_bytes: 640e9,
+      active_sessions: sessions.size,
+      users: db.users.length,
+    };
+    return json(s);
+  }
+  return err(404, `Mock: no route for ${m} ${path}`);
+}
+
+export function installMock() {
+  const real = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = new Request(input, init);
+    const url = new URL(req.url, location.href);
+    if (!url.pathname.startsWith("/api/") || url.origin !== location.origin) return real(input, init);
+    try {
+      return await route(req);
+    } catch (e) {
+      return err(500, `Mock error: ${e}`);
+    }
+  };
+  console.info("%cMythos mock mode", "color:#6ee7b7;font-weight:bold", "users: admin/admin, test/test");
+}

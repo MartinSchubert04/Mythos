@@ -1,0 +1,112 @@
+<script lang="ts">
+  // Panel lateral para formularios (crear/editar). Portado de Ethereon.
+  import { X } from "@lucide/svelte";
+  import type { Snippet } from "svelte";
+  import { fadeQuick, slideIn, slideOut } from "../lib/motion";
+
+  let {
+    title,
+    onclose,
+    onsave,
+    children,
+    footer,
+  }: { title: string; onclose: () => void; onsave?: () => void; children: Snippet; footer?: Snippet } = $props();
+
+  // Esc cierra y Ctrl S (o Ctrl Enter) guarda. Con un dialogo de confirmacion encima,
+  // las teclas son de ese dialogo.
+  function onKey(e: KeyboardEvent) {
+    if (e.defaultPrevented || document.querySelector("[role=alertdialog]")) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onclose();
+    } else if (onsave && (e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "Enter")) {
+      e.preventDefault();
+      (document.activeElement as HTMLElement | null)?.blur?.(); // que el ultimo campo se guarde
+      onsave();
+    }
+  }
+</script>
+
+<svelte:window onkeydown={onKey} />
+
+<div class="scrim" onclick={onclose} role="presentation" transition:fadeQuick|global></div>
+<aside class="drawer card" in:slideIn|global out:slideOut|global>
+  <header class="titlebar">
+    <h2>{title}</h2>
+    <button class="icon-btn" onclick={onclose} aria-label="Close"><X size={16} /></button>
+  </header>
+  <div class="body">{@render children()}</div>
+  {#if footer}
+    <footer>
+      {#if onsave}<span class="keys">Ctrl S saves · Esc closes</span>{/if}
+      {@render footer()}
+    </footer>
+  {/if}
+</aside>
+
+<style>
+  .scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(2px);
+    z-index: 40;
+  }
+  .drawer {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    bottom: 10px;
+    width: min(520px, calc(100vw - 20px));
+    z-index: 41;
+    display: flex;
+    flex-direction: column;
+    background: var(--sidebar);
+    box-shadow: var(--pop-shadow);
+  }
+  :global([data-theme="warp"]) .drawer,
+  :global([data-theme="haze"]) .drawer {
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+  }
+  header {
+    display: flex;
+    align-items: center;
+    padding: 14px 16px;
+    border-bottom: var(--border) solid var(--line);
+  }
+  h2 {
+    flex: 1;
+    margin: 0;
+    font-size: 15px;
+    font-weight: 650;
+  }
+  :global([data-theme="poolsuite"]) h2 {
+    flex: none;
+    background: var(--sidebar);
+    padding: 0 10px;
+    margin: 0 auto;
+  }
+  .body {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  footer {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 10px 16px 12px;
+    border-top: var(--border) solid var(--line);
+  }
+  .keys {
+    flex-basis: 100%;
+    font-size: 11px;
+    color: var(--text-3);
+    text-align: right;
+  }
+</style>

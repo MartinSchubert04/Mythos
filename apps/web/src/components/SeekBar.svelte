@@ -1,0 +1,175 @@
+<script lang="ts">
+  // Barra de progreso del reproductor: lo visto, lo bufferizado (en tramos), y al pasar el mouse
+  // el tiempo de ese punto. Se arrastra (la posicion se aplica al soltar) y anda con flechas.
+  import { clock } from "../lib/format";
+
+  let {
+    time,
+    duration,
+    buffered,
+    onseek,
+    ondrag,
+  }: {
+    time: number;
+    duration: number;
+    /** Tramos bufferizados en segundos reales. */
+    buffered: [number, number][];
+    onseek: (t: number) => void;
+    ondrag?: (dragging: boolean) => void;
+  } = $props();
+
+  let el = $state<HTMLDivElement>();
+  let hover = $state<number | null>(null);
+  let drag = $state<number | null>(null);
+
+  const shown = $derived(drag ?? time);
+  const pct = (t: number) => (duration > 0 ? Math.max(0, Math.min(100, (t / duration) * 100)) : 0);
+
+  function at(e: PointerEvent) {
+    const r = el!.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * duration;
+  }
+
+  function down(e: PointerEvent) {
+    if (e.button !== 0 || !duration) return;
+    el!.setPointerCapture(e.pointerId);
+    drag = at(e);
+    ondrag?.(true);
+  }
+  function move(e: PointerEvent) {
+    if (!duration) return;
+    hover = at(e);
+    if (drag !== null) drag = hover;
+  }
+  function up() {
+    if (drag === null) return;
+    const t = drag;
+    drag = null;
+    ondrag?.(false);
+    onseek(t);
+  }
+
+  function key(e: KeyboardEvent) {
+    const step = e.shiftKey ? 30 : 5;
+    if (e.key === "ArrowRight") onseek(Math.min(duration, time + step));
+    else if (e.key === "ArrowLeft") onseek(Math.max(0, time - step));
+    else if (e.key === "Home") onseek(0);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
+</script>
+
+<div
+  class="seek"
+  class:dragging={drag !== null}
+  bind:this={el}
+  role="slider"
+  tabindex="0"
+  aria-label="Seek"
+  aria-valuemin={0}
+  aria-valuemax={Math.round(duration)}
+  aria-valuenow={Math.round(shown)}
+  aria-valuetext={clock(shown)}
+  onpointerdown={down}
+  onpointermove={move}
+  onpointerup={up}
+  onpointercancel={up}
+  onpointerleave={() => drag === null && (hover = null)}
+  onkeydown={key}
+>
+  <div class="rail">
+    {#each buffered as [a, b], i (i)}
+      <div class="buf" style="left: {pct(a)}%; width: {pct(b) - pct(a)}%"></div>
+    {/each}
+    {#if hover !== null}<div class="hov" style="width: {pct(hover)}%"></div>{/if}
+    <div class="played" style="width: {pct(shown)}%"></div>
+  </div>
+  <div class="thumb" style="left: {pct(shown)}%"></div>
+  {#if hover !== null || drag !== null}
+    <div class="tip" style="left: clamp(28px, {pct(drag ?? hover ?? 0)}%, calc(100% - 28px))">{clock(drag ?? hover ?? 0)}</div>
+  {/if}
+</div>
+
+<style>
+  .seek {
+    position: relative;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    touch-action: none;
+  }
+  .rail {
+    position: relative;
+    width: 100%;
+    height: 4px;
+    border-radius: 4px;
+    background: var(--media-line);
+    overflow: hidden;
+    transition: height 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .seek:hover .rail,
+  .seek:focus-visible .rail,
+  .dragging .rail {
+    height: 7px;
+  }
+  .buf,
+  .hov,
+  .played {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+  }
+  .buf {
+    background: color-mix(in srgb, var(--on-media) 32%, transparent);
+    transition: width 0.3s;
+  }
+  .hov {
+    background: color-mix(in srgb, var(--on-media) 22%, transparent);
+  }
+  .played {
+    background: var(--primary-bg);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+  .thumb {
+    position: absolute;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--on-media);
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none;
+  }
+  .seek:hover .thumb,
+  .seek:focus-visible .thumb,
+  .dragging .thumb {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  .seek:focus-visible {
+    outline: none;
+  }
+  .tip {
+    position: absolute;
+    bottom: 22px;
+    transform: translateX(-50%);
+    padding: 3px 8px;
+    border-radius: 6px;
+    font: 600 12px var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--on-media);
+    background: var(--media-scrim);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--media-line);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  :global([data-theme="athanor"]) .rail,
+  :global([data-theme="athanor"]) .thumb {
+    border-radius: 0;
+  }
+</style>

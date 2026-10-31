@@ -1,0 +1,652 @@
+/* Piezas comunes (portadas de Ethereon). Solo usan variables de themes.css: ningun color fijo aca. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* Forma corta: --bg-image puede traer tamaño por capa (tramas como "0 0 / 3px 3px"). */
+  background: var(--bg-image), var(--bg);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13.5px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 11px;
+  outline: none;
+  width: 100%;
+  user-select: text;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+input:hover,
+textarea:hover {
+  border-color: var(--line-strong);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-3);
+}
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+input,
+select {
+  height: 36px;
+}
+textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+/* Casilla propia: cuadrado con tilde que aparece con un pequeño rebote. */
+input[type="checkbox"] {
+  appearance: none;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  border-radius: 5px;
+  border: var(--border) solid var(--line-strong);
+  background: var(--panel-2) center / 0 no-repeat;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, background-size 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+input[type="checkbox"]:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  background-size: 12px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+}
+select option {
+  background: var(--panel);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* Campo con icono (buscadores, filtros): el marco es del contenedor y se ilumina entero
+   con el foco; el input de adentro no dibuja ni borde ni anillo. Con .bare el contenedor
+   tampoco: es la barra de arriba de un popup (Ctrl T, desplegables) y solo lleva la linea
+   de abajo. */
+.inbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  min-width: 0;
+  color: var(--text-3);
+  background: var(--panel-2);
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.inbox input,
+.inbox input:focus,
+.inbox input:focus-visible {
+  flex: 1;
+  min-width: 0;
+  border: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  padding-left: 0;
+  padding-right: 0;
+}
+.inbox:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text-2);
+}
+/* Campos metidos en un lugar que recorta (una fila, la barra de ruta): el foco solo
+   cambia el color del borde, sin anillo que se corte. */
+.tight:focus,
+.tight:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: var(--accent) !important;
+}
+.inbox.bare,
+.inbox.bare:focus-within {
+  background: none;
+  border-width: 0 0 var(--border);
+  border-color: var(--line);
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mono,
+code,
+pre {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+code {
+  background: var(--panel-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* ---------- superficies ---------- */
+
+.card {
+  background: var(--panel);
+  backdrop-filter: var(--blur);
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+}
+
+.titlebar {
+  background: var(--titlebar);
+  background-size: 100% 100%;
+}
+
+/* ---------- botones ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 13px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  border: var(--border) solid var(--line);
+  font-weight: 550;
+  white-space: nowrap;
+  position: relative;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.2s,
+    filter 0.15s,
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.btn:hover {
+  background: var(--hover);
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -10px rgba(0, 0, 0, 0.6);
+}
+/* Al apretar se hunde rapido; al soltar vuelve con la transicion de arriba. */
+.btn:active {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 0.06s;
+  box-shadow: none;
+}
+.btn.primary {
+  background: var(--primary-bg);
+  color: var(--accent-ink);
+  border-color: transparent;
+  overflow: hidden;
+  box-shadow: 0 4px 18px -8px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.btn.primary:hover {
+  box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+/* Brillo que cruza el boton principal al pasar el mouse (no en Athanor ni Poolsuite). */
+:root:not([data-theme="athanor"]):not([data-theme="poolsuite"]) .btn.primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.35) 50%, transparent 65%);
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+:root:not([data-theme="athanor"]):not([data-theme="poolsuite"]) .btn.primary:hover::after {
+  transform: translateX(120%);
+  transition: transform 0.6s ease;
+}
+[data-theme="poolsuite"] .btn.primary {
+  border-color: var(--line);
+  box-shadow: 2px 2px 0 var(--line);
+}
+.btn.primary:hover {
+  filter: brightness(1.08);
+}
+.btn.danger {
+  color: var(--danger);
+}
+.btn.danger.solid {
+  background: var(--danger);
+  color: #fff;
+  border-color: transparent;
+}
+.btn.ghost {
+  background: none;
+  border-color: transparent;
+}
+.btn.sm {
+  height: 26px;
+  padding: 0 9px;
+  font-size: 12.5px;
+}
+.btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  transition: background 0.15s, color 0.15s;
+}
+.icon-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.icon-btn:active {
+  transform: scale(0.9);
+}
+.icon-btn {
+  transition: background 0.15s, color 0.15s, transform 0.12s;
+}
+
+/* ---------- etiquetas ---------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 550;
+  background: var(--panel-2);
+  color: var(--text-2);
+  border: var(--border) solid var(--line);
+  white-space: nowrap;
+}
+.chip.accent {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.chip.ok {
+  color: var(--ok);
+}
+.chip.warn {
+  color: var(--warn);
+}
+.chip.bad {
+  color: var(--danger);
+}
+
+/* ---------- paginas ---------- */
+
+.page {
+  height: 100%;
+  overflow: auto;
+  padding: 22px 28px 40px;
+}
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.page-head h1 {
+  font-family: var(--display);
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.page-head .sub {
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.grow {
+  flex: 1;
+}
+.muted {
+  color: var(--text-2);
+}
+.faint {
+  color: var(--text-3);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.section-title {
+  font-size: 11.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  margin: 22px 0 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-2);
+}
+.field .hint {
+  order: 2;
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.field > :not(.hint) {
+  order: 1;
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 14px;
+}
+/* Tarjetas que reaccionan al mouse. */
+.lift {
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s, border-color 0.2s;
+}
+.lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -16px rgba(0, 0, 0, 0.7);
+}
+/* Aparicion escalonada: style="--i: n" en cada elemento. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.stagger {
+  animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+@keyframes shake {
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+.shake {
+  animation: shake 0.35s ease;
+}
+
+/* Control segmentado (modo, entorno). */
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--panel-2);
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.seg button {
+  padding: 4px 11px;
+  border-radius: calc(var(--radius-sm) - 2px);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.seg button.on {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 0 0 var(--border) var(--line-strong);
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  gap: 10px;
+  color: var(--text-2);
+  padding: 70px 20px;
+}
+.empty h3 {
+  margin: 0;
+  color: var(--text);
+  font-weight: 600;
+}
+
+table.list {
+  width: 100%;
+  border-collapse: collapse;
+}
+table.list th {
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  padding: 8px 10px;
+  border-bottom: var(--border) solid var(--line);
+}
+table.list td {
+  padding: 9px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  vertical-align: middle;
+}
+table.list tr.click:hover td {
+  background: var(--hover);
+  cursor: pointer;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* "Reduce motion" de Windows o el de Settings (data-reduce-motion en <html>). */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+[data-reduce-motion] * {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* Tooltip propio (lib/tooltip.ts): reemplaza al del navegador, que sale demasiado rapido. */
+.hover-tip {
+  position: fixed;
+  z-index: 200;
+  max-width: 320px;
+  padding: 5px 9px;
+  border: var(--border) solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--sidebar);
+  box-shadow: var(--pop-shadow);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  animation: tip-in 0.12s ease-out;
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hover-tip {
+    animation: none;
+  }
+}
+
+/* ---------- Mythos ---------- */
+
+img {
+  -webkit-user-drag: none;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+.page {
+  scroll-behavior: smooth;
+}
+[data-reduce-motion] .page {
+  scroll-behavior: auto;
+}
+.btn.lg {
+  height: 42px;
+  padding: 0 20px;
+  font-size: 14.5px;
+  border-radius: var(--radius);
+}
+/* Boton sobre una imagen (hero, detalle): vidrio oscuro con texto claro, en todos los temas. */
+.btn.glass {
+  background: color-mix(in srgb, var(--media-scrim) 80%, transparent);
+  color: var(--on-media);
+  border-color: var(--media-line);
+  backdrop-filter: blur(12px);
+}
+.btn.glass:hover {
+  background: color-mix(in srgb, var(--media-scrim) 60%, var(--on-media) 12%);
+  border-color: color-mix(in srgb, var(--on-media) 45%, transparent);
+}
+
+/* Esqueleto de carga: un brillo cruza el bloque (shimmer). Nunca pantallas en blanco. */
+.skel {
+  position: relative;
+  overflow: hidden;
+  background: var(--panel-2);
+  border-radius: var(--radius-sm);
+}
+.skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--text) 7%, transparent) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+.skel.line {
+  height: 12px;
+  border-radius: 999px;
+}
+
+/* Imagen que aparece en fade al cargar (components/Img.svelte). */
+.fade-img {
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+.fade-img.loaded {
+  opacity: 1;
+}
+
+/* Barra de progreso fina (seguir viendo, episodios, caché). */
+.progress {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary-bg);
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: var(--border) solid var(--line-strong);
+  background: var(--panel-2);
+  color: var(--text-2);
+}
+
+/* Foco visible para teclado en todo lo que se puede apretar. */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 80%, transparent);
+  outline-offset: 2px;
+}
+
+@keyframes glow-sweep {
+  0%, 55% {
+    transform: translateX(-130%) skewX(-18deg);
+  }
+  100% {
+    transform: translateX(230%) skewX(-18deg);
+  }
+}

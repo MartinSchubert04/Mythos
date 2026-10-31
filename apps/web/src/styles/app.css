@@ -1,0 +1,48 @@
+/* Medidas de Mythos que no son colores (los colores siguen siendo solo de themes.css). */
+
+:root {
+  /* Margen lateral de las paginas (hero, filas, grillas). */
+  --gutter: clamp(16px, 3.2vw, 44px);
+  --font-sub: var(--font);
+}
+/* Los subtitulos siempre en una letra clara, aunque el tema use una bitmap o mono. */
+[data-theme="athanor"],
+[data-theme="neovim"] {
+  --font-sub: "Inter Variable", system-ui, sans-serif;
+}
+
+/* Titulo grande sobre un fondo (hero, detalle). */
+.display-title {
+  font-family: var(--display);
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  margin: 0;
+}
+
+/* Grilla de posters (library, busqueda). */
+.poster-grid {
+  --card-w: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(clamp(112px, 13vw, 168px), 1fr));
+  gap: 22px 16px;
+}
+
+/* View Transitions: el poster vuela con una curva suave; el resto hace un fundido corto. */
+::view-transition-group(poster) {
+  animation-duration: 0.42s;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.26s;
+}
+::view-transition-image-pair(poster) {
+  isolation: auto;
+}
+::view-transition-old(poster),
+::view-transition-new(poster) {
+  height: 100%;
+  object-fit: cover;
+  overflow: clip;
+}

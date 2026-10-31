@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <title>Mythos</title>
+    <script>
+      // El tema se aplica antes de pintar (sin parpadeo). Mismas claves que src/lib/themes.ts.
+      try {
+        var t = localStorage.getItem("mythos.theme") || "default";
+        var d = document.documentElement;
+        d.dataset.theme = t;
+        d.dataset.palette = localStorage.getItem("mythos.palette." + t) || "";
+        if (JSON.parse(localStorage.getItem("mythos.prefs") || "{}").reduceMotion) d.setAttribute("data-reduce-motion", "");
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

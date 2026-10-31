@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Mythos: una M como dos cumbres (el Olimpo) con una estrella arriba, en los colores del tema Default. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c212a"/>
+      <stop offset="1" stop-color="#0d0f14"/>
+    </linearGradient>
+    <linearGradient id="m" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6ee7b7"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <rect x="21" y="21" width="470" height="470" rx="107" fill="none" stroke="#323a48" stroke-width="10"/>
+  <path d="M120 372 V176 L256 316 L392 176 V372" fill="none" stroke="url(#m)" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M256 92 L268 126 L302 138 L268 150 L256 184 L244 150 L210 138 L244 126 Z" fill="#e7e9ee"/>
+</svg>

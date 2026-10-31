@@ -1,0 +1,73 @@
+<script lang="ts">
+  // Favoritos en grilla, con filtro por tipo.
+  import { Heart } from "@lucide/svelte";
+  import PosterCard from "../components/PosterCard.svelte";
+  import Seg from "../components/Seg.svelte";
+  import { api, errText } from "../lib/api";
+  import { rise } from "../lib/motion";
+  import { uniq } from "../lib/format";
+  import { go } from "../lib/router.svelte";
+  import { keepScroll } from "../lib/scroll";
+  import type { MetaPreview } from "../lib/types";
+
+  let items = $state<MetaPreview[] | null>(null);
+  let error = $state("");
+  let kind = $state<"all" | "movie" | "series">("all");
+
+  api
+    .library()
+    .then((l) => (items = uniq(l)))
+    .catch((e) => ((error = errText(e)), (items = [])));
+
+  const shown = $derived(items?.filter((m) => kind === "all" || m.type === kind) ?? null);
+</script>
+
+<div class="page" use:keepScroll={"library"}>
+  <div class="page-head">
+    <h1>Library</h1>
+    {#if items?.length}<span class="sub">{items.length} saved</span>{/if}
+    <div class="grow"></div>
+    {#if items?.length}
+      <Seg
+        bind:value={kind}
+        options={[
+          { value: "all", label: "All" },
+          { value: "movie", label: "Movies" },
+          { value: "series", label: "Series" },
+        ]}
+      />
+    {/if}
+  </div>
+
+  {#if !shown}
+    <div class="poster-grid">
+      {#each Array(12) as _, i (i)}<div class="skel ph"></div>{/each}
+    </div>
+  {:else if error}
+    <div class="empty"><h3>Couldn't load your library</h3><span>{error}</span></div>
+  {:else if !shown.length}
+    <div class="empty" in:rise>
+      <Heart size={34} />
+      <h3>{items?.length ? "Nothing here" : "Your library is empty"}</h3>
+      <span>Use the heart on any movie or series to save it here.</span>
+      <button class="btn primary" onclick={() => go("/")}>Browse</button>
+    </div>
+  {:else}
+    <div class="poster-grid">
+      {#each shown as m, i (m.id)}<PosterCard item={m} {i} />{/each}
+    </div>
+  {/if}
+</div>
+
+<style>
+  .page {
+    padding: 26px var(--gutter) 40px;
+  }
+  .ph {
+    aspect-ratio: 2 / 3;
+    border-radius: var(--radius);
+  }
+  .empty :global(svg) {
+    color: var(--text-3);
+  }
+</style>
