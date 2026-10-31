@@ -23,6 +23,8 @@
   } = $props();
 
   let fetched = $state<T[] | null>(null);
+  /** Ya se acerco a la pantalla (y se esta cargando): recien ahi brillan los esqueletos. */
+  let near = $state(false);
   let failed = $state(false);
   const items = $derived(given ?? fetched);
   let root = $state<HTMLElement>();
@@ -52,6 +54,7 @@
       (es) => {
         if (!es.some((e) => e.isIntersecting)) return;
         io.disconnect();
+        near = true;
         load!()
           .then((l) => (fetched = l))
           .catch(() => ((failed = true), (fetched = [])));
@@ -159,8 +162,10 @@
           {/each}
           {#if items && shown < items.length}<div class="more" bind:this={sentinel} aria-hidden="true"></div>{/if}
         {:else}
+          <!-- Las filas lejanas, quietas: un brillo animado dentro de una fila que no se dibuja
+               (content-visibility) obliga a recalcular estilos en cada cuadro. -->
           {#each Array(wide ? 4 : 8) as _, i (i)}
-            <div class="ph">
+            <div class="ph" class:still={!near && !!load}>
               <div class="skel frame"></div>
               <div class="skel line" style="width: {55 + ((i * 17) % 35)}%"></div>
             </div>
@@ -225,6 +230,9 @@
     display: flex;
     flex-direction: column;
     gap: 9px;
+  }
+  .still :global(.skel)::after {
+    animation: none;
   }
   .frame {
     aspect-ratio: 2 / 3;
