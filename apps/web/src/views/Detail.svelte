@@ -705,7 +705,7 @@
     gap: 8px;
     width: 92px;
     text-align: center;
-    animation: rise 0.36s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.36s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
     animation-delay: calc(var(--i) * 35ms);
   }
   /* Sin fotos en el catalogo: iniciales sobre el acento, mas o menos intenso segun el nombre. */
@@ -768,7 +768,7 @@
     display: flex;
     align-items: center;
     border-radius: var(--radius);
-    animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
     animation-delay: calc(min(var(--i, 0), 12) * 30ms);
     transition: background 0.15s;
   }

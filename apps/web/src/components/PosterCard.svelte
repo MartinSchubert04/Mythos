@@ -64,7 +64,7 @@
     width: var(--card-w, 150px);
     flex: none;
     border-radius: var(--radius);
-    animation: rise 0.36s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.36s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
     animation-delay: calc(min(var(--i, 0), 12) * 30ms);
   }
   .poster-frame {
@@ -75,7 +75,6 @@
     background: var(--panel-2);
     border: var(--border) solid var(--line);
     box-shadow: var(--card-shadow);
-    transform: translateZ(0);
     transition:
       transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
       box-shadow 0.28s,
@@ -123,7 +122,6 @@
     font-weight: 700;
     color: var(--on-media);
     background: var(--media-scrim);
-    backdrop-filter: blur(6px);
     opacity: 0;
     transform: translateY(-3px);
     transition:
@@ -133,10 +131,13 @@
   .rating :global(svg) {
     color: var(--warn);
   }
+  /* El desenfoque va solo al pasar el mouse: con backdrop-filter en reposo cada tarjeta seria
+     una capa del compositor (cientos en el inicio) y el scroll se traba en equipos flojos. */
   .card-poster:hover .rating,
   .card-poster:focus-visible .rating {
     opacity: 1;
     transform: none;
+    backdrop-filter: blur(6px);
   }
   .meta {
     display: flex;

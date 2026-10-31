@@ -2,7 +2,7 @@
   // Fila horizontal con scroll suave y flechas. Carga sus datos recien cuando se acerca a la
   // pantalla (las de abajo no piden nada hasta que se baja). Mientras, esqueletos con shimmer.
   import { ChevronLeft, ChevronRight } from "@lucide/svelte";
-  import type { Snippet } from "svelte";
+  import { tick, type Snippet } from "svelte";
   import { scrollBehavior } from "../lib/motion";
 
   let {
@@ -29,6 +29,22 @@
   let track = $state<HTMLDivElement>();
   let canLeft = $state(false);
   let canRight = $state(false);
+  // Los catalogos traen ~50 titulos por fila: se dibujan de a tandas a medida que se scrollea a
+  // la derecha (un centinela al final avisa), asi el inicio no arma cientos de tarjetas de golpe.
+  const BATCH = 16;
+  let shown = $state(BATCH);
+  const visible = $derived(items && items.length > shown ? items.slice(0, shown) : items);
+  let sentinel = $state<HTMLDivElement>();
+
+  $effect(() => {
+    if (!sentinel || !track) return;
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && (shown += BATCH), {
+      root: track,
+      rootMargin: "0px 100% 0px 0px",
+    });
+    io.observe(sentinel);
+    return () => io.disconnect();
+  });
 
   $effect(() => {
     if (!load || !root) return;
@@ -51,6 +67,11 @@
     canLeft = track.scrollLeft > 4;
     canRight = track.scrollLeft + track.clientWidth < track.scrollWidth - 4;
   }
+  // Al scrollear se mide una vez por cuadro (leer scrollWidth en cada evento fuerza el layout).
+  let syncRaf = 0;
+  function onScroll() {
+    if (!syncRaf) syncRaf = requestAnimationFrame(() => ((syncRaf = 0), sync()));
+  }
 
   $effect(() => {
     void items;
@@ -70,8 +91,20 @@
     const i = mine.indexOf((document.activeElement as HTMLElement)?.closest("a") as HTMLElement);
     if (i < 0) return;
     let next: HTMLElement | undefined;
-    if (e.key === "ArrowLeft" || e.key === "ArrowRight") next = mine[i + (e.key === "ArrowRight" ? 1 : -1)];
-    else {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      next = mine[i + (e.key === "ArrowRight" ? 1 : -1)];
+      // Al final de lo dibujado: la tanda siguiente y despues el foco.
+      if (!next && e.key === "ArrowRight" && items && shown < items.length) {
+        e.preventDefault();
+        shown += BATCH;
+        tick().then(() => {
+          const n = track && cards(track)[i + 1];
+          n?.focus({ preventScroll: true });
+          n?.scrollIntoView({ behavior: scrollBehavior(), block: "nearest", inline: "nearest" });
+        });
+        return;
+      }
+    } else {
       const shelves = [...document.querySelectorAll(".shelf .track")];
       const other = shelves[shelves.indexOf(track) + (e.key === "ArrowDown" ? 1 : -1)];
       if (other) {
@@ -119,11 +152,12 @@
       <button class="arrow left" class:show={canLeft} onclick={() => page(-1)} aria-label="Scroll left" tabindex="-1">
         <ChevronLeft size={22} />
       </button>
-      <div class="track" bind:this={track} onscroll={sync}>
-        {#if items}
-          {#each items as it, i (i)}
+      <div class="track" bind:this={track} onscroll={onScroll}>
+        {#if visible}
+          {#each visible as it, i (i)}
             {@render card(it, i)}
           {/each}
+          {#if items && shown < items.length}<div class="more" bind:this={sentinel} aria-hidden="true"></div>{/if}
         {:else}
           {#each Array(wide ? 4 : 8) as _, i (i)}
             <div class="ph">
@@ -145,6 +179,10 @@
   .shelf {
     --card-w: clamp(118px, 11vw, 168px);
     margin-bottom: 26px;
+    /* Las filas fuera de pantalla no se dibujan ni se recalculan (el inicio tiene diez): el
+       tamaño estimado es el de una fila de posters y despues se recuerda el real. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto calc(var(--card-w) * 1.5 + 80px);
   }
   .shelf.wide {
     --card-w: clamp(230px, 22vw, 320px);
@@ -176,6 +214,10 @@
   }
   .track > :global(*) {
     scroll-snap-align: start;
+  }
+  .more {
+    flex: none;
+    width: 1px;
   }
   .ph {
     width: var(--card-w);
