@@ -20,6 +20,26 @@ body {
   user-select: none;
 }
 
+/* Vidrio esmerilado del desktop (lib/glass.svelte.ts): Windows desenfoca lo de atras de la ventana
+   y --bg y --sidebar ya vienen mezclados con transparente. La trama o el degradado del tema
+   (--bg-image) va en una capa aparte con la misma opacidad, para que no tape el vidrio. */
+html[data-glass] {
+  background: transparent;
+}
+html[data-glass] body {
+  background: var(--bg);
+  isolation: isolate;
+}
+html[data-glass] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg-image);
+  opacity: var(--glass);
+  pointer-events: none;
+}
+
 #app {
   height: 100%;
 }

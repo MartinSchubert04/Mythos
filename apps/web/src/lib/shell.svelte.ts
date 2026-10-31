@@ -11,8 +11,11 @@
 //   fondo.
 // - Pantalla encendida mientras se reproduce, iconos de las barras segun el tema, y las
 //   actualizaciones del APK (Settings → App).
+//
+// Desktop (apps/desktop): solo las actualizaciones (src-tauri/src/updater.rs, mismos comandos sin
+// el prefijo del plugin) y volver a la misma pantalla despues de "Update".
 import { getToken } from "./api";
-import { androidFs, isAndroid, isRemoteShell, setFullscreen, shellInvoke } from "./platform";
+import { androidFs, isAndroid, isDesktop, isRemoteShell, setFullscreen, shellInvoke } from "./platform";
 import { go, route } from "./router.svelte";
 import { read, write } from "./store";
 import { toast } from "./toast.svelte";
@@ -20,7 +23,7 @@ import { toast } from "./toast.svelte";
 export type UpdateInfo = { version: string; status: "downloading" | "ready"; progress: number };
 
 export const shell = $state({
-  /** Version del APK ("" fuera de Android o mientras no se sabe). */
+  /** Version de la app ("" en la web o mientras no se sabe). */
   version: "",
   update: null as UpdateInfo | null,
 });
@@ -107,13 +110,54 @@ function restoreRoute() {
   go(path, { replace: true });
 }
 
-export async function checkUpdate(): Promise<string | null> {
-  return shellInvoke<string | null>("update_check");
+/** Un comando de la app: en Android del plugin `mythos`, en desktop de la app misma. */
+async function appInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (isAndroid) return shellInvoke<T>(cmd, args);
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
 }
 
-/** `false`: antes hay que dar el permiso "Instalar apps desconocidas" (se abrio ese ajuste). */
+export async function checkUpdate(): Promise<string | null> {
+  return appInvoke<string | null>("update_check");
+}
+
+/** `false`: en Android, antes hay que dar el permiso "Instalar apps desconocidas" (se abrio ese
+ *  ajuste); en desktop, no habia nada listo. Si instala, la app se reinicia. */
 export async function installUpdate(): Promise<boolean> {
-  return shellInvoke<boolean>("update_install");
+  return appInvoke<boolean>("update_install");
+}
+
+/** Las actualizaciones: estado al arrancar y aviso cuando una queda lista. */
+function watchUpdates(readyText: (v: string) => string) {
+  appInvoke<UpdateInfo | null>("update_state").then((u) => (shell.update = u), () => {});
+  import("@tauri-apps/api/event")
+    .then((m) =>
+      m.listen<UpdateInfo | null>("mythos://update", (e) => {
+        const was = shell.update?.status;
+        shell.update = e.payload;
+        if (e.payload?.status === "ready" && was !== "ready") toast(readyText(e.payload.version));
+      }),
+    )
+    .catch(() => {});
+}
+
+/** Donde esta, para volver ahi despues de una actualizacion. */
+function trackRoute() {
+  $effect.root(() => {
+    $effect(() => {
+      const q = route.query.toString();
+      write(ROUTE_KEY, "#" + route.path + (q ? "?" + q : ""));
+    });
+  });
+}
+
+function initDesktop() {
+  import("@tauri-apps/api/app")
+    .then((m) => m.getVersion())
+    .then((v) => (shell.version = v), () => {});
+  trackRoute();
+  appInvoke<boolean>("update_handoff").then((updated) => updated && restoreRoute(), () => {});
+  watchUpdates((v) => `Mythos ${v} is ready. Click Update, or it installs when you close Mythos.`);
 }
 
 // ---- boton atras
@@ -159,6 +203,7 @@ function syncBars() {
 let wasPlayer = false;
 
 export function initShell() {
+  if (isDesktop) return initDesktop();
   if (!isAndroid) return;
 
   import("@tauri-apps/api/app")
@@ -178,11 +223,9 @@ export function initShell() {
     route.query = new URLSearchParams();
   }
 
+  trackRoute();
   $effect.root(() => {
     $effect(() => {
-      // Donde esta (para volver ahi despues de una actualizacion).
-      const q = route.query.toString();
-      write(ROUTE_KEY, "#" + route.path + (q ? "?" + q : ""));
       // El reproductor: pantalla completa (horizontal, sin barras) al entrar, normal al salir.
       const inPlayer = route.view === "player";
       if (inPlayer !== wasPlayer) {
@@ -196,15 +239,5 @@ export function initShell() {
     });
   });
 
-  shellInvoke<UpdateInfo | null>("update_state").then((u) => (shell.update = u), () => {});
-  import("@tauri-apps/api/event")
-    .then((m) =>
-      m.listen<UpdateInfo | null>("mythos://update", (e) => {
-        const was = shell.update?.status;
-        shell.update = e.payload;
-        if (e.payload?.status === "ready" && was !== "ready")
-          toast(`Mythos ${e.payload.version} is ready. It installs when you leave the app.`);
-      }),
-    )
-    .catch(() => {});
+  watchUpdates((v) => `Mythos ${v} is ready. It installs when you leave the app.`);
 }

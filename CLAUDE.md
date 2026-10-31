@@ -15,6 +15,8 @@ iguales.
 | Despliegue en el server, puertos | `deploy/README.md` |
 | App de Android: shell, interfaz del server opcional, actualizaciones, publicar | `docs/mobile.md` |
 | Modo local (server embebido en desktop y Android, sincronización, Auto/Solo server/Solo local) | `docs/local-mode.md` |
+| Desktop: actualizaciones desde los Releases (cuándo se instala, relanzar) | `apps/desktop/src-tauri/src/updater.rs` |
+| Desktop: vidrio esmerilado (Acrylic + opacidad sobre cualquier tema) | `apps/web/src/lib/glass.svelte.ts` |
 
 ## Estructura
 

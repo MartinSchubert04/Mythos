@@ -1,8 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Ventana principal: los controles de la barra de titulo propia y la pantalla completa",
-  "windows": ["main"],
+  "description": "Ventana principal: los controles de la barra de titulo propia, la pantalla completa, el vidrio esmerilado y mostrarse cuando la interfaz ya pinto",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "mythos-local:default",
@@ -15,6 +17,8 @@
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen",
     "core:window:allow-unminimize",
-    "core:window:allow-set-focus"
+    "core:window:allow-set-focus",
+    "core:window:allow-set-effects",
+    "core:window:allow-show"
   ]
 }

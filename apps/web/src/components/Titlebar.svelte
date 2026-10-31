@@ -1,13 +1,26 @@
 <script lang="ts">
   // Barra de titulo propia del desktop (como Ethereon): plegar la barra lateral, la marca, un
-  // hueco para arrastrar (doble clic maximiza), a que server se habla y los controles de la ventana.
-  import { Menu, Search } from "@lucide/svelte";
+  // hueco para arrastrar (doble clic maximiza), "Update" si hay una version lista, a que server se
+  // habla y los controles de la ventana.
+  import { ArrowDownToLine, Menu, Search } from "@lucide/svelte";
   import { go } from "../lib/router.svelte";
+  import { installUpdate, shell } from "../lib/shell.svelte";
+  import { toast } from "../lib/toast.svelte";
   import ConnBadge from "./ConnBadge.svelte";
   import Logo from "./Logo.svelte";
   import WindowControls from "./WindowControls.svelte";
 
   let { ontoggle, bare = false }: { ontoggle?: () => void; bare?: boolean } = $props();
+
+  let installing = $state(false);
+  async function update() {
+    installing = true;
+    // Si instala, la app se reinicia y vuelve aca (lib/shell.svelte.ts).
+    if (!(await installUpdate().catch(() => false))) {
+      installing = false;
+      toast("Couldn't install the update. It will try again later.", true);
+    }
+  }
 </script>
 
 <header class="bar" data-tauri-drag-region>
@@ -19,6 +32,11 @@
     <span data-tauri-drag-region>Mythos</span>
   </div>
   <div class="drag" data-tauri-drag-region></div>
+  {#if shell.update?.status === "ready"}
+    <button class="upd" onclick={update} disabled={installing} title={`Restart into Mythos ${shell.update.version}`}>
+      <ArrowDownToLine size={13} /><span>{installing ? "Updating…" : "Update"}</span>
+    </button>
+  {/if}
   {#if !bare}
     <!-- Server de casa o el del dispositivo (modo local). -->
     <ConnBadge />
@@ -53,6 +71,10 @@
     font-size: 13.5px;
     letter-spacing: -0.01em;
   }
+  /* data-tauri-drag-region no se hereda: el logo tiene que dejar pasar el clic al .brand. */
+  .brand :global(svg) {
+    pointer-events: none;
+  }
   .ham {
     display: grid;
     place-items: center;
@@ -71,6 +93,27 @@
   .drag {
     flex: 1;
     align-self: stretch;
+  }
+  .upd {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-ink);
+    background: var(--primary-bg);
+    transition:
+      filter 0.12s,
+      opacity 0.12s;
+  }
+  .upd:hover {
+    filter: brightness(1.1);
+  }
+  .upd:disabled {
+    opacity: 0.7;
   }
   .find {
     display: flex;

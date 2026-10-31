@@ -59,6 +59,8 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    // Desktop: F5 y Ctrl+R recargarian la interfaz (y cortarian la pelicula). Como en Ethereon.
+    if (isDesktop && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && e.code === "KeyR"))) e.preventDefault();
     if (!session.user || playing || confirmState.open) return;
     // La busqueda todavia se esta abriendo: lo que se escribe no se pierde.
     if (searchIntent.pending && !typing(e)) {

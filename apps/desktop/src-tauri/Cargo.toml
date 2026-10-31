@@ -1,6 +1,6 @@
 [package]
 name = "mythos-desktop"
-version = "0.5.1"
+version = "0.6.0"
 description = "Mythos: la ventana de escritorio (carga la interfaz de apps/web)"
 edition = "2021"
 
@@ -15,6 +15,11 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["time"] }
+tracing = "0.1"
 # El server embebido del modo local (docs/local-mode.md).
 tauri-plugin-mythos-local = { path = "../../local-server" }
 

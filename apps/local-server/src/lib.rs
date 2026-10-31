@@ -175,6 +175,14 @@ async fn set_mode<R: Runtime>(app: AppHandle<R>, mode: Mode) -> Result<Info, Str
 
 /// `tracing` para el server embebido (la biblioteca no inicializa nada): en Android a logcat
 /// (etiqueta `mythos`), en el resto a stderr. `RUST_LOG` lo cambia.
+/// Apaga el server local ya (lo mismo que al salir). Para el actualizador de desktop: el
+/// instalador cierra el proceso con `exit` y no llega `RunEvent::Exit`.
+pub fn shutdown<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(local) = app.try_state::<Local>() {
+        tauri::async_runtime::block_on(stop(&local));
+    }
+}
+
 pub fn init_tracing() {
     use tracing_subscriber::EnvFilter;
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,librqbit=warn,librqbit_dht=warn,tracker_comms=warn"));

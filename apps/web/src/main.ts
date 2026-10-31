@@ -11,6 +11,8 @@ import "./styles/base.css";
 import "./styles/athanor.css";
 import "./styles/app.css";
 import App from "./App.svelte";
+import { initGlass } from "./lib/glass.svelte";
+import { isDesktop } from "./lib/platform";
 import { initShell } from "./lib/shell.svelte";
 import { installTooltips } from "./lib/tooltip";
 
@@ -21,8 +23,21 @@ async function boot() {
     installMock();
   }
   initShell();
+  initGlass();
   mount(App, { target: document.getElementById("app")! });
   installTooltips();
+  // Desktop: la ventana nace oculta (ver apps/desktop/src-tauri/src/lib.rs) y se muestra con el
+  // primer cuadro ya pintado.
+  if (isDesktop)
+    requestAnimationFrame(() =>
+      import("@tauri-apps/api/window")
+        .then(async (m) => {
+          const w = m.getCurrentWindow();
+          await w.show();
+          await w.setFocus();
+        })
+        .catch(() => {}),
+    );
 }
 
 boot();

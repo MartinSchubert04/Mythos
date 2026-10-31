@@ -1,7 +1,7 @@
 <script lang="ts">
   // Ajustes: tema y paleta con muestras en vivo (como Ethereon), reproduccion, subtitulos,
   // Real-Debrid y la cuenta. Lo de la interfaz se guarda solo (local y en el server).
-  import { Captions, Download, Keyboard, KeyRound, LogOut, Palette, Play, RefreshCw, Server, Smartphone, UserRound } from "@lucide/svelte";
+  import { Captions, Download, Keyboard, KeyRound, LogOut, Monitor, Palette, Play, RefreshCw, Server, Smartphone, UserRound } from "@lucide/svelte";
   import { MonitorSmartphone, Users } from "@lucide/svelte";
   import { conn } from "../lib/local.svelte";
   import ConnectionSettings from "../components/ConnectionSettings.svelte";
@@ -12,12 +12,13 @@
   import Switch from "../components/Switch.svelte";
   import { api } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
-  import { checkServer, isAndroid, isRemoteShell, normalizeServer, pickServer, serverSetting, setServer } from "../lib/platform";
+  import { checkServer, isAndroid, isDesktop, isRemoteShell, normalizeServer, pickServer, serverSetting, setServer } from "../lib/platform";
   import { LANGS, prefs, savePrefs } from "../lib/prefs.svelte";
   import { ALL_KEYS as KEYS } from "../lib/shortcuts";
   import { AUDIO_LANGS } from "../lib/streamlang";
   import { keepScroll } from "../lib/scroll";
   import { logout, session } from "../lib/session.svelte";
+  import { MIN_OPACITY, glass, setGlass } from "../lib/glass.svelte";
   import { checkUpdate, installUpdate, leaveServer, remoteUi, setRemoteUi, shell } from "../lib/shell.svelte";
   import { THEMES, applyTheme, currentPalette, currentTheme, palettesOf, type ThemeId } from "../lib/themes";
   import { attempt, toast } from "../lib/toast.svelte";
@@ -112,7 +113,7 @@
     }
   }
 
-  // ---- Android: actualizaciones del APK (la interfaz ya viene del server, siempre al dia)
+  // ---- Android y desktop: actualizaciones desde los Releases de GitHub
   let checking = $state(false);
   let upToDate = $state(false);
   async function lookForUpdate() {
@@ -135,7 +136,8 @@
   }
   async function updateNow() {
     try {
-      if (!(await installUpdate())) toast('Allow "Install unknown apps" for Mythos, then tap Update now again.');
+      if (!(await installUpdate()))
+        toast(isAndroid ? 'Allow "Install unknown apps" for Mythos, then tap Update now again.' : "The update is no longer available. Check again.", !isAndroid);
     } catch (e) {
       toast(String(e), true);
     }
@@ -173,6 +175,25 @@
         {/each}
       </div>
       <Switch bind:checked={prefs.reduceMotion} onchange={() => savePrefs()}>Reduce motion (no animations or transitions)</Switch>
+      {#if isDesktop}
+        <Switch checked={glass.on} onchange={(v) => setGlass(v)}>Frosted glass window (see your desktop blurred behind Mythos)</Switch>
+        {#if glass.on}
+          <label class="field glass-op">
+            <span class="glass-name">Opacity <span class="faint">{Math.round(glass.opacity * 100)}%</span></span>
+            <input
+              type="range"
+              min={MIN_OPACITY}
+              max="1"
+              step="0.01"
+              value={glass.opacity}
+              style="--v: {((glass.opacity - MIN_OPACITY) / (1 - MIN_OPACITY)) * 100}%"
+              oninput={(e) => setGlass(true, +e.currentTarget.value, false)}
+              onchange={(e) => setGlass(true, +e.currentTarget.value)}
+            />
+            <span class="hint">Lower is more see-through. Works with every theme.</span>
+          </label>
+        {/if}
+      {/if}
     </Section>
 
     <Section
@@ -293,10 +314,10 @@
       </div>
     </Section>
 
-    {#if isAndroid}
-      <Section id="app" title="App" icon={Smartphone} summary={shell.version ? `Version ${shell.version}` : "Android"}>
+    {#if isAndroid || isDesktop}
+      <Section id="app" title="App" icon={isAndroid ? Smartphone : Monitor} summary={shell.version ? `Version ${shell.version}` : isAndroid ? "Android" : "Desktop"}>
         <div class="row">
-          <span class="grow">Mythos for Android {shell.version}</span>
+          <span class="grow">Mythos for {isAndroid ? "Android" : "Windows"} {shell.version}</span>
           {#if shell.update?.status === "ready"}
             <button class="btn primary" onclick={updateNow}><Download size={14} />Update now</button>
           {:else}
@@ -308,15 +329,19 @@
         {#if shell.update}
           <span class="app-hint">
             {shell.update.status === "ready"
-              ? `Mythos ${shell.update.version} is ready. It installs by itself when you leave the app while nothing is playing.`
+              ? isAndroid
+                ? `Mythos ${shell.update.version} is ready. It installs by itself when you leave the app while nothing is playing.`
+                : `Mythos ${shell.update.version} is ready. Update now restarts Mythos right where you are; otherwise it installs when you close it.`
               : `Downloading Mythos ${shell.update.version}… ${Math.round(shell.update.progress * 100)}%`}
           </span>
         {:else if upToDate}
           <span class="app-hint">You have the latest version.</span>
         {:else}
-          <span class="app-hint">The app updates by itself when you leave it while nothing is playing.</span>
+          <span class="app-hint">
+            {isAndroid ? "The app updates by itself when you leave it while nothing is playing." : "Mythos updates by itself when you close it."}
+          </span>
         {/if}
-        <Switch bind:checked={useServerUi} onchange={toggleServerUi}>Load the interface from the server (new versions without updating the app)</Switch>
+        {#if isAndroid}<Switch bind:checked={useServerUi} onchange={toggleServerUi}>Load the interface from the server (new versions without updating the app)</Switch>{/if}
       </Section>
     {/if}
   </div>
@@ -331,6 +356,37 @@
     flex-direction: column;
     gap: 10px;
     max-width: 1040px;
+  }
+  .glass-op {
+    max-width: 420px;
+  }
+  .glass-name {
+    display: flex;
+    justify-content: space-between;
+  }
+  .glass-op input {
+    appearance: none;
+    width: 100%;
+    height: 18px;
+    background: none;
+    border: none;
+    padding: 0;
+    box-shadow: none;
+    cursor: pointer;
+  }
+  .glass-op input::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--accent) var(--v), var(--line-strong) var(--v));
+  }
+  .glass-op input::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--accent) 40%, transparent);
   }
   .sub {
     display: flex;
