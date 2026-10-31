@@ -100,6 +100,11 @@ Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en
 - **Select**, **Switch**, **Seg**, **Confirm**, **Section**: los de Ethereon, iguales.
 - **Avisos (toasts):** entran desde abajo a la derecha; rojos si fallan.
 - **Tooltips propios** (`lib/tooltip.ts`): todo `title=` se muestra con demora y estilo del tema.
+- **Menú de subtítulos**: primero los del archivo ("Embedded"); después una entrada por idioma con
+  su nombre en ese idioma ("Español (Latinoamérica)", "Português (Brasil)"), el preferido y el del
+  audio arriba y el resto alfabético; "Other versions (n)" despliega las otras versiones. Abajo,
+  "Sync" corre los subtítulos de a 0,5 s (también con G/H, con un aviso del offset).
+- **Botones del detalle**: siempre en una fila; en celular "Choose stream" queda solo con el ícono.
 - **Cast** (detalle): avatares con iniciales sobre el acento (el catálogo no trae fotos). Debajo,
   la fila "More like this" (mismo género principal).
 - **Episodios**: en pantallas anchas van en dos o tres columnas; los especiales (temporada 0) se
@@ -136,7 +141,7 @@ Rutas con hash: `#/`, `#/search?q=`, `#/title/{type}/{id}`, `#/watch/{type}/{id}
 Atajos (listados en Settings → Keyboard shortcuts): `/` o `Ctrl K` buscar (lo que se escribe
 mientras la vista carga no se pierde); flechas entre pósters de una fila y entre filas; Esc cierra
 paneles y menús. En el reproductor: espacio/K, F, M, ←/→ (5 s), J/L (10 s), ↑/↓
-volumen, C subtítulos, N siguiente episodio, Esc (cierra menú → sale de pantalla completa → vuelve).
+volumen, C subtítulos, G/H subtítulos 0,5 s antes/después, N siguiente episodio, Esc (cierra menú → sale de pantalla completa → vuelve).
 
 ## 5b. Movimiento
 

@@ -225,8 +225,13 @@
           <button class="btn primary lg playbtn" disabled={type === "series" && !current} onclick={() => play(playTarget, undefined, canResume || undefined)} onpointerenter={warmPlay} onfocus={warmPlay}>
             <Play size={18} fill="currentColor" />{playLabel}
           </button>
-          <button class="btn glass lg" disabled={!playTarget} onclick={() => playTarget && openStreams(playTarget, type === "movie" ? m!.name : `${m!.name} · ${epCode(current!.season, current!.episode)}`)}>
-            <ListVideo size={17} />Choose stream
+          <button
+            class="btn glass lg choose"
+            aria-label="Choose stream"
+            disabled={!playTarget}
+            onclick={() => playTarget && openStreams(playTarget, type === "movie" ? m!.name : `${m!.name} · ${epCode(current!.season, current!.episode)}`)}
+          >
+            <ListVideo size={17} /><span class="lbl">Choose stream</span>
           </button>
           <button class="btn glass lg icon" class:fav={inLib} onclick={toggleLib} title={inLib ? "Remove from Library" : "Add to Library"} disabled={inLib === null}>
             <Heart size={18} fill={inLib ? "currentColor" : "none"} />
@@ -470,11 +475,32 @@
     background: color-mix(in srgb, var(--panel) 70%, transparent);
     backdrop-filter: blur(8px);
   }
+  /* Siempre en una fila: Play y Choose stream con texto, favorito y trailer como iconos. Si no
+     entra (celular), Choose stream tambien queda solo con el icono. */
   .actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 10px;
     margin-top: 24px;
+  }
+  .actions .btn {
+    flex: none;
+  }
+  @media (max-width: 520px) {
+    .actions {
+      gap: 8px;
+    }
+    .actions .btn.lg {
+      padding: 0 16px;
+    }
+    .choose .lbl {
+      display: none;
+    }
+    .actions .btn.choose,
+    .actions .btn.icon {
+      width: 42px;
+      padding: 0;
+    }
   }
   .btn.icon {
     width: 42px;

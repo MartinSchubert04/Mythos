@@ -62,6 +62,7 @@
     ["J  ·  L", "Back or forward 10 seconds"],
     ["↑ ↓", "Volume (in the player)"],
     ["C", "Subtitles on or off"],
+    ["G  ·  H", "Subtitles 0.5 s earlier or later (sync)"],
     ["N", "Next episode"],
     ["Enter", "Resume (when the player asks)"],
   ];

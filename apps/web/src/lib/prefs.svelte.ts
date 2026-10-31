@@ -105,3 +105,29 @@ export function langName(l?: string | null): string {
   const n = normLang(l);
   return LANGS.find((x) => x.value === n)?.label ?? (l ? l.toUpperCase() : "Unknown");
 }
+
+// Codigos de OpenSubtitles / ffprobe → BCP 47, para el nombre del idioma en su propio idioma.
+const BCP: Record<string, string> = {
+  eng: "en", en: "en", spa: "es", es: "es", spl: "es-419", ea: "es-419", spn: "es-419", por: "pt", pt: "pt",
+  pob: "pt-BR", pb: "pt-BR", fre: "fr", fra: "fr", fr: "fr", ger: "de", deu: "de", de: "de", ita: "it", it: "it",
+  dut: "nl", nld: "nl", nl: "nl", pol: "pl", pl: "pl", rus: "ru", ru: "ru", tur: "tr", tr: "tr", ara: "ar", ar: "ar",
+  jpn: "ja", ja: "ja", kor: "ko", ko: "ko", chi: "zh-Hans", zho: "zh-Hans", zh: "zh-Hans", zht: "zh-Hant", zhe: "zh-Hant",
+  swe: "sv", sv: "sv", cze: "cs", ces: "cs", cs: "cs", dan: "da", da: "da", fin: "fi", fi: "fi", nor: "nb", no: "nb",
+  gre: "el", ell: "el", el: "el", heb: "he", he: "he", hun: "hu", hu: "hu", rum: "ro", ron: "ro", ro: "ro", hrv: "hr",
+  hr: "hr", srp: "sr", sr: "sr", bul: "bg", bg: "bg", ukr: "uk", uk: "uk", ind: "id", id: "id", vie: "vi", vi: "vi",
+  tha: "th", th: "th", per: "fa", fas: "fa", fa: "fa", hin: "hi", hi: "hi", slo: "sk", slk: "sk", sk: "sk", slv: "sl",
+  sl: "sl", est: "et", lav: "lv", lit: "lt", cat: "ca", ca: "ca", baq: "eu", eus: "eu", glg: "gl", may: "ms", msa: "ms",
+};
+
+/** "Español (Latinoamérica)", "Português (Brasil)", "English"... (el nombre en ese idioma). */
+export function nativeLangName(code?: string | null): string {
+  const raw = (code ?? "").toLowerCase().replace(/[^a-z-]/g, "");
+  const tag = BCP[raw] ?? BCP[raw.slice(0, 3)] ?? BCP[raw.slice(0, 2)];
+  if (tag) {
+    try {
+      const n = new Intl.DisplayNames([tag], { type: "language" }).of(tag);
+      if (n) return n.charAt(0).toLocaleUpperCase(tag) + n.slice(1);
+    } catch {}
+  }
+  return langName(code);
+}

@@ -42,9 +42,9 @@
   import { api, dropCache, errText, mediaUrl, withToken } from "../lib/api";
   import { degrade, detectCaps } from "../lib/caps";
   import { bytes, clock, epCode, sized } from "../lib/format";
-  import { fadeQuick, pop, rise } from "../lib/motion";
+  import { expand, fadeQuick, pop, rise } from "../lib/motion";
   import { isDesktop, isFullscreen, setFullscreen } from "../lib/platform";
-  import { langName, normLang, prefs, savePrefs } from "../lib/prefs.svelte";
+  import { langName, nativeLangName, normLang, prefs, savePrefs } from "../lib/prefs.svelte";
   import { back, go, setQuery } from "../lib/router.svelte";
   import { toast } from "../lib/toast.svelte";
   import type { ClientCaps, Episode, MediaStatus, MediaType, Meta, PlayInfo, Progress, Stream } from "../lib/types";
@@ -107,7 +107,9 @@
   let resolveResume: ((at: number) => void) | null = null;
   let countdown = $state<number | null>(null);
 
-  type Sub = { id: string; label: string; lang: string; url: string; ext: boolean };
+  /** Una pista de subtitulos. `group` junta las versiones del mismo idioma (o variante, como
+   *  es-419 o pt-BR) que vienen de OpenSubtitles; `version` es su numero dentro del grupo. */
+  type Sub = { id: string; label: string; lang: string; url: string; ext: boolean; group: string; version: number };
   let extSubs = $state<Sub[]>([]);
   let subSel = $state("");
   let cues: Cue[] = [];
@@ -136,10 +138,12 @@
   const intSubs = $derived<Sub[]>(
     (info?.subtitle_tracks ?? []).map((s) => ({
       id: `i${s.index}`,
-      label: s.title || langName(s.lang),
+      label: s.title || nativeLangName(s.lang),
       lang: normLang(s.lang),
       url: `/api/media/${info!.session_id}/subs/${s.index}.vtt`,
       ext: false,
+      group: `i${s.index}`,
+      version: 1,
     })),
   );
   const subs = $derived([...intSubs, ...extSubs]);
@@ -186,11 +190,14 @@
     api
       .subtitles(type, id)
       .then((l) => {
-        // Hasta 3 por idioma: la lista de OpenSubtitles puede ser enorme.
+        // Agrupadas por variante de idioma (spa y spl son grupos distintos), hasta 6 versiones
+        // por grupo: la lista de OpenSubtitles puede ser enorme.
         const per: Record<string, number> = {};
-        extSubs = l
-          .filter((s) => ((per[normLang(s.lang)] = (per[normLang(s.lang)] ?? 0) + 1) <= 3))
-          .map((s, i) => ({ id: `e${i}`, label: `${langName(s.lang)} · OpenSubtitles`, lang: normLang(s.lang), url: s.url, ext: true }));
+        extSubs = l.flatMap((s, i) => {
+          const g = (s.lang || "und").toLowerCase();
+          const v = (per[g] = (per[g] ?? 0) + 1);
+          return v > 6 ? [] : [{ id: `e${i}`, label: nativeLangName(s.lang), lang: normLang(s.lang), url: s.url, ext: true, group: g, version: v }];
+        });
         autoSub();
       })
       .catch(() => {});
@@ -597,7 +604,7 @@
     }
     t = offset + video.currentTime;
     if (cues.length) {
-      const h = cuesAt(cues, t);
+      const h = cuesAt(cues, t - subDelay);
       if (h !== subHtml) subHtml = h;
     }
     raf = requestAnimationFrame(frame);
@@ -719,7 +726,7 @@
       subAuto = true;
       return;
     }
-    const s = intSubs.find((x) => x.lang === want && !/forced/i.test(x.label)) ?? extSubs.find((x) => x.lang === want);
+    const s = intSubs.find((x) => x.lang === want && !/forced/i.test(x.label)) ?? extSubs.find((x) => x.lang === want && x.version === 1);
     if (s) {
       subAuto = true;
       pickSub(s.id, false);
@@ -728,6 +735,7 @@
 
   async function pickSub(sid: string, close = true) {
     if (close) menu = "";
+    if (sid !== subSel) subDelay = 0;
     subSel = sid;
     cues = [];
     subHtml = "";
@@ -739,7 +747,7 @@
       if (!r.ok) throw new Error(String(r.status));
       if (subSel !== sid) return;
       cues = parseVtt(await r.text());
-      subHtml = cuesAt(cues, t);
+      subHtml = cuesAt(cues, t - subDelay);
       // El server todavia esta extrayendo la pista: se vuelve a pedir y se reemplaza.
       if (r.headers.get("X-Mythos-Partial") === "true" && !destroyed) {
         setTimeout(() => subSel === sid && !destroyed && refreshSub(sid), 5000);
@@ -763,6 +771,27 @@
       if (r.headers.get("X-Mythos-Partial") === "true") setTimeout(() => subSel === sid && !destroyed && refreshSub(sid), 5000);
     } catch {}
   }
+
+  // ---- sincronia fina: positivo = los subtitulos salen mas tarde
+
+  let subDelay = $state(0);
+  function shiftSubs(d: number) {
+    if (!subSel) return;
+    subDelay = Math.round((subDelay + d) * 10) / 10;
+    subHtml = cuesAt(cues, t - subDelay);
+    toast(`Subtitle delay ${subDelay > 0 ? "+" : ""}${subDelay.toFixed(1)} s`);
+  }
+
+  /** El menu: los del archivo primero; despues un grupo por idioma, con el preferido y el del
+   *  audio arriba y el resto en orden alfabetico. */
+  const subGroups = $derived.by(() => {
+    const audioLang = normLang(info?.audio_tracks.find((a) => a.index === audioSel)?.lang);
+    const map = new Map<string, Sub[]>();
+    for (const s of extSubs) map.set(s.group, [...(map.get(s.group) ?? []), s]);
+    const rank = (l: Sub[]) => (l[0].lang === prefs.subLang ? 0 : l[0].lang === audioLang ? 1 : 2);
+    return [...map.values()].sort((a, b) => rank(a) - rank(b) || a[0].label.localeCompare(b[0].label));
+  });
+  let openGroup = $state("");
 
   let lastSub = "";
   function toggleSubs() {
@@ -905,6 +934,8 @@
     else if (k === "arrowup") (setVolume(prefs.volume + 0.05), (prefs.muted = false), bump("vol", `${Math.round(prefs.volume * 100)}%`));
     else if (k === "arrowdown") (setVolume(prefs.volume - 0.05), bump("vol", `${Math.round(prefs.volume * 100)}%`));
     else if (k === "c") toggleSubs();
+    else if (k === "g") shiftSubs(-0.5);
+    else if (k === "h") shiftSubs(0.5);
     else if (k === "n") nextEp && playNext();
     else if (k === "escape") {
       if (menu) menu = "";
@@ -1060,16 +1091,55 @@
             <Captions size={22} />
           </button>
           {#if menu === "subs"}
-            <div class="pmenu" transition:pop={{ start: 0.94 }}>
+            <div class="pmenu subs-menu" transition:pop={{ start: 0.94 }}>
               <div class="mh">Subtitles</div>
               <button class="mi" class:sel={!subSel} onclick={() => pickSub("")}><span class="ck">{#if !subSel}<Check size={14} />{/if}</span>Off</button>
-              {#each subs as s (s.id)}
+              {#each intSubs as s (s.id)}
                 <button class="mi" class:sel={subSel === s.id} onclick={() => pickSub(s.id)}>
                   <span class="ck">{#if subSel === s.id}<Check size={14} />{/if}</span>
                   <span class="ellipsis">{s.label}</span>
-                  {#if !s.ext}<span class="tag">In file</span>{/if}
+                  <span class="tag">Embedded</span>
                 </button>
               {/each}
+              {#each subGroups as g (g[0].group)}
+                {@const inGroup = g.some((x) => x.id === subSel)}
+                <div class="sub-group">
+                  <button class="mi" class:sel={inGroup} onclick={() => pickSub(inGroup ? subSel : g[0].id)}>
+                    <span class="ck">{#if inGroup}<Check size={14} />{/if}</span>
+                    <span class="ellipsis">{g[0].label}</span>
+                    {#if inGroup && g.length > 1}<span class="tag">v{g.find((x) => x.id === subSel)?.version}</span>{/if}
+                  </button>
+                  {#if g.length > 1}
+                    <button
+                      class="more"
+                      class:open={openGroup === g[0].group}
+                      aria-expanded={openGroup === g[0].group}
+                      onclick={() => (openGroup = openGroup === g[0].group ? "" : g[0].group)}
+                      title="Other versions"
+                    >
+                      Other versions ({g.length - 1})<ChevronRight size={13} />
+                    </button>
+                  {/if}
+                </div>
+                {#if openGroup === g[0].group}
+                  <div class="versions" transition:expand>
+                    {#each g as v (v.id)}
+                      <button class="mi sub" class:sel={subSel === v.id} onclick={() => pickSub(v.id)}>
+                        <span class="ck">{#if subSel === v.id}<Check size={13} />{/if}</span>Version {v.version}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              {/each}
+              {#if subSel}
+                <div class="sync">
+                  <span>Sync</span>
+                  <button class="sbtn" onclick={() => shiftSubs(-0.5)} title="Earlier (G)">−0.5 s</button>
+                  <span class="delay" class:off={subDelay !== 0}>{subDelay > 0 ? "+" : ""}{subDelay.toFixed(1)} s</span>
+                  <button class="sbtn" onclick={() => shiftSubs(0.5)} title="Later (H)">+0.5 s</button>
+                  {#if subDelay !== 0}<button class="sbtn" onclick={() => shiftSubs(-subDelay)}>Reset</button>{/if}
+                </div>
+              {/if}
             </div>
           {/if}
         </div>
@@ -1501,6 +1571,82 @@
     border-radius: 4px;
     border: 1px solid var(--media-line);
     color: var(--on-media-2);
+  }
+  .subs-menu {
+    min-width: 340px;
+    max-width: min(380px, calc(100vw - 24px));
+  }
+  .sub-group {
+    display: flex;
+    align-items: center;
+  }
+  .sub-group .mi {
+    flex: 1;
+    min-width: 0;
+  }
+  .more {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 6px 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--on-media-2);
+    transition:
+      background 0.1s,
+      color 0.1s;
+  }
+  .more:hover {
+    background: var(--media-line);
+    color: var(--on-media);
+  }
+  .more :global(svg) {
+    transition: transform 0.2s;
+  }
+  .more.open :global(svg) {
+    transform: rotate(90deg);
+  }
+  .versions {
+    margin: 0 0 4px 26px;
+    border-left: 1px solid var(--media-line);
+  }
+  .mi.sub {
+    padding: 6px 10px 6px 6px;
+    font-size: 12.5px;
+  }
+  .sync {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 8px 6px 2px 10px;
+    border-top: 1px solid var(--media-line);
+    font-size: 12.5px;
+    color: var(--on-media-2);
+  }
+  .sync > span:first-child {
+    flex: 1;
+  }
+  .sbtn {
+    padding: 3px 8px;
+    border-radius: 6px;
+    font: 600 11.5px var(--mono);
+    color: var(--on-media);
+    border: 1px solid var(--media-line);
+    transition: background 0.1s;
+  }
+  .sbtn:hover {
+    background: var(--media-line);
+  }
+  .delay {
+    min-width: 46px;
+    text-align: center;
+    font: 600 12px var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .delay.off {
+    color: var(--accent);
   }
   .menu-scrim {
     position: absolute;
