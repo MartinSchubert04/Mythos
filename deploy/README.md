@@ -34,7 +34,30 @@ En el server ya están ocupados 22, 53, 443, 1883, 3000, 4000, 4517, 5678, 6052,
   `docker run --rm --gpus all ubuntu nvidia-smi`.
 - Tailscale instalado y logueado en el server.
 
-## Primera vez
+## Con el script (recomendado)
+
+`deploy/deploy.sh` hace todo lo de abajo y se puede correr las veces que haga falta (la primera vez
+y en cada actualización):
+
+```bash
+mkdir -p ~/Projects && cd ~/Projects
+git clone https://github.com/MartinSchubert04/Mythos.git
+MYTHOS_ADMIN_USER=martin ./Mythos/deploy/deploy.sh      # el nombre es opcional (por defecto "admin")
+```
+
+1. `git pull --ff-only`.
+2. Si no existe `deploy/.env`, lo crea desde `.env.example` con una **contraseña de admin aleatoria
+   que muestra una sola vez** (anotala). Si no encuentra una GPU NVIDIA pone `MYTHOS_HWACCEL=none`.
+   Si el `.env` ya existe no lo toca.
+3. Deja `deploy/data/` a nombre del uid 1000 (el usuario del contenedor), con `sudo` si hace falta.
+4. `docker compose up -d --build`.
+5. Espera hasta 3 minutos a que el healthcheck dé `healthy`; si falla, muestra los últimos logs y
+   termina con error.
+6. Si `tailscale serve` todavía no publica el puerto 7700, corre
+   `tailscale serve --bg --https=7700 http://127.0.0.1:7700` (con `sudo` si hace falta) y muestra la
+   URL final.
+
+## A mano (primera vez)
 
 ```bash
 mkdir -p ~/Projects && cd ~/Projects
@@ -94,6 +117,8 @@ docker compose exec mythos mythos passwd martin 'nueva-contraseña'   # también
 ## Actualizar
 
 ```bash
+~/Projects/Mythos/deploy/deploy.sh
+# o a mano:
 cd ~/Projects/Mythos && git pull
 cd deploy && docker compose up -d --build
 ```

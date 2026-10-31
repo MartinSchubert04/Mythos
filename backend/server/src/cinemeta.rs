@@ -96,7 +96,7 @@ impl Cinemeta {
 
     async fn fetch(&self, path: &str) -> ApiResult<Value> {
         let url = format!("{CINEMETA}{path}");
-        let res = self.http.get(&url).send().await.map_err(|e| {
+        let res = self.http.get(&url).timeout(Duration::from_secs(12)).send().await.map_err(|e| {
             tracing::warn!("cinemeta {url}: {e}");
             ApiError::bad_gateway("The catalog service (Cinemeta) is unreachable, try again in a moment")
         })?;

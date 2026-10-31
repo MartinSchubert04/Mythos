@@ -80,7 +80,7 @@ async fn list(State(st): State<AppState>, _u: AuthUser, Path((kind, id)): Path<(
         return Ok(Json((*l).clone()));
     }
     let url = format!("{OPENSUBS}/subtitles/{kind}/{id}.json");
-    let res = st.subs.http.get(&url).send().await.map_err(|e| {
+    let res = st.subs.http.get(&url).timeout(Duration::from_secs(12)).send().await.map_err(|e| {
         tracing::warn!("opensubtitles {key}: {e}");
         ApiError::bad_gateway("The subtitles service (OpenSubtitles) is unreachable")
     })?;

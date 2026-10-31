@@ -22,6 +22,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use axum::{
+    extract::DefaultBodyLimit,
     http::{header, HeaderName, HeaderValue, Method},
     middleware,
     routing::get,
@@ -130,6 +131,8 @@ fn app(state: AppState) -> Router {
         .merge(admin::routes())
         // Compresión solo para JSON (y la UI, más abajo): nunca para video ni segmentos HLS.
         .layer(CompressionLayer::new())
+        // Ningún cuerpo de la API necesita más (settings: 64 KB, el resto es chico). 413 si se pasa.
+        .layer(DefaultBodyLimit::max(256 * 1024))
         .with_state(state.clone());
 
     let media = subtitles::media_routes()
@@ -146,11 +149,21 @@ fn app(state: AppState) -> Router {
     Router::new()
         .nest("/api", api)
         .fallback_service(web)
+        .layer(middleware::map_response(security_headers))
         .layer(cors())
         // El span lleva solo el path: la query de /api/media trae el token (`?t=`).
         .layer(TraceLayer::new_for_http().make_span_with(|req: &axum::http::Request<_>| {
             tracing::debug_span!("request", method = %req.method(), path = %req.uri().path())
         }))
+}
+
+/// Headers de seguridad para todas las respuestas (la CSP la pone `web` en el HTML).
+async fn security_headers(mut res: axum::response::Response) -> axum::response::Response {
+    let h = res.headers_mut();
+    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    // Solo el origen hacia afuera (YouTube lo necesita para los tráilers), nunca la URL con `?t=`.
+    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("strict-origin-when-cross-origin"));
+    res
 }
 
 /// CORS para el dev server de Vite y la ventana de Tauri (ver docs/API.md).

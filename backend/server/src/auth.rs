@@ -155,6 +155,9 @@ impl Auth {
             ));
         }
         let name = username.trim().to_string();
+        // Para el log de intentos fallidos: recortado (y con `?` en el log, escapado) para que un
+        // nombre raro no ensucie los logs.
+        let name_for_log: String = name.chars().take(64).collect();
         let row = self
             .db
             .call(move |c| {
@@ -177,7 +180,7 @@ impl Auth {
         let user = match (ok, user) {
             (true, Some(u)) => u,
             _ => {
-                self.record_fail(ip);
+                self.record_fail(ip, &name_for_log);
                 return Err(ApiError::unauthorized("Invalid username or password"));
             }
         };
@@ -226,7 +229,7 @@ impl Auth {
         }
     }
 
-    fn record_fail(&self, ip: IpAddr) {
+    fn record_fail(&self, ip: IpAddr, username: &str) {
         let mut fails = self.inner.fails.lock().unwrap();
         if fails.len() > 10_000 {
             fails.retain(|_, q| q.back().is_some_and(|t| t.elapsed() < LOGIN_WINDOW));
@@ -236,7 +239,7 @@ impl Auth {
         if q.len() > LOGIN_MAX_FAILS {
             q.pop_front();
         }
-        tracing::warn!(%ip, fails = q.len(), "login fallido");
+        tracing::warn!(%ip, user = ?username, fails = q.len(), "login fallido");
     }
 }
 

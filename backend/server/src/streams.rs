@@ -58,7 +58,8 @@ impl StreamCtx {
             None => TORRENTIO_BASE_CONFIG.to_string(),
         };
         let url = format!("{}/{config}/stream/{kind}/{id}.json", self.base);
-        let res = self.http.get(&url).send().await.map_err(|e| {
+        // Torrentio a veces tarda (scrapea en el momento): 20 s antes de rendirse.
+        let res = self.http.get(&url).timeout(Duration::from_secs(20)).send().await.map_err(|e| {
             // Sin la URL: con Real-Debrid lleva la clave adentro.
             tracing::warn!("torrentio {kind}/{id}: {}", e.without_url());
             ApiError::bad_gateway("Torrentio is unreachable right now, try again in a moment")
