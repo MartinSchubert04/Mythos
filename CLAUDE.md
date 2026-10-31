@@ -17,7 +17,7 @@ login (nadie entra sin cuenta), modo admin para crearlos. Interfaz web y desktop
 
 ```
 backend/                  workspace de Rust (lo único que entra al contenedor)
-  server/                 binario `mythos`: axum, SQLite (sqlx), auth, admin, catálogo, progreso,
+  server/                 binario `mythos`: axum, SQLite (rusqlite), auth, admin, catálogo, progreso,
                           sirve la UI compilada y monta el router de media
   media/                  crate `mythos-media`: motor torrent (librqbit), streaming con Range,
                           ffmpeg (HLS, NVENC), subtítulos internos. No sabe nada de usuarios.
@@ -29,7 +29,9 @@ deploy/                   Dockerfile, docker-compose.yml, README de despliegue
 ## Puertos (MRTN-SERVER)
 
 - `127.0.0.1:7700` la app (API + UI). Afuera solo por `tailscale serve --https=7700`
-  → `https://mrtn-server.tailbce521.ts.net:7700` (solo tailnet).
+  → `https://<tu-server>.ts.net:7700` (solo tailnet). La app desktop toma esa URL de
+  `VITE_DEFAULT_SERVER` (`apps/web/.env.local`, fuera del repo; en CI, el secret
+  `MYTHOS_SERVER_URL`).
 - `42069` TCP/UDP: peers de BitTorrent (abrirlo en el router para más velocidad).
 - No usar: 22, 53, 443, 1883, 3000, 4000, 4517, 5678, 6052, 6080, 8080, 8090, 8123, 8443, 8765,
   8787, 8788, 10200, 10300, 11987, 51515, 61208 (ya están ocupados).
