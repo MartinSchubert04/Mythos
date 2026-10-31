@@ -315,6 +315,16 @@ export const api = {
     cached(`prefetch:${s.info_hash ?? s.url}:${s.file_idx ?? ""}`, 5 * MIN, () =>
       req<void>("POST", "/api/prefetch", { info_hash: s.info_hash, file_idx: s.file_idx, url: s.url }),
     ).catch(() => {}),
+  /** Precarga del proximo episodio atada a la sesion que se esta viendo (va al server de esa
+   *  sesion). El server decide cuando bajar y la cancela y borra sola si no se abre: ver
+   *  "Precarga del proximo episodio" en docs/API.md. */
+  prefetchNext: (session: string, s: Pick<Stream, "key" | "info_hash" | "file_idx" | "url">) =>
+    req<void>(
+      "POST",
+      "/api/prefetch",
+      { session_id: session, stream_key: s.key, info_hash: s.info_hash, file_idx: s.file_idx, url: s.url },
+      pinned(session),
+    ).catch(() => {}),
   /** La sesion queda atada al server que la abrio (ver `pins`). */
   play: async (body: PlayRequest) => {
     const used: Partial<Target> = {};

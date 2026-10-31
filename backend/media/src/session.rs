@@ -45,7 +45,13 @@ struct BufState {
     /// Desde cuándo suponemos que se está reproduciendo (desde el último `ready`).
     playing_since: Option<Instant>,
     ahead_s: Option<f64>,
+    /// El archivo ya está entero en disco (lo anota la ventana).
+    complete: bool,
 }
+
+/// Por debajo de esto (con `ready`) la sesión "pasa hambre": las precargas y los torrents sin
+/// uso le ceden el ancho de banda (ver `starving`).
+pub const STARVING_AHEAD_S: f64 = 20.0;
 
 /// Un lector nuevo que arranca más de esto por delante del head (o antes del origen) es un salto.
 const SEEK_GAP: u64 = 8 << 20;
@@ -105,6 +111,7 @@ impl PlaySession {
                 played_base: 0.0,
                 playing_since: None,
                 ahead_s: None,
+                complete: false,
             }),
             url_bytes: AtomicU64::new(0),
             url_speed: Mutex::new((Instant::now(), 0, 0)),
@@ -228,6 +235,7 @@ impl PlaySession {
         let ahead_s = (from_origin as f64 / br - played).max(0.0) + hls;
         b.ahead_s = Some(ahead_s);
         b.target_s = Some(target);
+        b.complete = complete;
         if matches!(b.state, MediaState::Error | MediaState::Metadata | MediaState::Probing) {
             return;
         }
@@ -248,6 +256,43 @@ impl PlaySession {
             b.state = MediaState::Buffering;
             b.waiting_since.get_or_insert_with(Instant::now);
         }
+    }
+
+    /// La sesión necesita todo el ancho de banda: arrancando o tras un salto (`buffering`), o
+    /// reproduciendo con menos de `STARVING_AHEAD_S` de colchón. Un torrent ya completo o un link
+    /// directo (Real-Debrid, no comparte peers) nunca pasa hambre de esto.
+    pub fn starving(&self) -> bool {
+        if self.is_closed() || self.torrent().is_none() {
+            return false;
+        }
+        let b = self.buf.lock().unwrap();
+        !b.complete
+            && match b.state {
+                MediaState::Buffering => true,
+                MediaState::Ready => b.ahead_s.unwrap_or(0.0) < STARVING_AHEAD_S,
+                _ => false,
+            }
+    }
+
+    /// Colchón real por delante del lector: (está bajado todo lo que falta hasta el final del
+    /// archivo, segundos contiguos ya bajados desde el `head`). Para una sesión de link directo:
+    /// `(true, ∞)` si está `ready` (no comparte peers; solo la bajada de la casa).
+    pub fn cushion(&self) -> (bool, f64) {
+        let state = self.buf.lock().unwrap().state;
+        let Some(t) = self.torrent() else {
+            return if state == MediaState::Ready { (true, f64::INFINITY) } else { (false, 0.0) };
+        };
+        if self.buf.lock().unwrap().complete {
+            return (true, f64::INFINITY);
+        }
+        if state != MediaState::Ready {
+            return (false, 0.0);
+        }
+        let hv = self.haves.lock().unwrap().clone();
+        let have = |p: usize| hv.get(p).copied().unwrap_or(false);
+        let head = self.head().min(t.geom.len);
+        let ahead = window::contiguous_ahead(&t.geom, &have, head);
+        (head + ahead >= t.geom.len, ahead as f64 / self.bitrate().max(1.0))
     }
 
     /// Para URL: contabiliza bytes traídos del origen.

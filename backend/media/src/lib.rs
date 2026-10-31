@@ -229,7 +229,9 @@ pub struct Tuning {
     pub download_limit_bps: Option<u32>,
     /// Pedidos de 16 KB pendientes por peer.
     pub peer_request_window: usize,
-    /// Peers conectados por torrent.
+    /// Peers conectados (o conectándose) por torrent, entrantes y salientes juntos: librqbit
+    /// rechaza los entrantes cuando se llena. Fijo por torrent al agregarlo. Ver "Peers y NAT" en
+    /// `engine.rs` para el porqué del número.
     pub peer_limit: usize,
     /// Máximo de ventanas de prioridad de 32 MB por delante del lector.
     pub max_windows: usize,
@@ -251,7 +253,7 @@ impl Default for Tuning {
         Self {
             download_limit_bps: None,
             peer_request_window: 32,
-            peer_limit: 160,
+            peer_limit: 200,
             max_windows: 6,
             focus_when_slow: true,
             rescue_stuck: true,
@@ -259,6 +261,30 @@ impl Default for Tuning {
             disk_free_override: None,
         }
     }
+}
+
+/// Extra: estado de la precarga del próximo episodio (`Media::next_status`).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NextState {
+    /// Esperando a que el episodio actual tenga colchón de sobra (o pausada porque lo perdió).
+    Waiting,
+    /// Bajando principio e índice.
+    Active,
+    /// Principio e índice listos; el torrent queda quieto hasta que se abra o se cancele.
+    Done,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NextStatus {
+    pub state: NextState,
+    pub info_hash: String,
+    pub file_idx: Option<usize>,
+    /// Mismo torrent que el episodio actual (pack de temporada).
+    pub same_torrent: bool,
+    /// Bytes del objetivo (principio + final del archivo) que ya están.
+    pub have_bytes: u64,
+    pub target_bytes: u64,
 }
 
 pub enum Source {
@@ -317,6 +343,26 @@ impl Media {
     /// No bloquea: dispara la precarga (principio y final del archivo) y vuelve.
     pub async fn prefetch(&self, src: Source) -> anyhow::Result<()> {
         self.inner.prefetch(src)
+    }
+
+    /// Extra: precarga del próximo episodio, atada a la sesión `session_id` que se está viendo.
+    /// No bloquea. Solo baja cuando esa sesión tiene colchón de sobra (y se frena apenas lo
+    /// pierde), baja como mucho el principio y el índice, y se cancela y borra sola si se deja
+    /// de mirar sin abrir el siguiente; si se abre (`open` con la misma fuente), lo precargado se
+    /// reusa. Reglas completas en `docs/API.md` ("Precarga del próximo episodio"). Error si la
+    /// sesión no existe.
+    pub fn prefetch_next(&self, session_id: &str, src: Source) -> anyhow::Result<()> {
+        self.inner.prefetch_next(session_id, src)
+    }
+
+    /// Extra: estado de la precarga del próximo episodio de una sesión (diagnóstico y ejemplos).
+    pub fn next_status(&self, session_id: &str) -> Option<NextStatus> {
+        self.inner.next_status(session_id)
+    }
+
+    /// Extra: el puerto que se anuncia a trackers y DHT (`None` si no se escucha).
+    pub fn announce_port(&self) -> Option<u16> {
+        self.inner.rq.announce_port()
     }
 
     /// Para `Stream.cached`: el archivo ya está completo en disco.

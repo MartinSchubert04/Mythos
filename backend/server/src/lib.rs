@@ -153,7 +153,8 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
         bootstrap_users(&db, &cfg).await?;
     }
 
-    let media = Media::new(MediaConfig {
+    let tuning = mythos_media::Tuning { peer_limit: cfg.peer_limit.max(1), ..Default::default() };
+    let media = Media::with_tuning(MediaConfig {
         data_dir: cfg.data_dir.clone(),
         cache_limit_bytes: cfg.cache_limit_bytes(),
         cache_max_age_secs: cfg.cache_max_age.map_or(0, |d| d.as_secs()),
@@ -162,7 +163,7 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
         ffprobe: cfg.ffprobe.clone(),
         hwaccel: cfg.hwaccel,
         extra_trackers: cfg.extra_trackers,
-    })
+    }, tuning)
     .await
     .context("no se pudo iniciar el motor de media")?;
     let tools = media.tools();

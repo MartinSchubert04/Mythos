@@ -34,6 +34,9 @@ pub struct Config {
     pub cache_max_age: Option<Duration>,
     /// Puerto de peers de BitTorrent. 0 = efímero.
     pub peer_port: u16,
+    /// Peers por torrent (entrantes y salientes). Server 200 (puerto abierto), local 160. Ver
+    /// "Peers y NAT" en `backend/media/src/engine.rs`.
+    pub peer_limit: usize,
     pub hwaccel: HwAccel,
     /// Primer admin si la base está vacía (solo modo server).
     pub admin_user: Option<String>,
@@ -72,6 +75,7 @@ impl Config {
             cache_gb: 60.0,
             cache_max_age: None,
             peer_port: 42069,
+            peer_limit: 200,
             hwaccel: HwAccel::None,
             admin_user: None,
             admin_password: None,
@@ -99,6 +103,7 @@ impl Config {
             cache_gb: 0.0,
             cache_max_age: Some(Duration::from_secs(24 * 3600)),
             peer_port: 0,
+            peer_limit: 160,
             metrics: false,
             sync_interval: Some(Duration::from_secs(60)),
             imdb_top: false,

@@ -292,6 +292,9 @@
       }
     }
     stream = s;
+    // Sesion nueva: la precarga del siguiente (atada a la vieja) se cancela sola en el server.
+    prefetchedNext = false;
+    nextStream = null;
     stuck = "";
     status = null;
     loadSince = Date.now();
@@ -640,7 +643,7 @@
     if (paused) renderSub();
     readBuffered();
     syncPosition();
-    if (!prefetchedNext && nextEp && duration && t / duration > 0.85) prefetchNext();
+    if (!prefetchedNext && nextEp && info && started && duration > 120 && (duration - t <= NEXT_PREFETCH_LEFT_S || t / duration >= 0.7)) prefetchNext();
   }
 
   function readBuffered() {
@@ -1364,15 +1367,30 @@
 
   // ---- siguiente episodio
 
+  // Precarga del proximo episodio: a los 10 min del final o al 70 % (lo que llegue primero) se
+  // elige el stream del siguiente y se le pide al server que lo prepare atado a esta sesion. El
+  // server solo baja cuando este episodio tiene colchon de sobra y lo borra si no se abre (reglas
+  // en docs/API.md). La eleccion: el mismo torrent si es un pack de temporada que trae el
+  // siguiente; si no, lo mismo que elegiria `init` (idioma de audio preferido, despues el score).
+  // `playNext` abre exactamente ese stream (?s=), asi se reusa lo precargado.
+  const NEXT_PREFETCH_LEFT_S = 600;
   let prefetchedNext = false;
+  let nextStream: Stream | null = null;
   function prefetchNext() {
     prefetchedNext = true;
-    if (!nextEp) return;
+    const ep = nextEp;
+    const sid = info?.session_id;
+    if (!ep || !sid) return;
+    const cur = stream;
     api
-      .streams("series", nextEp.id)
+      .streams("series", ep.id)
       .then((l) => {
-        const first = sortByLang(l, prefs.audioLang)[0];
-        if (first) api.prefetch(first);
+        if (destroyed || info?.session_id !== sid || nextEp?.id !== ep.id) return;
+        const pack = cur?.info_hash ? l.find((s) => s.info_hash === cur.info_hash) : undefined;
+        const pick = pack ?? sortByLang(l, prefs.audioLang)[0];
+        if (!pick) return;
+        nextStream = pick;
+        api.prefetchNext(sid, pick);
       })
       .catch(() => {});
   }
@@ -1398,7 +1416,8 @@
     cancelCountdown();
     if (!nextEp) return;
     saveProgress();
-    go(`/watch/series/${nextEp.id}`, { replace: true });
+    const s = nextStream?.key;
+    go(`/watch/series/${nextEp.id}${s ? `?s=${encodeURIComponent(s)}` : ""}`, { replace: true });
   }
 
   // ---- progreso

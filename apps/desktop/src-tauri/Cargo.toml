@@ -1,6 +1,6 @@
 [package]
 name = "mythos-desktop"
-version = "0.10.0"
+version = "0.11.0"
 description = "Mythos: la ventana de escritorio (carga la interfaz de apps/web)"
 edition = "2021"
 

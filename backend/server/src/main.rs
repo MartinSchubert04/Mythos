@@ -73,6 +73,10 @@ fn config_from_env() -> anyhow::Result<Config> {
     if let Some(v) = var("MYTHOS_PEER_PORT") {
         cfg.peer_port = v.parse().with_context(|| format!("MYTHOS_PEER_PORT inválido: {v:?}"))?;
     }
+    if let Some(v) = var("MYTHOS_PEER_LIMIT") {
+        let n: usize = v.parse().with_context(|| format!("MYTHOS_PEER_LIMIT inválido: {v:?}"))?;
+        cfg.peer_limit = n.clamp(20, 500);
+    }
     cfg.web_dir = Some(var("MYTHOS_WEB_DIR").unwrap_or_else(|| "./web".into()).into());
     cfg.admin_user = var("MYTHOS_ADMIN_USER");
     cfg.admin_password = var("MYTHOS_ADMIN_PASSWORD");

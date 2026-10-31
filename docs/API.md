@@ -207,7 +207,7 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 | GET | `/api/meta/{type}/{id}` | | `Meta` |
 | GET | `/api/streams/{type}/{id}` | id con episodio para series (`tt…:1:2`). `?caps=` opcional: `ClientCaps` en JSON o lista `h264,hevc,aac,mkv,…`; da bonus a lo que el cliente reproduce directo | `Stream[]` |
 | GET | `/api/subtitles/{type}/{id}` | | `{id, lang, url}[]` (OpenSubtitles v3 addon; `url` = `/api/media/subs/external?u=…`, devuelve VTT) |
-| POST | `/api/prefetch` | `{info_hash?, file_idx?, url?, stream_key?}` (alcanza con `stream_key` de un listado reciente) | 202. Arranca el torrent y baja principio y final del archivo sin abrir sesión (la UI lo llama al 85 % de un episodio para el siguiente, y al abrir la lista de streams para el primero) |
+| POST | `/api/prefetch` | `{info_hash?, file_idx?, url?, stream_key?, session_id?}` (alcanza con `stream_key` de un listado reciente) | 202. Sin `session_id`: arranca el torrent y baja principio y final del archivo sin abrir sesión (la UI lo llama al abrir la lista de streams, para el primero). Con `session_id` (la sesión de media que se está viendo; mandarlo al server de esa sesión): **precarga del próximo episodio** atada a esa sesión, con las reglas de abajo; 404 si la sesión no existe |
 | POST | `/api/play` | `{stream_key, info_hash?, file_idx?, url?, caps: ClientCaps, meta_id?}` (si `stream_key` salió de `/api/streams` en las últimas 6 h, el resto es opcional; así el server usa los trackers que trajo Torrentio). Tarda unos segundos (metadata + ffprobe) | `PlayInfo`; 502 con mensaje si no se pudo abrir |
 | GET | `/api/progress/continue` | | `Progress[]` (últimos 20, sin terminados > 92 %) |
 | GET | `/api/progress` | `?series_id=tt…` | `Progress[]` de todos los episodios de esa serie, terminados incluidos (la UI marca vistos y el progreso de cada episodio; si falta, usa `/continue`) |
@@ -356,6 +356,44 @@ de episodios (`episodes.metahub.space/…/w780.jpg`) se piden en el tamaño de T
 (`w185`…`w780`) sin pasar por acá, y los pósters ya vienen chicos en WebP. Si la ruta falla (un
 server viejo), la UI vuelve a la URL original. `GET /api/health` trae `images: true`.
 
+**Precarga del próximo episodio** (`POST /api/prefetch` con `session_id`, `Media::prefetch_next`).
+La UI la pide cuando al episodio que se está reproduciendo le quedan 10 min o pasó el 70 % (lo
+que llegue primero), con el stream del siguiente: el mismo torrent si es un pack de temporada que
+lo trae (otro archivo), si no el que elegiría al abrirlo (idioma de audio preferido, después el
+score); y al pasar de episodio abre exactamente ese stream (`/watch/series/<id>?s=<key>`). El
+server:
+
+1. **Nunca perjudica al episodio actual.** No agrega ni baja nada hasta que el actual tiene ≥ 5 min
+   bajados por delante del lector (o ya está todo lo que falta hasta el final) y ninguna sesión
+   pasa hambre (arrancando, tras un salto, o con < 20 s de colchón). Si el actual baja de 2,5 min
+   de colchón, se frena al instante: el archivo sale de la selección del torrent (mismo pack) o el
+   torrent se pausa (otro torrent), y vuelve cuando se recupera. Prioridad mínima: un solo
+   "fantasma" de 32 MB a la vez (primero el final, después el principio) contra las ventanas del
+   actual.
+2. **Si se deja de mirar, se cancela y se borra**: la sesión se cierra y en 45 s no se abre el
+   siguiente; se abre otra cosa (otro título, otro stream) con esa sesión ya cerrada; la sesión no
+   pide nada en 10 min (pausa larga); o llega otra precarga para la misma sesión. Torrent nuevo
+   (lo agregó la precarga) → se quita con sus archivos; mismo pack, o un torrent que ya estaba en
+   caché → su archivo vuelve a prioridad 0 (sale de la selección) y queda como estaba. La
+   precarga nunca anota uso, así que ni la LRU ni el vencimiento la retienen; si el motor se cierra
+   en el medio, al arrancar borra los torrents de precargas que nunca se abrieron
+   (`<data>/next-prefetch.json`).
+3. **Si empieza el siguiente episodio** (`/api/play` con la misma fuente, también en esos 45 s),
+   lo precargado se reusa: el torrent queda como cualquiera que se está viendo.
+4. **Tope**: el final del archivo (índice/moov/cues, 4–16 MB) y 90 s de video del principio
+   (bitrate supuesto por nombre y tamaño), entre 48 y 128 MB. Cuando está, se frena como en 1: no
+   baja el episodio entero. Mientras baja, librqbit les da a los peers sin trabajo piezas en orden
+   natural, así que se pasa un poco (medido con ~200 Mbit: 52–55 MB pedidos, 77–108 MB en disco).
+   Medido (`backend/media/examples/warm.rs`): el siguiente pasa a `ready` en 0,7–0,9 s contra
+   7–9 s en frío.
+
+**Velocidad con el puerto abierto** (detalle en la cabecera de `backend/media/src/engine.rs`,
+"Peers y NAT"): hasta 200 peers por torrent en el server (`MYTHOS_PEER_LIMIT`, 160 en modo local),
+subida sin tope, DHT + PEX + LSD + uTP, ~60 trackers públicos (ngosang "best" + newTrackon
+"stable", refrescados cada 12 h) y el puerto de peers anunciado tal cual. La sesión que pasa
+hambre tiene prioridad: las precargas le ceden (fantasmas fuera, torrent en pausa) y los torrents
+sin uso se pausan enseguida.
+
 **HLS espera, no da 404**: un segmento o la playlist que ffmpeg todavía no generó se queda
 esperando a que exista (hasta 120 s la playlist y 90 s un segmento) en vez de responder 404, que
 haría que hls.js lo dé por perdido. Los timeouts del cliente (hls.js `manifestLoadingTimeOut`,
@@ -394,6 +432,7 @@ pub struct Config {
     pub data_dir: PathBuf,             // mythos.db + caché de torrents
     pub web_dir: Option<PathBuf>,      // None = no sirve UI (local)
     pub cache_gb: f64,                 // 0 = sin tope (local)
+    pub peer_limit: usize,             // peers por torrent: server 200 (MYTHOS_PEER_LIMIT), local 160
     pub cache_max_age: Option<Duration>, // local: 24 h desde el último uso; server: None
     pub peer_port: u16 /* 0 = efímero */, pub hwaccel: HwAccel,
     pub admin_user: Option<String>, pub admin_password: Option<String>, pub dev_users: bool, // solo server
@@ -446,6 +485,11 @@ impl Media {
     pub async fn remove_torrent(&self, info_hash: &str, delete_files: bool) -> anyhow::Result<()>;
     pub async fn stats(&self) -> MediaStats;       // cache_bytes, cache_limit_bytes, disk_free_bytes, active_sessions
     pub async fn prefetch(&self, src: Source) -> anyhow::Result<()>; // no bloquea: dispara y vuelve
+    // Precarga del próximo episodio atada a la sesión que se ve (reglas en "Precarga del próximo
+    // episodio"); no bloquea; error si la sesión no existe. `next_status`: estado (diagnóstico).
+    pub fn prefetch_next(&self, session_id: &str, src: Source) -> anyhow::Result<()>;
+    pub fn next_status(&self, session_id: &str) -> Option<NextStatus>; // {state: waiting|active|done, info_hash, file_idx, same_torrent, have_bytes, target_bytes}
+    pub fn announce_port(&self) -> Option<u16>;    // el puerto que se anuncia a trackers y DHT
     pub fn is_downloaded(&self, info_hash: &str, file_idx: Option<usize>) -> bool; // para Stream.cached
     pub fn status(&self, session_id: &str) -> Option<MediaStatus>; // lo mismo que GET /{session}/status
     pub async fn close(&self, session_id: &str);   // lo mismo que DELETE /{session}: mata ffmpeg

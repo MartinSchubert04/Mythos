@@ -233,11 +233,22 @@ struct PrefetchBody {
     file_idx: Option<u32>,
     url: Option<String>,
     stream_key: Option<String>,
+    /// Precarga del próximo episodio: la sesión que se está viendo (ver `Media::prefetch_next`).
+    session_id: Option<String>,
 }
 
 async fn prefetch(State(st): State<AppState>, u: AuthUser, Json(b): Json<PrefetchBody>) -> ApiResult<StatusCode> {
     let prefs = user_data::load_prefs(&st.db, u.user.id).await?;
     let src = resolve_source(&st.streams, &prefs, b.stream_key.as_deref(), b.info_hash.as_deref(), b.file_idx, b.url.as_deref())?;
+    if let Some(sid) = b.session_id.as_deref().filter(|s| !s.is_empty()) {
+        // Sin la sesión (venció o se cerró) no hay a quién atar la precarga: 404 como las rutas
+        // de media.
+        if st.media.status(sid).is_none() {
+            return Err(ApiError::not_found("unknown or expired media session"));
+        }
+        st.media.prefetch_next(sid, src).map_err(|e| ApiError::bad_gateway(redact(&format!("Could not prefetch: {e}"), &prefs)))?;
+        return Ok(StatusCode::ACCEPTED);
+    }
     st.media.prefetch(src).await.map_err(|e| {
         tracing::warn!("prefetch: {}", redact(&format!("{e:#}"), &prefs));
         ApiError::bad_gateway(redact(&format!("Could not prefetch: {e}"), &prefs))

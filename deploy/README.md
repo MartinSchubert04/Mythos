@@ -100,7 +100,18 @@ tu tailnet. Para sacarlo: `sudo tailscale serve --https=7700 off`.
 En el router, redirigí el puerto **42069 TCP y UDP** a la IP local del server. No es obligatorio
 (sin esto baja igual), pero con el puerto abierto se conectan muchos más peers y la película
 arranca y avanza más rápido (UPnP lo intenta solo, pero muchos routers lo traen apagado). Si
-cambiás el puerto, cambialo en `MYTHOS_PEER_PORT`.
+cambiás el puerto, cambialo en `MYTHOS_PEER_PORT`. El reenvío tiene que ser al **mismo** puerto
+externo e interno: Mythos anuncia `MYTHOS_PEER_PORT` a trackers y DHT. Con doble NAT (módem del
+proveedor + router propio) hace falta en los dos, o el módem en modo bridge. Al arrancar, el log
+dice `torrent session ready ... announce_port=Some(42069)`; si dice otro puerto (el 42069 estaba
+ocupado), avisa con un `warn` y el reenvío no sirve hasta reiniciar con el puerto libre.
+
+Con el puerto abierto, Mythos usa hasta **200 peers por torrent** (entrantes y salientes), sube sin
+tope mientras baja (los peers priorizan a quien les sube) y refresca la lista de trackers públicos
+cada 12 h. Normalmente hay uno o dos torrents vivos a la vez (lo que no mira nadie se pausa), así
+que entra holgado en la tabla NAT de un router de casa (4–16 mil conexiones para toda la casa).
+Si al bajar se corta internet en la casa, bajalo con `MYTHOS_PEER_LIMIT=120` en `deploy/.env`.
+Detalle: "Peers y NAT" en `backend/media/src/engine.rs`.
 
 ## Usuarios
 
