@@ -1,0 +1,114 @@
+{
+ "streams": [
+  {
+   "name": "Torrentio\n4k HDR",
+   "title": "Inception 2010 PROPER Bluray 2160p AV1 HDR10 EN/ITA/FR/ES/DE OPUS 5.1-UH [UserHEVC]\n👤 291 💾 8.91 GB ⚙️ 1337x\n🇬🇧 / 🇮🇹 / 🇪🇸 / 🇫🇷 / 🇩🇪",
+   "infoHash": "2849211f150e966ef7924f43aec22727a644e10d",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|4k|BluRay|av1|10bit|HDR",
+    "filename": "Inception.2010.PROPER.Bluray.2160p.AV1.HDR10.OPUS.5.1-UH.mkv"
+   }
+  },
+  {
+   "name": "Torrentio\n4k DV | HDR",
+   "title": "Начало / Inception (2010) UHD BDRemux 2160p | 4K | HDR | Dolby Vision Profile 8 | D P2 A | Лицензия\n👤 39 💾 86.15 GB ⚙️ Rutor\n🇬🇧 / 🇷🇺 / 🇺🇦",
+   "infoHash": "10c93a2ad69b9c576a5de6f9495b266fc992c889",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|4k|BluRay REMUX|DV|HDR",
+    "filename": "Inception.2010.2160p.UHD.BDRemux.DTS-HD.MA.5.1.HYBRID.DoVi.P8.by.DVT.mkv"
+   },
+   "sources": [
+    "tracker:udp://opentor.net:6969",
+    "tracker:udp://opentor.org:2710",
+    "tracker:http://retracker.local/announce",
+    "dht:10c93a2ad69b9c576a5de6f9495b266fc992c889"
+   ]
+  },
+  {
+   "name": "Torrentio\n4k",
+   "title": "Inception 2010 2160p BluRay\n👤 212 💾 6.64 GB ⚙️ YTS",
+   "infoHash": "43e3691dc6f4172841e32b25b349e2b7a980b9c5",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|4k|BluRay|x265|10bit",
+    "filename": "Inception.2010.2160p.4K.BluRay.x265.10bit.AAC5.1-[YTS.MX].mkv"
+   }
+  },
+  {
+   "name": "Torrentio\n4k",
+   "title": "Inception.2010.2160p.BluRay.HEVC.DTS-HD.MA.5.1-COASTER\n👤 72 💾 86.12 GB ⚙️ RARBG",
+   "infoHash": "a75b82ad8477187109f80e7d3fee845923b78d7c",
+   "behaviorHints": {
+    "bingeGroup": "torrentio|4k|BluRay|hevc"
+   }
+  },
+  {
+   "name": "Torrentio\n1080p",
+   "title": "Inception (2010) 1080p BrRip x264 - 1.85GB - YIFY\n👤 890 💾 1.85 GB ⚙️ ThePirateBay",
+   "infoHash": "224bf45881252643dfc2e71abc7b2660a21c68c4",
+   "fileIdx": 3,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|1080p|BRRip|x264",
+    "filename": "Inception.2010.1080p.BrRip.x264.YIFY.mp4"
+   }
+  },
+  {
+   "name": "Torrentio\n1080p",
+   "title": "Inception.2010.1080p.BluRay.REMUX.VC-1.DTS-HD.MA.5.1-FGT\n👤 107 💾 30.71 GB ⚙️ RARBG",
+   "infoHash": "2b30b918e976c88d7b528bf58d6ca3311555df93",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|1080p|BluRay REMUX",
+    "filename": "Inception.2010.1080p.BluRay.REMUX.VC-1.DTS-HD.MA.5.1-FGT.mkv"
+   }
+  },
+  {
+   "name": "Torrentio\n1080p",
+   "title": "41 Movies To Watch While Stoned (all High IMDB) jZQ\nInception (2010) IMDB 8.8 [HEVC 2.00m 1920x800 02;28;08 2.3GB]/Inception.2010.1080p.BluRay.x265-RARBG.mp4\n👤 34 💾 2.31 GB ⚙️ TorrentGalaxy",
+   "infoHash": "4d1f7fab7348d5341d6262867910014e2c4608c1",
+   "fileIdx": 107,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|1080p|BluRay|hevc",
+    "filename": "Inception.2010.1080p.BluRay.x265-RARBG.mp4"
+   }
+  },
+  {
+   "name": "Torrentio\n720p",
+   "title": "Inception (2010) 720p - mkv - 1.0GB - YIFY\n👤 114 💾 1.07 GB ⚙️ ThePirateBay",
+   "infoHash": "ce9156eb497762f8b7577b71c0647a4b0c3423e1",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|720p|x264",
+    "filename": "Inception.2010.720p.x264.mkv"
+   }
+  },
+  {
+   "name": "Torrentio\nHDRip",
+   "title": "Начало / Inception [2010 HDRip-AVC] Dub + Sub (Rus)\n👤 237 💾 2.18 GB ⚙️ Rutracker\n🇷🇺",
+   "infoHash": "61190300e8e40e561790e33806f0db89d89ab24a",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|HDRip|avc",
+    "filename": "Nachalo_(2010).HDRip-AVC.ac3.Dub.Sub_[All.Films][RG].mkv"
+   },
+   "sources": [
+    "tracker:http://bt.t-ru.org/ann?magnet",
+    "dht:61190300e8e40e561790e33806f0db89d89ab24a",
+    "tracker:udp://tracker.opentrackr.org:1337/announce",
+    "tracker:udp://open.stealth.si:80/announce"
+   ]
+  },
+  {
+   "name": "Torrentio\nDVD",
+   "title": "0peliculas series\npelis,series/mayores/Origen.DVD.XviD.[www.DivxTotaL.com].avi\n👤 57 💾 1.53 GB ⚙️ Wolfmax4k\n🇪🇸",
+   "infoHash": "cca5d69debbb9dadf164d91ad6bbd8c04216f3be",
+   "fileIdx": 395,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|DVD|xvid",
+    "filename": "Origen.DVD.XviD.[www.DivxTotaL.com].avi"
+   }
+  }
+ ]
+}

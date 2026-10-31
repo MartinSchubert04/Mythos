@@ -1,0 +1,70 @@
+{
+ "streams": [
+  {
+   "name": "Torrentio\n4k DV | HDR",
+   "title": "Игра престолов / Game of Thrones / Сезон: 1 / Серии: 1-10 из 10 [2011 HEVC HDR10 Dolby Vision WEB-DL 2160p 4k] [Hybrid] Dub + Original (Eng)+ Sub (Rus Eng)\nИгра престолов.S01E01.WEB-DL.2160p.mkv\n👤 136 💾 9.52 GB ⚙️ Rutracker\n🇬🇧 / 🇷🇺",
+   "infoHash": "546a34f3d494aa47d5eb7b18806927c250c67862",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|546a34f3d494aa47d5eb7b18806927c250c67862",
+    "filename": "Игра престолов.S01E01.WEB-DL.2160p.mkv"
+   },
+   "sources": [
+    "tracker:http://bt3.t-ru.org/ann?magnet",
+    "dht:546a34f3d494aa47d5eb7b18806927c250c67862",
+    "tracker:udp://tracker.opentrackr.org:1337/announce",
+    "tracker:udp://open.stealth.si:80/announce"
+   ]
+  },
+  {
+   "name": "Torrentio\n4k HDR",
+   "title": "Game of Thrones Season 1 (S01) 2160p HDR 5.1 x265 10bit Phun Psyz\nGame of Thrones S01E01 Winter is Coming.mkv\n👤 10 💾 2.35 GB ⚙️ TorrentGalaxy",
+   "infoHash": "30eaa43096f11a553ce182f97963e5384a4ac781",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|30eaa43096f11a553ce182f97963e5384a4ac781",
+    "filename": "Game of Thrones S01E01 Winter is Coming.mkv"
+   }
+  },
+  {
+   "name": "Torrentio\n1080p",
+   "title": "Game.of.Thrones.S01.1080p.BluRay.x265-RARBG\nGame.of.Thrones.S01E01.1080p.BluRay.x265-RARBG.mp4\n👤 39 💾 984.22 MB ⚙️ RARBG",
+   "infoHash": "03bab8a0a21fd7a5cf9ac0dfd72adde76d7d71fb",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|03bab8a0a21fd7a5cf9ac0dfd72adde76d7d71fb",
+    "filename": "Game.of.Thrones.S01E01.1080p.BluRay.x265-RARBG.mp4"
+   }
+  },
+  {
+   "name": "Torrentio\n1080p",
+   "title": "Game.of.Thrones.Completo.1080p.HBO.WEB-DL.DD2.0.H.264-PiA\nGame.of.Thrones.S01.1080p.HBO.WEB-DL.DD2.0.H.264-PiA/Game.of.Thrones.S01E01.1080p.HBO.WEB-DL.DD2.0.H.264-PiA.mkv\n👤 11 💾 1.62 GB ⚙️ Comando\n🇬🇧 / 🇵🇹",
+   "infoHash": "ec2e866540e3174a6763d934fcb7556dd2ff6c4d",
+   "fileIdx": 3,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|ec2e866540e3174a6763d934fcb7556dd2ff6c4d",
+    "filename": "Game.of.Thrones.S01E01.1080p.HBO.WEB-DL.DD2.0.H.264-PiA.mkv"
+   }
+  },
+  {
+   "name": "Torrentio\n720p",
+   "title": "Game of Thrones S01E01 720p HDTV x264-CTU [eztv]\n👤 5 💾 1.46 GB ⚙️ ThePirateBay",
+   "infoHash": "0b29678265e6f6e20ece91f50a502462adcb835f",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|720p|CTU",
+    "filename": "Game.of.Thrones.S01E01.720p.HDTV.x264-CTU.mkv"
+   }
+  },
+  {
+   "name": "Torrentio\nHDTV",
+   "title": "Game of Thrones S01E01 HDTV XviD-FEVER [eztv]\n👤 11 💾 550.21 MB ⚙️ ThePirateBay",
+   "infoHash": "92783bf9b17744326c4b1af4e5d853262342da14",
+   "fileIdx": 0,
+   "behaviorHints": {
+    "bingeGroup": "torrentio|HDTV|FEVER",
+    "filename": "Game.of.Thrones.S01E01.HDTV.XviD-FEVER.avi"
+   }
+  }
+ ]
+}

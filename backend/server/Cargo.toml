@@ -1,3 +1,6 @@
+# Binario `mythos`: API HTTP (axum), SQLite, auth, catálogo, streams y la UI estática.
+# Dependencias elegidas por peso: rusqlite (SQLite embebido, sin el runtime de sqlx), reqwest y
+# rustls que ya trae el crate de media, y nada de chrono (las fechas las arma SQLite).
 [package]
 name = "mythos"
 version = "0.1.0"
@@ -6,5 +9,21 @@ edition = "2021"
 [dependencies]
 mythos-media = { path = "../media" }
 anyhow = "1"
-axum = "0.8"
+argon2 = "0.6"
+axum = { version = "0.8", features = ["macros"] }
+base64 = "0.23"
+flate2 = "1"
+getrandom = "0.4"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "gzip"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
 tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "compression-gzip", "compression-br", "fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+url = "2"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

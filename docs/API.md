@@ -12,7 +12,10 @@ acá primero.
 
 ## Generalidades
 
-- Todo JSON, `snake_case`. Errores: status HTTP + `{"error": "texto legible en inglés"}`.
+- Todo JSON, `snake_case`. Errores: status HTTP + `{"error": "texto legible en inglés"}` (también
+  para JSON mal formado y rutas `/api` inexistentes). 502 = falló un servicio externo (Cinemeta,
+  Torrentio, OpenSubtitles) o media; si hay una respuesta vieja en caché, el server la usa en vez de
+  fallar.
 - Auth: `Authorization: Bearer <token>`. Las rutas bajo `/api/media/**` aceptan además `?t=<token>`
   (para `<video>`, hls.js y `<track>`).
 - 401 → la UI vuelve al login. 403 → no es admin.
@@ -51,10 +54,12 @@ type Episode = {
 };
 
 type Stream = {
-  key: string;                 // "<info_hash>:<file_idx>" o "url:<hash corto>"
+  key: string;                 // "<info_hash>:<file_idx>", "<info_hash>" si Torrentio no dice el
+                               // archivo, o "url:<hash corto>" (Real-Debrid). Tratarla como opaca.
   info_hash?: string;          // en minúsculas, 40 hex
   file_idx?: number;
-  url?: string;                // solo con Real-Debrid (link HTTP directo)
+  url?: string;                // solo con Real-Debrid: link de Torrentio con la clave reemplazada
+                               // por "_RD_" (la clave nunca sale del server; /api/play la repone)
   title: string;               // nombre del release ("Movie.2010.1080p.BluRay.x264-GRP")
   file_name?: string;
   quality: "2160p" | "1080p" | "720p" | "480p" | "SD" | "CAM" | "unknown";
@@ -81,6 +86,8 @@ type PlayInfo = {
   // URLs relativas al server, sin el token (la UI agrega ?t=)
   direct_url: string;          // /api/media/{session}/file  (Range, siempre disponible)
   hls_url?: string;            // /api/media/{session}/hls/index.m3u8  (remux o transcode)
+                               // Recomendado también en direct (remux a pedido): la UI lo usa
+                               // para cambiar de pista de audio sin salir del reproductor.
   file_name: string; size_bytes: number;
   duration_s?: number;
   container?: string; video_codec?: string; width?: number; height?: number; hdr?: boolean;
@@ -96,6 +103,8 @@ type MediaStatus = {
   downloaded_bytes: number; total_bytes: number;   // del archivo elegido
   progress: number;            // 0..1 del archivo
   buffered_ahead_s?: number;   // segundos listos después de la posición actual, si se sabe
+  buffer_target_s?: number;    // segundos de buffer que espera antes de pasar a "ready" (para
+                               // dibujar la barra de "cargando": buffered_ahead_s / buffer_target_s)
 };
 
 type Progress = {
@@ -122,21 +131,22 @@ type Settings = {              // por usuario, la UI guarda lo que quiera adentr
 | Método | Ruta | Cuerpo / query | Respuesta |
 |---|---|---|---|
 | GET | `/api/health` | | `{ok:true, version}` (sin auth) |
-| POST | `/api/auth/login` | `{username, password}` | `{token, user}`; 401 si falla. Rate limit por IP |
+| POST | `/api/auth/login` | `{username, password}` | `{token, user}`; 401 si falla o está deshabilitado. Rate limit por IP: 10 fallos / 5 min → 429 |
 | POST | `/api/auth/logout` | | 204 |
 | GET | `/api/me` | | `User` |
 | PUT | `/api/me/password` | `{current, new}` | 204 |
 | GET | `/api/me/settings` | | `Settings` |
-| PUT | `/api/me/settings` | `Settings` parcial + `rd_key?: string` (vacío = borrar) | `Settings` |
+| PUT | `/api/me/settings` | `Settings` parcial + `rd_key?: string` (vacío = borrar). `ui` se mezcla por clave (una clave en `null` se borra); `preferred_quality`/`max_size_gb` en `null` se borran | `Settings` |
 | GET | `/api/catalog/{type}/{catalog}` | `?genre=&skip=` (`catalog`: `top`, `imdbRating`, `year`) | `MetaPreview[]` |
 | GET | `/api/genres/{type}` | | `string[]` |
 | GET | `/api/search` | `?q=` | `{movies: MetaPreview[], series: MetaPreview[]}` |
 | GET | `/api/meta/{type}/{id}` | | `Meta` |
-| GET | `/api/streams/{type}/{id}` | id con episodio para series (`tt…:1:2`) | `Stream[]` |
+| GET | `/api/streams/{type}/{id}` | id con episodio para series (`tt…:1:2`). `?caps=` opcional: `ClientCaps` en JSON o lista `h264,hevc,aac,mkv,…`; da bonus a lo que el cliente reproduce directo | `Stream[]` |
 | GET | `/api/subtitles/{type}/{id}` | | `{id, lang, url}[]` (OpenSubtitles v3 addon; `url` = `/api/media/subs/external?u=…`, devuelve VTT) |
-| POST | `/api/prefetch` | `{info_hash, file_idx?, url?}` | 202. Arranca el torrent y baja principio y final del archivo sin abrir sesión (la UI lo llama al 85 % de un episodio para el siguiente, y al abrir la lista de streams para el primero) |
-| POST | `/api/play` | `{stream_key, info_hash?, file_idx?, url?, caps: ClientCaps, meta_id?}` | `PlayInfo` |
+| POST | `/api/prefetch` | `{info_hash?, file_idx?, url?, stream_key?}` (alcanza con `stream_key` de un listado reciente) | 202. Arranca el torrent y baja principio y final del archivo sin abrir sesión (la UI lo llama al 85 % de un episodio para el siguiente, y al abrir la lista de streams para el primero) |
+| POST | `/api/play` | `{stream_key, info_hash?, file_idx?, url?, caps: ClientCaps, meta_id?}` (si `stream_key` salió de `/api/streams` en las últimas 6 h, el resto es opcional; así el server usa los trackers que trajo Torrentio). Tarda unos segundos (metadata + ffprobe) | `PlayInfo`; 502 con mensaje si no se pudo abrir |
 | GET | `/api/progress/continue` | | `Progress[]` (últimos 20, sin terminados > 92 %) |
+| GET | `/api/progress` | `?series_id=tt…` | `Progress[]` de todos los episodios de esa serie, terminados incluidos (la UI marca vistos y el progreso de cada episodio; si falta, usa `/continue`) |
 | GET | `/api/progress/{meta_id}` | | `Progress` o 404 |
 | PUT | `/api/progress` | `Progress` sin `updated_at` | 204 |
 | DELETE | `/api/progress/{meta_id}` | | 204 |
@@ -148,7 +158,7 @@ type Settings = {              // por usuario, la UI guarda lo que quiera adentr
 | DELETE | `/api/admin/users/{id}` | | 204 (no se puede borrar a uno mismo ni al último admin) |
 | GET | `/api/admin/torrents` | | `TorrentStat[]` |
 | DELETE | `/api/admin/torrents/{info_hash}` | `?files=true` | 204 |
-| GET | `/api/admin/stats` | | `{cache_bytes, cache_limit_bytes, disk_free_bytes, active_sessions, users}` |
+| GET | `/api/admin/stats` | | `{cache_bytes, cache_limit_bytes, disk_free_bytes, active_sessions, users, watching: {username, meta_id, stream_key, session_id, started_at}[]}` (`started_at` en unix s; último play de cada usuario en las últimas 6 h) |
 
 `type TorrentStat = { info_hash, name, size_bytes, downloaded_bytes, down_bps, up_bps, peers, state, last_used_at }`
 
@@ -159,10 +169,19 @@ Rutas montadas desde el crate de media, con auth (Bearer o `?t=`):
 | GET | `/api/media/{session}/file` | el archivo, con `Range` (206). Prioriza las piezas pedidas |
 | GET | `/api/media/{session}/hls/index.m3u8` | `?start=<s>&audio=<idx>`: playlist HLS que arranca en `start` (para buscar en modo transcode la UI recarga con otro `start` y suma el offset) |
 | GET | `/api/media/{session}/hls/{segment}` | segmentos `.ts` o `.m4s` |
-| GET | `/api/media/{session}/subs/{index}.vtt` | subtítulo interno en WebVTT |
+| GET | `/api/media/{session}/subs/{index}.vtt` | subtítulo interno en WebVTT. Si la extracción no terminó en ~20 s devuelve lo que hay (VTT válido desde el principio) con el header `X-Mythos-Partial: true`; la UI puede volver a pedirlo más tarde para completarlo |
 | GET | `/api/media/{session}/status` | `MediaStatus` |
 | DELETE | `/api/media/{session}` | 204 (para ffmpeg; el torrent queda en caché) |
 | GET | `/api/media/subs/external` | `?u=<url de OpenSubtitles>` → VTT (gz/srt → vtt) — lo hace el server |
+
+**HLS espera, no da 404**: un segmento o la playlist que ffmpeg todavía no generó se queda
+esperando a que exista (hasta 120 s la playlist y 90 s un segmento) en vez de responder 404, que
+haría que hls.js lo dé por perdido. Los timeouts del cliente (hls.js `manifestLoadingTimeOut`,
+`fragLoadingTimeOut`, etc.) tienen que ser de al menos ~120 s. Sin pedidos durante 60 s, la sesión
+mata su ffmpeg.
+
+Los headers expuestos por CORS son `Content-Range`, `Accept-Ranges`, `Content-Length` y
+`X-Mythos-Partial`.
 
 ## API del crate `mythos-media` (lo que usa el server)
 
@@ -185,9 +204,13 @@ impl Media {
     pub async fn stats(&self) -> MediaStats;       // cache_bytes, cache_limit_bytes, disk_free_bytes, active_sessions
     pub async fn prefetch(&self, src: Source) -> anyhow::Result<()>; // no bloquea: dispara y vuelve
     pub fn is_downloaded(&self, info_hash: &str, file_idx: Option<usize>) -> bool; // para Stream.cached
+    pub fn status(&self, session_id: &str) -> Option<MediaStatus>; // lo mismo que GET /{session}/status
+    pub async fn close(&self, session_id: &str);   // lo mismo que DELETE /{session}: mata ffmpeg
 }
 pub enum Source { Torrent { info_hash: String, file_idx: Option<usize>, trackers: Vec<String> }, Url(String) }
 ```
 
 Los tipos `ClientCaps`, `PlayInfo`, `Track`, `MediaStatus`, `TorrentStat`, `MediaStats` viven en
-`mythos-media` (serde) y el server los reexporta tal cual.
+`mythos-media` (serde) y el server los reexporta tal cual. `Track` implementa `Default`. Ojo: en
+`PlayInfo` los opcionales salen como `null` (no se omiten), así que la UI tiene que tratar `null`
+como ausente.

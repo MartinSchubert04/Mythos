@@ -1,0 +1,12 @@
+# Qué no entra al contexto de `docker build -f deploy/Dockerfile .` (BuildKit lee este archivo
+# porque está al lado del Dockerfile y se llama igual).
+**
+!apps/web/
+!backend/
+**/node_modules
+**/dist
+**/target
+**/data
+**/.env
+**/*.log
+backend/server/tests
