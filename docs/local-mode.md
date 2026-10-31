@@ -42,6 +42,15 @@ Contrato HTTP en `docs/API.md` (secciones "Sincronización", "Modo local" y "Emb
 | **Solo server** | no hace falta arrancar el local | como hasta ahora: todo contra el remoto. Si no responde, error |
 | **Solo local** | arranca el local (con `remote_url` para sincronizar, o `None` para no tocar la red del server) | todo contra el local, siempre (streaming en el dispositivo). El login igual valida online si puede (`offline: false`) |
 
+En **Android TV / TV box, o con menos de 2 GB de RAM**, el modo local no existe: el shell no
+arranca el server embebido nunca, el modo es siempre "Solo server" (sin importar lo guardado) y
+`set_mode` rechaza los otros. `info` lo dice con `unavailable: "tv" | "low_ram"` y Settings →
+Connection lo explica en vez de ofrecer Auto / Solo local. Por qué: librqbit + SQLite + el WebView
+no entran en 1-2 GB, y un procesador de TV box no da para bajar y servir el torrent a la vez. La
+detección es de `apps/local-server/src/android.rs` (`limit`): modo TV del sistema, `leanback` o
+sin pantalla táctil; `MemTotal` < 1,5 GiB (un equipo "de 2 GB" reporta ~1,8) o
+`isLowRamDevice()`. Ver `docs/mobile.md`, "TV".
+
 Cambiar de modo no pierde datos: el local y el remoto convergen por la sincronización. Pasar de
 "Solo server" a "Auto"/"Solo local" pide la contraseña una vez (hace falta un login online a
 través del local para enrolar la cuenta en el dispositivo).
@@ -83,6 +92,16 @@ deshabilitada en el server, también se deshabilita en el dispositivo.
 
 El server local además sincroniza solo en segundo plano: aunque la UI no haga nada, los cambios
 llegan al remoto en cuanto se lo alcanza.
+
+### Cambio de nombre de usuario
+
+El nombre se cambia en el server (`PUT /api/me/username` o el admin); en el dispositivo da 403. La
+cuenta local está atada a la del server por su id (`local_link.remote_user_id`), no por el nombre:
+cada sincronización empieza con `GET {remoto}/api/me` y, si el nombre cambió, la cuenta local toma
+el nuevo (si otra cuenta local vieja tenía ese nombre, se le agrega `~<id>` para que no choque).
+Desde ahí el login sin conexión acepta el nombre nuevo (y ya no el viejo), y un login online con
+el nuevo vuelve a la misma cuenta local, con sus datos. Hasta la primera sincronización después
+del cambio, sin conexión sigue valiendo el nombre viejo.
 
 ### Conflictos
 
@@ -207,6 +226,9 @@ rustup target add aarch64-linux-android
 cd backend && cargo build --target aarch64-linux-android -p mythos --lib
 ```
 
+Lo mismo para `armv7-linux-androideabi` (TV box y celulares con Android de 32 bits; el clang es
+`armv7a-linux-androideabi24-clang`): el APK de release trae las dos (`docs/mobile.md`).
+
 No hizo falta nada más: SQLite (`rusqlite` con `bundled`), `ring` y `aws-lc-sys` (los proveedores
 de rustls que traen librqbit y reqwest) compilan con el clang del NDK sin CMake ni OpenSSL. Lo
 único propio de Android en el código es la verificación TLS (arriba). Con Tauri, `tauri android
@@ -220,8 +242,9 @@ build` pone estas variables solo.
   arranca `mythos::run(Config::local(<app_local_data_dir>/local))` en segundo plano apenas abre la
   app (la ventana no espera; ~1–2 s en debug, el server local queda listo para cuando haga falta).
   En `server` no arranca nada.
-- Comandos: `info` → `{mode, base_url, transcode_available, error}` (espera si está arrancando) y
-  `set_mode(mode)` (lo guarda; `server` apaga el local, `auto`/`local` lo arrancan).
+- Comandos: `info` → `{mode, base_url, transcode_available, error, unavailable}` (espera si está
+  arrancando) y `set_mode(mode)` (lo guarda; `server` apaga el local, `auto`/`local` lo arrancan;
+  con `unavailable`, solo `server`).
 - ffmpeg: no viene con la app. En Windows, si `ffmpeg` y `ffprobe` están en el PATH se usan; si
   no, rutas vacías (solo directo, el motor ni intenta lanzarlos). En Android, nunca. Los procesos
   de ffmpeg se lanzan sin ventana de consola (`CREATE_NO_WINDOW`, `mythos_media::util::tool_command`).

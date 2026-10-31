@@ -16,7 +16,7 @@
   let logoOk = $state<Record<string, boolean>>({});
   let bgReady = $state<Record<string, boolean>>({});
   let timer = 0;
-  /** Con el mouse sobre el texto o los botones no rota (se esta por apretar algo). */
+  /** Con el mouse (o el foco) sobre el texto o los botones no rota (se esta por apretar algo). */
   let holding = false;
 
   function schedule() {
@@ -86,7 +86,15 @@
   {/if}
   <div class="shade"></div>
 
-  <div class="content" role="presentation" onpointerenter={() => (holding = true)} onpointerleave={() => (holding = false)}>
+  <!-- Con el foco en los botones (control remoto de la TV) tampoco: rotar se llevaria el foco. -->
+  <div
+    class="content"
+    role="presentation"
+    onpointerenter={() => (holding = true)}
+    onpointerleave={() => (holding = false)}
+    onfocusin={() => (holding = true)}
+    onfocusout={() => (holding = false)}
+  >
     {#if cur}
       {#key cur.id}
         <div class="text" in:rise={{ y: 14, delay: 250 }} out:fadeQuick>

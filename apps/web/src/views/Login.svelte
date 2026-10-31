@@ -10,7 +10,9 @@
   import { checkServer, isRemoteShell, needsServer, normalizeServer, pickServer, serverSetting, setServer } from "../lib/platform";
   import { viaLocal } from "../lib/local.svelte";
   import { login, session } from "../lib/session.svelte";
+  import { profiles } from "../lib/profiles.svelte";
   import { leaveServer } from "../lib/shell.svelte";
+  import { tv } from "../lib/tv.svelte";
 
   let username = $state("");
   let password = $state("");
@@ -23,8 +25,9 @@
   let userField = $state<HTMLInputElement>();
 
   $effect(() => {
-    // En pantallas tactiles no: el teclado taparia la mitad del login apenas se abre.
-    if (!matchMedia("(pointer: coarse)").matches) userField?.focus();
+    // En pantallas tactiles no: el teclado taparia la mitad del login apenas se abre. En la TV
+    // tampoco: el foco lo pone el control (y el teclado se abre con el centro).
+    if (!matchMedia("(pointer: coarse)").matches && !tv.on) userField?.focus();
   });
 
   async function submit(e: Event) {
@@ -87,15 +90,18 @@
   <div class="shaker" class:shake onanimationend={(e) => e.animationName === "shake" && (shake = false)}>
     <form class="card box stagger" onsubmit={submit}>
       <div class="mark"><Logo size={56} shine /></div>
-      <h1>Welcome to Mythos</h1>
-      {#if session.expired}
+      <h1>{tv.on && profiles.adding ? "Add a profile" : "Welcome to Mythos"}</h1>
+      {#if tv.on && profiles.adding}
+        <p class="muted">Sign in once. This TV stays signed in to this account until you remove it.</p>
+      {:else if session.expired}
         <p class="notice">Your session expired. Sign in again to continue.</p>
       {:else}
         <p class="muted">Sign in to keep watching.</p>
       {/if}
       <label class="field">
         Username
-        <input bind:this={userField} autocomplete="username" bind:value={username} spellcheck="false" autocapitalize="off" />
+        <!-- data-autofocus: en la TV el foco arranca aca (lib/spatial.svelte.ts). -->
+        <input bind:this={userField} data-autofocus autocomplete="username" bind:value={username} spellcheck="false" autocapitalize="off" />
       </label>
       <label class="field">
         Password
@@ -129,6 +135,9 @@
         {#if busy}<LoaderCircle size={16} class="spin" />{/if}
         Sign in
       </button>
+      {#if tv.on && profiles.list.length}
+        <button type="button" class="btn ghost" onclick={() => ((profiles.adding = false), (profiles.picking = true))}>Back to profiles</button>
+      {/if}
       <div class="faint small">No account? Ask the admin of this server.</div>
     </form>
   </div>

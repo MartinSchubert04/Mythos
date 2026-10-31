@@ -249,3 +249,112 @@ async fn embedded_run_and_shutdown_on_port_zero() {
     h2.shutdown().await.unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Cambiar el nombre: el admin a otro (con auditoría), cada uno el suyo, y el dispositivo en modo
+/// local lo sigue: la misma cuenta local (no una nueva), y el login sin conexión con el nombre nuevo.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rename_follows_to_local_mode() {
+    let (rdir, ldir) = (tmp("rename-remote"), tmp("rename-local"));
+    let remote = remote_server(&rdir).await;
+    let r = Api::new(&remote);
+    let (_, v) = r.call("POST", "/api/auth/login", None, Some(json!({"username": "ana", "password": "secret123"}))).await;
+    let admin = v["token"].as_str().unwrap().to_string();
+    let (st, bob) = r.call("POST", "/api/admin/users", Some(&admin), Some(json!({"username": "bob", "password": "hunter22"}))).await;
+    assert_eq!(st, 200, "{bob}");
+    let bob_id = bob["id"].as_i64().unwrap();
+    r.call("POST", "/api/admin/users", Some(&admin), Some(json!({"username": "carla", "password": "hunter22"}))).await;
+
+    // --- el admin renombra a otro: 409 si ya existe, 400 si no vale, auditoría vieja → nueva ---
+    let path = format!("/api/admin/users/{bob_id}");
+    assert_eq!(r.call("PATCH", &path, Some(&admin), Some(json!({"username": "Carla"}))).await.0, 409);
+    assert_eq!(r.call("PATCH", &path, Some(&admin), Some(json!({"username": "bad name"}))).await.0, 400);
+    let (st, v) = r.call("PATCH", &path, Some(&admin), Some(json!({"username": "bobby"}))).await;
+    assert_eq!((st, v["username"].as_str()), (200, Some("bobby")), "{v}");
+    let mut audit = Value::Null;
+    for _ in 0..40 {
+        audit = r.call("GET", "/api/admin/audit?event=user_renamed", Some(&admin), None).await.1;
+        if audit["items"].as_array().is_some_and(|a| !a.is_empty()) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(audit["items"][0]["detail"], "bob → bobby", "{audit}");
+
+    // --- bobby entra por el dispositivo (modo local) y guarda algo ---
+    let local = local_server(&ldir, Some(remote.base_url())).await;
+    let l = Api::new(&local);
+    let (st, v) = l.call("POST", "/api/auth/login", None, Some(json!({"username": "bobby", "password": "hunter22"}))).await;
+    assert_eq!(st, 200, "{v}");
+    let ltok = v["token"].as_str().unwrap().to_string();
+    let rtok = v["remote"]["token"].as_str().unwrap().to_string();
+    let local_id = v["user"]["id"].as_i64().unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(l.call("PUT", "/api/library/movie/tt0111161", Some(&ltok), Some(movie("tt0111161"))).await.0, 204);
+
+    // --- en el dispositivo no se renombra (se hace en el server) ---
+    assert_eq!(l.call("PUT", "/api/me/username", Some(&ltok), Some(json!({"username": "rob"}))).await.0, 403);
+
+    // --- se renombra en el server: la sesión sigue, y el dispositivo lo toma al sincronizar ---
+    let (st, v) = r.call("PUT", "/api/me/username", Some(&rtok), Some(json!({"username": "rob"}))).await;
+    assert_eq!((st, v["username"].as_str()), (200, Some("rob")), "{v}");
+    let (st, rep) = l.call("POST", "/api/local/sync", Some(&ltok), None).await;
+    assert_eq!(st, 200, "{rep}");
+    assert_eq!(l.call("GET", "/api/me", Some(&ltok), None).await.1["username"], "rob");
+    // "Sync now" con la sesión del server sigue reconociendo la cuenta (va por el id del server).
+    assert_eq!(l.call("POST", "/api/local/sync", Some(&ltok), Some(json!({"token": rtok}))).await.0, 200);
+
+    // --- login online con el nombre nuevo: la misma cuenta local, con lo que tenía ---
+    let (st, v) = l.call("POST", "/api/auth/login", None, Some(json!({"username": "rob", "password": "hunter22", "remote_url": remote.base_url()}))).await;
+    assert_eq!(st, 200, "{v}");
+    assert_eq!(v["user"]["id"].as_i64(), Some(local_id), "no crea otra cuenta");
+    let t2 = v["token"].as_str().unwrap().to_string();
+    let (_, lib) = l.call("GET", "/api/library", Some(&t2), None).await;
+    assert!(lib.as_array().unwrap().iter().any(|m| m["id"] == "tt0111161"), "{lib}");
+
+    // --- sin server: entra con el nombre nuevo, no con el viejo ---
+    remote.shutdown().await.unwrap();
+    let (st, v) = l.call("POST", "/api/auth/login", None, Some(json!({"username": "rob", "password": "hunter22"}))).await;
+    assert_eq!((st, v["offline"].as_bool()), (200, Some(true)), "{v}");
+    assert_eq!(l.call("POST", "/api/auth/login", None, Some(json!({"username": "bobby", "password": "hunter22"}))).await.0, 401);
+
+    local.shutdown().await.unwrap();
+    let _ = std::fs::remove_dir_all(&rdir);
+    let _ = std::fs::remove_dir_all(&ldir);
+}
+
+/// Las sesiones de la TV (que no vencen) las ve y cierra el admin, además del propio usuario.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn admin_sees_and_revokes_tv_sessions() {
+    let rdir = tmp("admin-sessions");
+    let remote = remote_server(&rdir).await;
+    let r = Api::new(&remote);
+    let admin = r.call("POST", "/api/auth/login", None, Some(json!({"username": "ana", "password": "secret123"}))).await.1["token"].as_str().unwrap().to_string();
+    let (_, bob) = r.call("POST", "/api/admin/users", Some(&admin), Some(json!({"username": "bob", "password": "hunter22"}))).await;
+    let bob_id = bob["id"].as_i64().unwrap();
+    let (st, v) = r.call("POST", "/api/auth/login", None, Some(json!({"username": "bob", "password": "hunter22", "device": "Mythos TV", "persistent": true}))).await;
+    assert_eq!(st, 200, "{v}");
+    let tv = v["token"].as_str().unwrap().to_string();
+    let phone = r.call("POST", "/api/auth/login", None, Some(json!({"username": "bob", "password": "hunter22"}))).await.1["token"].as_str().unwrap().to_string();
+
+    // Solo el admin.
+    assert_eq!(r.call("GET", &format!("/api/admin/users/{bob_id}/sessions"), Some(&phone), None).await.0, 403);
+    assert_eq!(r.call("GET", "/api/admin/users/999/sessions", Some(&admin), None).await.0, 404);
+    let (st, list) = r.call("GET", &format!("/api/admin/users/{bob_id}/sessions"), Some(&admin), None).await;
+    assert_eq!(st, 200, "{list}");
+    let list = list.as_array().unwrap();
+    assert_eq!(list.len(), 2);
+    let tv_s = list.iter().find(|s| s["persistent"] == true).expect("la de la TV");
+    assert_eq!(tv_s["device"], "Mythos TV");
+    assert!(list.iter().all(|s| s["current"] == false), "ninguna es la del admin");
+
+    // Cerrar la de la TV: la otra sigue; una sesion de otro usuario no se cierra por esta ruta.
+    let sid = tv_s["id"].as_i64().unwrap();
+    let ana_id = r.call("GET", "/api/me", Some(&admin), None).await.1["id"].as_i64().unwrap();
+    assert_eq!(r.call("DELETE", &format!("/api/admin/users/{ana_id}/sessions/{sid}"), Some(&admin), None).await.0, 404);
+    assert_eq!(r.call("DELETE", &format!("/api/admin/users/{bob_id}/sessions/{sid}"), Some(&admin), None).await.0, 204);
+    assert_eq!(r.call("GET", "/api/me", Some(&tv), None).await.0, 401);
+    assert_eq!(r.call("GET", "/api/me", Some(&phone), None).await.0, 200);
+
+    remote.shutdown().await.unwrap();
+    let _ = std::fs::remove_dir_all(&rdir);
+}

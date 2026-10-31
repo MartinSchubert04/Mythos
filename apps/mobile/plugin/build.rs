@@ -9,6 +9,7 @@ const COMMANDS: &[&str] = &[
     "set_bars",
     "minimize",
     "request_network",
+    "device",
     "update_state",
     "update_check",
     "update_install",

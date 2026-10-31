@@ -54,6 +54,8 @@
   import { isDesktop, isFullscreen, setFullscreen } from "../lib/platform";
   import { langName, nativeLangName, normLang, prefs, savePrefs } from "../lib/prefs.svelte";
   import { back, go, setQuery } from "../lib/router.svelte";
+  import { focusEl, moveFocus, type Dir } from "../lib/spatial.svelte";
+  import { tv } from "../lib/tv.svelte";
   import { keyParts, PLAYER_KEYS, PLAYER_TOUCH } from "../lib/shortcuts";
   import { preferredAudio, sortByLang } from "../lib/streamlang";
   import { streamLink } from "../lib/external";
@@ -784,6 +786,7 @@
     holdTimer = window.setTimeout(startHold, 300);
   }
   function onKeyUp(e: KeyboardEvent) {
+    if (tv.on && (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "MediaFastForward" || e.key === "MediaRewind")) commitSeek();
     if (e.key !== " " || !spaceHeld) return;
     spaceHeld = false;
     e.preventDefault();
@@ -1430,7 +1433,7 @@
     clearTimeout(hideTimer);
     clearTimeout(waitTimer);
     clearTimeout(peekTimer);
-    for (const tm of [holdTimer, longTimer, tapTimer, comboTimer, flashTimer]) clearTimeout(tm);
+    for (const tm of [holdTimer, longTimer, tapTimer, comboTimer, flashTimer, seekTimer]) clearTimeout(tm);
     cancelAnimationFrame(raf);
     pollCtl?.abort();
     saveProgress(keepalive);
@@ -1464,6 +1467,112 @@
     else activity();
   });
 
+  // ---- control remoto (modo TV, lib/tv.svelte.ts)
+  //
+  // Con los controles escondidos (o sin ninguno enfocado): centro = play/pausa, izquierda/derecha
+  // = -10/+10 s (manteniendo, el salto crece y se aplica al soltar: un solo pedido al server),
+  // arriba/abajo = mostrar los controles y enfocar play. Con un control enfocado las flechas se
+  // mueven entre ellos (lib/spatial.svelte.ts) y el centro lo aprieta; abajo de todo los esconde.
+  // Atras sale (el Esc de siempre, lib/shell.svelte.ts). Los menus (.pmenu) siguen con menuKey.
+
+  const ARROWS: Record<string, Dir> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+
+  /** Salto que se esta armando mientras se mantiene la flecha (null: ninguno). */
+  let seekTarget = $state<number | null>(null);
+  let seekSince = 0;
+  let seekLast = 0;
+  let seekTimer = 0;
+  function tvSeek(dir: 1 | -1, repeat: boolean) {
+    if (!started || !duration) return;
+    if (!repeat) {
+      commitSeek();
+      skip(10 * dir);
+      return;
+    }
+    const now = performance.now();
+    if (seekTarget === null) {
+      seekTarget = t;
+      seekSince = now;
+    } else if (now - seekLast < 120) return; // el control repite ~20 veces por segundo
+    seekLast = now;
+    const held = now - seekSince;
+    const step = held < 1000 ? 10 : held < 3000 ? 30 : 60;
+    seekTarget = Math.max(0, Math.min(duration - 1, seekTarget + dir * step));
+    bump(dir > 0 ? "fwd" : "back", clock(seekTarget));
+    clearTimeout(seekTimer);
+    seekTimer = window.setTimeout(commitSeek, 600);
+  }
+  function commitSeek() {
+    clearTimeout(seekTimer);
+    if (seekTarget === null) return;
+    const to = seekTarget;
+    seekTarget = null;
+    seek(to);
+  }
+
+  /** Lo que flota y tiene botones propios (retomar, error, "siguiente episodio"): su primario. */
+  const primary = () => [...(root?.querySelectorAll<HTMLElement>(".btn.primary") ?? [])].find((b) => b.getClientRects().length > 0);
+
+  function showControls() {
+    ui = true;
+    const el = primary() ?? root?.querySelector<HTMLElement>(".ctrls .pbtn.big");
+    if (el) focusEl(el);
+  }
+
+  /** "done": usada; "native": la aprieta el boton enfocado; "pass": sigue el teclado de siempre. */
+  function tvKey(e: KeyboardEvent): "done" | "native" | "pass" {
+    const k = e.key;
+    const d = ARROWS[k];
+    const el = document.activeElement as HTMLElement | null;
+    const focused = !!el && el !== root && !!root?.contains(el);
+    if (k === "MediaPlayPause") return toggle(), "done";
+    if (k === "MediaPlay") return video?.paused && toggle(), "done";
+    if (k === "MediaPause") return video && !video.paused && toggle(), "done";
+    if (k === "MediaFastForward" || k === "MediaRewind") return tvSeek(k === "MediaFastForward" ? 1 : -1, e.repeat), "done";
+    if (k === "Escape" || (!d && k !== "Enter")) return "pass";
+    // El panel de streams: las flechas adentro de el.
+    const side = menu === "streams" ? root?.querySelector<HTMLElement>(".side") : null;
+    if (side) {
+      if (!d) return "native";
+      if (!el || !side.contains(el)) {
+        const b = side.querySelector<HTMLElement>("[aria-current='true'], button");
+        if (b) focusEl(b);
+      } else moveFocus(d, side);
+      return "done";
+    }
+    // Retomar o empezar de nuevo.
+    const card = askResume ? root?.querySelector<HTMLElement>(".resume-card") : null;
+    if (card) {
+      if (!d) return focused ? "native" : "pass";
+      if (!el || !card.contains(el)) showControls();
+      else moveFocus(d, card);
+      return "done";
+    }
+    const slider = !!el?.matches('[role="slider"]');
+    if (!ui || !focused || (slider && (d === "left" || d === "right"))) {
+      if (k === "Enter") return slider ? (toggle(), "done") : focused && ui ? "native" : (toggle(), "done");
+      if (d === "left" || d === "right") tvSeek(d === "right" ? 1 : -1, e.repeat);
+      else if (slider && d === "down") showControls();
+      else if (slider) moveFocus(d!, root);
+      else showControls();
+      return "done";
+    }
+    if (!d) return "native";
+    // Abajo de todo: se esconden los controles.
+    if (!moveFocus(d, root) && d === "down") {
+      el?.blur();
+      ui = false;
+    }
+    return "done";
+  }
+
+  // Al esconderse los controles se suelta el foco: las flechas vuelven a ser saltos.
+  $effect(() => {
+    if (!tv.on || ui) return;
+    const el = document.activeElement as HTMLElement | null;
+    if (el && el !== root && root?.contains(el) && !el.closest(".resume-card")) el.blur();
+  });
+
   // ---- teclado
 
   function onKey(e: KeyboardEvent) {
@@ -1472,6 +1581,11 @@
     if ((e.ctrlKey || e.metaKey || e.altKey) && !e.getModifierState?.("AltGraph")) return;
     const panel = (e.target as HTMLElement).closest<HTMLElement>(".pmenu");
     if (panel && menuKey(e, panel)) return activity();
+    if (tv.on && !panel) {
+      const r = tvKey(e);
+      if (r === "done") e.preventDefault();
+      if (r !== "pass") return activity();
+    }
     const k = e.key.toLowerCase();
     let handled = true;
     if (askResume) {
@@ -1694,7 +1808,7 @@
 
   {#if started}
     <div class="bottom" class:open={!!menu}>
-      <SeekBar time={t} {duration} {buffered} onseek={seek} ondrag={(d) => (dragging = d)} />
+      <SeekBar time={seekTarget ?? t} {duration} {buffered} onseek={seek} ondrag={(d) => (dragging = d)} />
       <div class="ctrls">
         <button class="pbtn big" onclick={toggle} title={paused ? "Play (K)" : "Pause (K)"}>
           {#if paused}<Play size={26} fill="currentColor" />{:else}<Pause size={26} fill="currentColor" />{/if}

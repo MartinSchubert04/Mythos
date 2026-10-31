@@ -20,6 +20,12 @@ acá primero.
   (para `<video>`, hls.js y `<track>`). Las sesiones duran **180 días desde el último uso** (se
   renuevan solas; el login es una puerta de una sola vez por dispositivo). El logout revoca la
   sesión; cada usuario ve y cierra las suyas en `/api/me/sessions`.
+- Sesiones que **no vencen** (`persistent: true` en el login; las pide la app de TV, donde cada
+  cuenta es un perfil guardado y no se vuelve a pedir la contraseña): `expires_at` queda en
+  `253402300799` (9999-12-31) y no se renueva; solo se anota el último uso, una vez por día. Se
+  revocan igual que las demás: logout, `/api/me/sessions` (desde cualquier dispositivo), cambio de
+  contraseña, deshabilitar la cuenta o el admin (Admin → Users → "Signed-in devices",
+  `/api/admin/users/{id}/sessions`). Las de siempre (web, celular, PC) no cambian.
 - 401 → la UI vuelve al login. 403 → no es admin.
 - CORS: permitir `http://localhost:5173`, `tauri://localhost`, `http://tauri.localhost`,
   `https://tauri.localhost` (desktop y Android) con `Authorization` y `Range`; exponer
@@ -35,7 +41,10 @@ acá primero.
 ## Tipos
 
 ```ts
-type User = { id: number; username: string; is_admin: boolean; disabled: boolean; created_at: string };
+type User = { id: number; username: string; is_admin: boolean; disabled: boolean; created_at: string;
+              avatar_id: number | null };   // el avatar elegido de la galería (null = la inicial)
+
+type Avatar = { id: number; name: string; created_at: number };   // unix s
 
 type MetaPreview = {           // una tarjeta de catálogo
   id: string;                  // imdb id, "tt0111161"
@@ -145,6 +154,7 @@ type SessionInfo = {           // una sesión abierta del usuario (nunca el toke
   device?: string;             // la etiqueta que mandó la UI en el login
   user_agent?: string; last_ip?: string;
   created_at: number; last_used_at: number; expires_at: number;   // unix s
+  persistent: boolean;         // no vence (expires_at = 253402300799)
   current: boolean;            // es la de este request
 };
 
@@ -164,10 +174,14 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 | Método | Ruta | Cuerpo / query | Respuesta |
 |---|---|---|---|
 | GET | `/api/health` | | `{ok:true, version, mode: "server"\|"local", transcode: boolean}` (sin auth; `transcode` = hay ffmpeg) |
-| POST | `/api/auth/login` | `{username, password, device?}` (`device`: etiqueta para la lista de sesiones, ≤ 64) | `{token, user}`; 401 si falla o está deshabilitado. Rate limit por IP: 10 fallos / 5 min → 429. En modo local cambia: ver "Modo local" |
+| POST | `/api/auth/login` | `{username, password, device?, persistent?}` (`device`: etiqueta para la lista de sesiones, ≤ 64; `persistent: true`: sesión que no vence, ver Generalidades) | `{token, user}`; 401 si falla o está deshabilitado. Rate limit por IP: 10 fallos / 5 min → 429. En modo local cambia: ver "Modo local" |
 | POST | `/api/auth/logout` | | 204 (revoca la sesión) |
 | GET | `/api/me` | | `User` |
+| PATCH | `/api/me` | `{avatar_id?: number \| null}` (`null` saca el avatar; sin el campo no cambia) | `User`; 404 si el avatar no existe. También en modo local (el embebido no tiene galería: solo `null`) |
+| GET | `/api/avatars` | | `Avatar[]` (la galería; vacía en modo local) |
+| GET | `/api/media/avatars/{id}` | Bearer o `?t=` (para `<img>`) | la imagen, con su `Content-Type`, `nosniff` y `Cache-Control: private, max-age=31536000, immutable` (los ids no se reusan) |
 | PUT | `/api/me/password` | `{current, new}` | 204 (cierra las demás sesiones). En modo local: 403 (se cambia en el server) |
+| PUT | `/api/me/username` | `{username}` (mismas reglas que al crear: 1-32, letras, números, `_ - .`) | `User`; 409 si otro ya lo tiene (sin distinguir mayúsculas; cambiar solo mayúsculas del propio vale). Las sesiones siguen (van por id). Auditoría `user_renamed` ("viejo → nuevo"). En modo local: 403 (se cambia en el server y el dispositivo lo toma al sincronizar) |
 | GET | `/api/me/sessions` | | `SessionInfo[]` (las propias, la más usada primero) |
 | DELETE | `/api/me/sessions/{id}` | | 204; 404 si no es propia |
 | DELETE | `/api/me/sessions` | | `{revoked: n}`: "cerrar sesión en los demás dispositivos" (todas menos la actual) |
@@ -192,8 +206,12 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 | POST | `/api/sync` | `Changes` (≤ 5000 registros, ≤ 8 MB) | `SyncPush`. Last-write-wins por registro, idempotente; los inválidos se cuentan en `rejected` y no frenan el lote |
 | GET | `/api/admin/users` | | `User[]` |
 | POST | `/api/admin/users` | `{username, password, is_admin}` | `User` |
-| PATCH | `/api/admin/users/{id}` | `{password?, is_admin?, disabled?}` | `User` (deshabilitar cierra sus sesiones) |
+| PATCH | `/api/admin/users/{id}` | `{username?, password?, is_admin?, disabled?}` | `User` (deshabilitar cierra sus sesiones; `username` como en `/api/me/username`: 400/409, auditoría `user_renamed`) |
 | DELETE | `/api/admin/users/{id}` | | 204 (no se puede borrar a uno mismo ni al último admin) |
+| GET | `/api/admin/users/{id}/sessions` | | `SessionInfo[]` de ese usuario (las de TV que no vencen incluidas; `current`: la del admin); 404 si no existe |
+| DELETE | `/api/admin/users/{id}/sessions/{sid}` | | 204 (cierra esa sesión, p. ej. una TV que ya no se usa; auditoría `session_revoked` "usuario: session N"); 404 si no es de ese usuario |
+| POST | `/api/admin/avatars` | `multipart/form-data` con `file` (la imagen) y opcional `name`; o la imagen tal cual en el cuerpo con `?name=` (una por pedido) | 201 `Avatar`. Solo PNG, JPEG, WebP o GIF reconocidos por el contenido (nunca SVG) → si no, 415; más de 2 MB → 413; más de 200 en la galería → 409. Se guarda en `<data_dir>/avatars/<id>.<ext>` (el nombre del archivo es el id) |
+| DELETE | `/api/admin/avatars/{id}` | | 204 (borra el archivo; quien lo tenía queda sin avatar) |
 | GET | `/api/admin/torrents` | | `TorrentStat[]` |
 | DELETE | `/api/admin/torrents/{info_hash}` | `?files=true` | 204 |
 | GET | `/api/admin/stats` | | `{cache_bytes, cache_limit_bytes, disk_free_bytes, active_sessions, users, watching: {username, meta_id, stream_key, session_id, started_at}[]}` (`started_at` en unix s; último play de cada usuario en las últimas 6 h) |
@@ -232,7 +250,8 @@ type Metrics = {
 type LogRow = { id; ts_ms; ip?; tailscale_login?; user_id?; username?; method; route; status; dur_ms; bytes };
 type AuditRow = { id; ts_ms; event; user_id?; username?; ip?; detail? };
 // event: login_ok, login_fail (username = el nombre probado), logout, session_revoked,
-// password_changed, user_created, user_updated, user_disabled, user_deleted. En los de admin,
+// password_changed, user_created, user_updated, user_disabled, user_deleted, user_renamed ("viejo → nuevo"),
+// avatar_added, avatar_removed. En los de admin,
 // user_id/username son los del admin que lo hizo y `detail` dice a quién y qué cambió.
 ```
 
@@ -264,9 +283,10 @@ Detalle de flujos y seguridad en `docs/local-mode.md`. Cambios respecto del modo
 | POST | `/api/auth/login` | `{username, password, device?, remote_url?, offline?}` | `{token, user, offline: boolean, remote: {url, token, user} \| null}`. Con server remoto (de `remote_url`, del vínculo de esa cuenta o de la config) y sin `offline: true`, valida **contra el remoto**: si acepta, enrola/actualiza la cuenta local y devuelve también la sesión del remoto (`remote.token`, para que la UI le hable directo al server). Si el remoto rechaza → 401/429 con su mensaje (no se prueba la local; si dice "This account is disabled", se deshabilita también acá). Si no se alcanza → login offline contra la verificación local (`offline: true`, `remote: null`). Cuenta nunca logueada online en este dispositivo → 401 "… sign in once while the server is reachable" |
 | POST | `/api/auth/logout` | | 204. Si era la última sesión local de esa cuenta, cierra también la sesión del remoto guardada (deja de sincronizar hasta otro login online) |
 | GET | `/api/local/status` | | `LocalStatus` |
-| POST | `/api/local/sync` | opcional `{remote_url?, token?}` | `{pushed, pulled, last_sync_at}`: sincroniza ya. Con `token` (una sesión del remoto, p. ej. de un login hecho directo contra el server) la verifica (`GET /api/me` del remoto: tiene que ser la misma cuenta, si no 409) y la guarda para las próximas. 409 si la cuenta nunca se vinculó, 401 si la sesión del remoto venció (hace falta login online), 502 si no se pudo |
+| POST | `/api/local/sync` | opcional `{remote_url?, token?}` | `{pushed, pulled, last_sync_at}`: sincroniza ya. Con `token` (una sesión del remoto, p. ej. de un login hecho directo contra el server) la verifica (`GET /api/me` del remoto: tiene que ser la misma cuenta —por el id del remoto ya vinculado, o por el nombre si todavía no hay vínculo—, si no 409) y la guarda para las próximas. 409 si la cuenta nunca se vinculó, 401 si la sesión del remoto venció (hace falta login online), 502 si no se pudo |
 | `*` | `/api/admin/**` | | 403 |
 | PUT | `/api/me/password` | | 403 |
+| PUT | `/api/me/username` | | 403. Si renombran la cuenta en el server, cada sincronización (`GET {remoto}/api/me`) le pone el nombre nuevo a la cuenta local vinculada (por el id del remoto, no por el nombre): el login sin conexión acepta el nuevo y un login online con el nuevo vuelve a la misma cuenta local |
 
 ```ts
 type LocalStatus = {

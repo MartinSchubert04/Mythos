@@ -5,6 +5,7 @@
   import { Check, ChevronDown, Search } from "@lucide/svelte";
   import { tick } from "svelte";
   import { pop } from "../lib/motion";
+  import { tv } from "../lib/tv.svelte";
 
   interface Option<V> {
     value: V;
@@ -87,7 +88,8 @@
 
   function onKey(e: KeyboardEvent) {
     if (!open) {
-      if (["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) {
+      // En TV las flechas mueven el foco a otro lado: se abre con el centro del control.
+      if ((tv.on ? ["Enter", " "] : ["ArrowDown", "ArrowUp", "Enter", " "]).includes(e.key)) {
         e.preventDefault();
         show();
       }

@@ -83,8 +83,26 @@ function sync() {
   if (r.path === route.path && r.query.toString() === route.query.toString()) return;
   loadView(r.view).finally(() => apply(r));
 }
+/** "Atras" del navegador con algo abierto (modo TV en la web: el boton atras del control en
+ *  Firefox para Android navega el historial): si devuelve true ya lo uso para cerrar eso, y la
+ *  ruta no cambia. Lo pone lib/spatial.svelte.ts. */
+let backGuard: (() => boolean) | null = null;
+export function setBackGuard(f: () => boolean) {
+  backGuard = f;
+}
+
+function onPop() {
+  const r = parse(location.hash);
+  if (r.path !== route.path && backGuard?.()) {
+    // Se vuelve a poner la URL de la vista que sigue en pantalla.
+    const q = route.query.toString();
+    history.pushState(null, "", "#" + route.path + (q ? "?" + q : ""));
+    return;
+  }
+  sync();
+}
 // Atras/adelante y la URL escrita a mano (hashchange) re-parsean la ruta.
-window.addEventListener("popstate", sync);
+window.addEventListener("popstate", onPop);
 window.addEventListener("hashchange", sync);
 
 // El estado de la ruta es uno solo: si Vite recargara este modulo en caliente quedarian dos

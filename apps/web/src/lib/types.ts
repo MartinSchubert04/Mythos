@@ -3,7 +3,18 @@
 
 export type MediaType = "movie" | "series";
 
-export type User = { id: number; username: string; is_admin: boolean; disabled: boolean; created_at: string };
+export type User = {
+  id: number;
+  username: string;
+  is_admin: boolean;
+  disabled: boolean;
+  created_at: string;
+  /** El avatar elegido de la galeria (null o ausente: la inicial; un server viejo no lo manda). */
+  avatar_id?: number | null;
+};
+
+/** Una imagen de la galeria de avatares (la sube el admin). */
+export type Avatar = { id: number; name: string; created_at: number };
 
 export type MetaPreview = {
   id: string;
@@ -170,6 +181,8 @@ export type SessionInfo = {
   created_at: number;
   last_used_at: number;
   expires_at: number;
+  /** No vence (la app de TV). Un server viejo no lo manda. */
+  persistent?: boolean;
   /** Es la de este request. */
   current: boolean;
 };

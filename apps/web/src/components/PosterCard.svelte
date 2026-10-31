@@ -163,4 +163,12 @@
     box-shadow: none;
     transition-timing-function: steps(2);
   }
+  /* TV: el foco tiene que verse a 3 m (anillo del acento y un poco mas grande). */
+  :global(html[data-tv]) .card-poster:focus-visible .poster-frame {
+    transform: scale(1.06);
+    border-color: var(--accent);
+    box-shadow:
+      0 0 0 3px var(--accent),
+      0 18px 34px -16px var(--media-scrim);
+  }
 </style>

@@ -1,21 +1,24 @@
 <script lang="ts">
   // Dispositivos con la sesion abierta (Settings → Account): cada login es uno. Se puede cerrar
   // uno o todos menos este. Nunca se ve el token, solo lo que el server guardo del login.
+  // Con `user` (Admin → Users): las sesiones de esa cuenta, para cerrar una (p. ej. una TV, que no
+  // vence sola).
   import { Laptop, LogOut, Monitor, Smartphone, Terminal, Tv, X } from "@lucide/svelte";
   import { api, errText } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
   import { flipMs } from "../lib/motion";
   import { attempt, toast } from "../lib/toast.svelte";
   import { agoMs, fullDate, prettyUa } from "../lib/traffic";
-  import type { SessionInfo } from "../lib/types";
+  import type { SessionInfo, User } from "../lib/types";
   import { flip } from "svelte/animate";
+
+  let { user }: { user?: User } = $props();
 
   let list = $state<SessionInfo[] | null>(null);
   let error = $state("");
 
   function load() {
-    api
-      .sessions()
+    (user ? api.userSessions(user.id) : api.sessions())
       .then((l) => {
         // La de este dispositivo primero, despues la mas usada.
         list = [...l].sort((a, b) => Number(b.current) - Number(a.current) || b.last_used_at - a.last_used_at);
@@ -40,7 +43,8 @@
   async function revoke(s: SessionInfo) {
     const t = title(s);
     const ok = await ask({ title: `Sign out ${t.name}?`, body: "That device will need the password to come back.", confirm: "Sign out device", danger: true });
-    if (ok && (await attempt(() => api.revokeSession(s.id), "Device signed out"))) list = list?.filter((x) => x.id !== s.id) ?? null;
+    const done = () => (user ? api.revokeUserSession(user.id, s.id) : api.revokeSession(s.id));
+    if (ok && (await attempt(done, "Device signed out"))) list = list?.filter((x) => x.id !== s.id) ?? null;
   }
 
   async function revokeOthers() {
@@ -64,7 +68,7 @@
 
 <div class="devices">
   {#if error && !list}
-    <div class="msg">Couldn't load your devices: {error} <button class="btn sm" onclick={load}>Retry</button></div>
+    <div class="msg">Couldn't load {user ? "the" : "your"} devices: {error} <button class="btn sm" onclick={load}>Retry</button></div>
   {:else if !list}
     {#each Array(2) as _, i (i)}<div class="dev"><span class="skel ico"></span><div class="skel line" style="width: {55 - i * 12}%"></div></div>{/each}
   {:else}
@@ -76,6 +80,7 @@
           <div class="name">
             <span class="ellipsis">{t.name}</span>
             {#if s.current}<span class="chip accent">This device</span>{/if}
+            {#if s.persistent}<span class="chip" title="TV sessions stay signed in until someone signs them out here">Never expires</span>{/if}
           </div>
           <div class="sub" title={s.user_agent ?? ""}>
             {#if t.sub}<span>{t.sub}</span>{/if}
@@ -93,7 +98,9 @@
     {#if list.length > FEW}
       <button class="btn ghost sm more" onclick={() => (all = !all)}>{all ? "Show fewer" : `Show ${list.length - FEW} more`}</button>
     {/if}
-    {#if others}
+    {#if user}
+      {#if !list.length}<div class="msg">{user.username} isn't signed in anywhere.</div>{/if}
+    {:else if others}
       <div><button class="btn" onclick={revokeOthers}><LogOut size={14} />Sign out all other devices</button></div>
     {:else}
       <div class="msg">Only this device is signed in.</div>

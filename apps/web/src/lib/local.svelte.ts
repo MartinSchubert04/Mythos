@@ -10,7 +10,9 @@
 //
 // El login en Auto / Solo local pasa por el local (que lo valida contra el de casa y devuelve las
 // dos sesiones). La sincronizacion la hace el server local; la interfaz solo elige a quien hablarle.
-// En la web (navegador) nada de esto existe: `conn.available` queda en false.
+// En la web (navegador) nada de esto existe: `conn.available` queda en false. En un TV box o un
+// Android con menos de 2 GB el shell no corre el server embebido (`conn.unavailable`): siempre
+// solo server.
 import { api, ApiError, getLocalToken, onUnreachable, remoteToken, setLocalBase, setLocalToken, setToken, useLocal } from "./api";
 import { markUp, net } from "./net.svelte";
 import { deviceLabel, isRemoteShell, isTauri, remoteBase } from "./platform";
@@ -20,7 +22,16 @@ import { toast } from "./toast.svelte";
 import type { LocalLogin, LocalStatus, User } from "./types";
 
 export type ConnMode = "auto" | "server" | "local";
-type Info = { mode: ConnMode; base_url: string | null; transcode_available: boolean; error: string | null };
+/** Por que este aparato no corre el server embebido (apps/local-server, `android::limit`). */
+export type LocalLimit = "tv" | "low_ram";
+type Info = {
+  mode: ConnMode;
+  base_url: string | null;
+  transcode_available: boolean;
+  error: string | null;
+  /** Un shell viejo no lo manda. */
+  unavailable?: LocalLimit | null;
+};
 
 /** El modo tambien queda aca (el shell es quien manda): asi al abrir se sabe enseguida a quien
  *  hablarle, sin esperar a que arranque el server local. */
@@ -40,6 +51,8 @@ export const conn = $state({
   needsSignIn: false,
   /** El server local no pudo arrancar. */
   error: "",
+  /** Este aparato no corre el server embebido (TV o poca RAM): el modo es siempre "server". */
+  unavailable: null as LocalLimit | null,
   /** Hay sesion en el server local (la cuenta esta en el dispositivo). */
   enrolled: !!getLocalToken(),
 });
@@ -58,6 +71,7 @@ function apply(i: Info) {
   conn.mode = i.mode;
   conn.transcode = i.transcode_available;
   conn.error = i.error ?? "";
+  conn.unavailable = i.unavailable ?? null;
   setLocalBase(localUrl);
   write(MODE_KEY, i.mode);
 }

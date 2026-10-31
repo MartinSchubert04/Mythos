@@ -10,10 +10,13 @@ import "./styles/palettes.css";
 import "./styles/base.css";
 import "./styles/athanor.css";
 import "./styles/app.css";
+import "./styles/tv.css";
 import App from "./App.svelte";
 import { initGlass } from "./lib/glass.svelte";
 import { isDesktop } from "./lib/platform";
 import { initShell } from "./lib/shell.svelte";
+import { initSpatial } from "./lib/spatial.svelte";
+import { initTv } from "./lib/tv.svelte";
 import { installTooltips } from "./lib/tooltip";
 
 async function boot() {
@@ -23,6 +26,9 @@ async function boot() {
     installMock();
   }
   initShell();
+  // Modo TV (control remoto): se averigua de fondo; la navegacion con flechas espera a saberlo.
+  initTv();
+  initSpatial();
   initGlass();
   mount(App, { target: document.getElementById("app")! });
   installTooltips();

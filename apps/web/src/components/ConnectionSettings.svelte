@@ -80,63 +80,77 @@
     }
   }
 
+  const LIMITS = {
+    tv: "On a TV, Mythos always uses your server. Downloading and playing torrents on the TV box itself needs more memory and power than it has.",
+    low_ram: "This device has less than 2 GB of memory, so Mythos always uses your server. Downloading and playing torrents on the device itself needs more.",
+  };
+
   const summary = $derived(`${MODES.find((m) => m.value === conn.mode)?.label} · ${conn.on === "local" ? "on this device" : "on the server"}`);
 </script>
 
 <Section id="connection" title="Connection" icon={conn.on === "local" ? HardDrive : Cloud} {summary}>
-  <div class="field">
-    Use
-    <Seg value={mode} options={MODES} onchange={(v) => ((mode = v), pick(v))} />
-    <span class="hint">{HINTS[mode]}</span>
-  </div>
-
-  {#if needsPassword}
-    <form class="enroll" onsubmit={enroll}>
-      <span class="what">Enter your password once so this device can keep working without the server.</span>
-      <div class="row">
-        <input type="password" placeholder="Password" bind:value={password} autocomplete="current-password" />
-        <button class="btn primary" disabled={!password || enrolling || busy}>
-          {#if enrolling}<LoaderCircle size={14} class="spin" />{/if}Enable
-        </button>
-      </div>
-    </form>
-  {:else if conn.mode !== "server"}
-    <div class="state">
-      <div class="row">
-        <span class="grow now">
-          {#if conn.on === "local"}<HardDrive size={14} />{:else}<Cloud size={14} />{/if}
-          {connDetail()}
-        </span>
-        <button class="btn sm" onclick={sync} disabled={syncing || !conn.enrolled}>
-          <RefreshCw size={13} class={syncing ? "spin" : ""} />Sync now
-        </button>
-      </div>
-      {#if s}
-        <span class="faint small">
-          {s.last_sync_at ? `Last sync ${relTime(new Date(s.last_sync_at).toISOString())}` : "Not synced yet"}{s.pending_changes
-            ? ` · ${s.pending_changes} waiting`
-            : ""}{s.last_sync_error && s.remote_reachable ? ` · ${s.last_sync_error}` : ""}
-        </span>
-      {/if}
-      {#if conn.needsSignIn}
-        <div class="row">
-          <span class="grow faint small">Your server session ended. Sign in again to sync and use the server.</span>
-          <button class="btn sm" onclick={() => logout()}>Sign in again</button>
-        </div>
-      {/if}
-      {#if conn.error}<span class="err small">The local server didn't start: {conn.error}</span>{/if}
-      {#if !conn.transcode}
-        <span class="faint small">
-          On this device only files it can play directly work (Mythos picks those first).{isAndroid
-            ? ""
-            : " Install ffmpeg (on the PATH) to convert the rest."}
-        </span>
-      {/if}
+  {#if conn.unavailable}
+    <!-- TV box o poca RAM: el server embebido no corre (apps/local-server, docs/local-mode.md). -->
+    <div class="field">
+      Use
+      <span class="now"><Cloud size={14} />Server only</span>
+      <span class="hint">{LIMITS[conn.unavailable]}</span>
     </div>
-  {/if}
+  {:else}
+    <div class="field">
+      Use
+      <Seg value={mode} options={MODES} onchange={(v) => ((mode = v), pick(v))} />
+      <span class="hint">{HINTS[mode]}</span>
+    </div>
 
-  {#if conn.mode === "auto"}
-    <Switch bind:checked={prefs.localNotice} onchange={() => savePrefs(false)}>Show a notice when switching to local</Switch>
+    {#if needsPassword}
+      <form class="enroll" onsubmit={enroll}>
+        <span class="what">Enter your password once so this device can keep working without the server.</span>
+        <div class="row">
+          <input type="password" placeholder="Password" bind:value={password} autocomplete="current-password" />
+          <button class="btn primary" disabled={!password || enrolling || busy}>
+            {#if enrolling}<LoaderCircle size={14} class="spin" />{/if}Enable
+          </button>
+        </div>
+      </form>
+    {:else if conn.mode !== "server"}
+      <div class="state">
+        <div class="row">
+          <span class="grow now">
+            {#if conn.on === "local"}<HardDrive size={14} />{:else}<Cloud size={14} />{/if}
+            {connDetail()}
+          </span>
+          <button class="btn sm" onclick={sync} disabled={syncing || !conn.enrolled}>
+            <RefreshCw size={13} class={syncing ? "spin" : ""} />Sync now
+          </button>
+        </div>
+        {#if s}
+          <span class="faint small">
+            {s.last_sync_at ? `Last sync ${relTime(new Date(s.last_sync_at).toISOString())}` : "Not synced yet"}{s.pending_changes
+              ? ` · ${s.pending_changes} waiting`
+              : ""}{s.last_sync_error && s.remote_reachable ? ` · ${s.last_sync_error}` : ""}
+          </span>
+        {/if}
+        {#if conn.needsSignIn}
+          <div class="row">
+            <span class="grow faint small">Your server session ended. Sign in again to sync and use the server.</span>
+            <button class="btn sm" onclick={() => logout()}>Sign in again</button>
+          </div>
+        {/if}
+        {#if conn.error}<span class="err small">The local server didn't start: {conn.error}</span>{/if}
+        {#if !conn.transcode}
+          <span class="faint small">
+            On this device only files it can play directly work (Mythos picks those first).{isAndroid
+              ? ""
+              : " Install ffmpeg (on the PATH) to convert the rest."}
+          </span>
+        {/if}
+      </div>
+    {/if}
+
+    {#if conn.mode === "auto"}
+      <Switch bind:checked={prefs.localNotice} onchange={() => savePrefs(false)}>Show a notice when switching to local</Switch>
+    {/if}
   {/if}
 </Section>
 

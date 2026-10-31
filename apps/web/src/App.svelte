@@ -2,6 +2,7 @@
   import { House, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, ShieldCheck, WifiOff } from "@lucide/svelte";
   import { flip } from "svelte/animate";
   import { fade } from "svelte/transition";
+  import Avatar from "./components/Avatar.svelte";
   import Confirm from "./components/Confirm.svelte";
   import ConnBadge from "./components/ConnBadge.svelte";
   import Logo from "./components/Logo.svelte";
@@ -14,8 +15,12 @@
   import { go, loadView, route, searchIntent, viewComponent, type ViewName } from "./lib/router.svelte";
   import { session, start } from "./lib/session.svelte";
   import { toasts } from "./lib/toast.svelte";
+  import { profiles } from "./lib/profiles.svelte";
+  import { settleFocus } from "./lib/spatial.svelte";
+  import { tv } from "./lib/tv.svelte";
   // El login no se separa en otro archivo: es lo primero que ve quien no entro todavia.
   import Login from "./views/Login.svelte";
+  import Profiles from "./views/Profiles.svelte";
 
   start();
   // Mientras se revisa la sesion ya se baja el codigo de la vista que toca.
@@ -41,6 +46,13 @@
     if (session.offline) start();
   });
   const playing = $derived(route.view === "player");
+
+  // TV: al cambiar de pantalla sin cambiar de ruta (entrar, "Who's watching?", reconexion), el
+  // foco va a lo principal de la nueva.
+  $effect(() => {
+    void [session.checked, !!session.user, session.offline, profiles.picking, profiles.adding];
+    settleFocus();
+  });
 
   /** Desde la pantalla de reconexion: elegir otro server (Login con el campo abierto). */
   function changeServer() {
@@ -101,6 +113,9 @@
     <div class="splash" out:fade={{ duration: ms(200) }}>
       <Logo size={64} shine />
     </div>
+  {:else if tv.on && profiles.picking}
+    <!-- TV: "Who's watching?" (lib/profiles.svelte.ts). -->
+    <div class="body" in:fade={{ duration: ms(200) }}><Profiles /></div>
   {:else if session.offline}
     {#if isDesktop}<Titlebar bare />{/if}
     <div class="body offline" in:fade={{ duration: ms(200) }}>
@@ -113,7 +128,7 @@
       </button>
       {#if pickServer}<button class="btn ghost" onclick={changeServer}>Change server</button>{/if}
     </div>
-  {:else if !session.user}
+  {:else if !session.user || (tv.on && profiles.adding)}
     {#if isDesktop}<Titlebar bare />{/if}
     <div class="body"><Login /></div>
   {:else if playing}
@@ -126,7 +141,7 @@
     </div>
   {:else}
     {#if isDesktop}<Titlebar ontoggle={toggleSidebar} />{/if}
-    <div class="body shell" class:collapsed={prefs.sidebarCollapsed}>
+    <div class="body shell" class:collapsed={prefs.sidebarCollapsed && !tv.on} class:tv={tv.on}>
       <aside class="sidebar">
         {#if !isDesktop}
           <button class="brand" onclick={() => go("/")} aria-label="Home">
@@ -153,10 +168,18 @@
           {/each}
         </nav>
         <div class="grow"></div>
-        <div class="me label ellipsis" title={session.user.username}>
-          <span class="avatar">{session.user.username.slice(0, 1).toUpperCase()}</span>
-          <span class="ellipsis">{session.user.username}</span>
-        </div>
+        {#if tv.on}
+          <!-- TV: el perfil; al apretarlo, "Who's watching?". -->
+          <button class="nav me-btn" onclick={() => (profiles.picking = true)} title="Switch profile">
+            <Avatar name={session.user.username} id={session.user.avatar_id} size={26} />
+            <span class="label ellipsis">{session.user.username}</span>
+          </button>
+        {:else}
+          <div class="me label ellipsis" title={session.user.username}>
+            <Avatar name={session.user.username} id={session.user.avatar_id} size={26} />
+            <span class="ellipsis">{session.user.username}</span>
+          </div>
+        {/if}
         <button class="nav collapse" onclick={toggleSidebar} title={prefs.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
           {#if prefs.sidebarCollapsed}<PanelLeftOpen size={18} />{:else}<PanelLeftClose size={18} />{/if}
           <span class="label">Collapse</span>
@@ -347,17 +370,8 @@
     color: var(--text-2);
     font-size: 12.5px;
   }
-  .avatar {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    font-weight: 700;
-    font-size: 12px;
-    color: var(--accent-ink);
-    background: var(--primary-bg);
+  .me-btn {
+    padding: 0 7px;
   }
   .collapsed .me {
     opacity: 1;
@@ -453,6 +467,31 @@
   .toast.bad {
     border-color: var(--danger);
     color: var(--danger);
+  }
+
+  /* TV (lib/tv.svelte.ts): la barra lateral queda en iconos y se abre encima del contenido
+     cuando el foco entra (con la flecha izquierda desde el borde). El ancho cambia de una vez
+     (nada de animar layout); los nombres aparecen con su fundido. */
+  .shell.tv {
+    --side-w: 64px;
+  }
+  .shell.tv .sidebar {
+    width: 64px;
+  }
+  .shell.tv .sidebar:focus-within {
+    width: 212px;
+    box-shadow: var(--pop-shadow);
+  }
+  .shell.tv .label,
+  .shell.tv .me > span:last-child {
+    opacity: 0;
+  }
+  .shell.tv .sidebar:focus-within .label,
+  .shell.tv .sidebar:focus-within .me > span:last-child {
+    opacity: 1;
+  }
+  .shell.tv .collapse {
+    display: none;
   }
 
   /* Celular: la barra lateral pasa a ser una barra abajo, solo iconos. */

@@ -43,6 +43,7 @@ const REMOTE_PERMISSIONS: &[&str] = &[
     "mythos:allow-set-bars",
     "mythos:allow-minimize",
     "mythos:allow-request-network",
+    "mythos:allow-device",
     "mythos:allow-update-state",
     "mythos:allow-update-check",
     "mythos:allow-update-install",
@@ -232,6 +233,37 @@ async fn request_network<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> 
     }
 }
 
+/// Que clase de aparato es (lo usa la interfaz para el modo TV: control remoto y escala de 10
+/// pies). Fuera de Android, un celular cualquiera.
+#[derive(Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Device {
+    /// TV, TV box o sin pantalla tactil: se maneja con el control (D-pad).
+    pub tv: bool,
+    pub touch: bool,
+    /// `ActivityManager.isLowRamDevice()`.
+    pub low_ram: bool,
+    /// Memoria total en MiB.
+    pub ram_mb: u64,
+}
+
+impl Default for Device {
+    fn default() -> Self {
+        Self { tv: false, touch: true, low_ram: false, ram_mb: 0 }
+    }
+}
+
+#[tauri::command]
+async fn device<R: Runtime>(app: AppHandle<R>) -> Result<Device, String> {
+    #[cfg(target_os = "android")]
+    return native(&app, |n| n.device()).await;
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Ok(Device::default())
+    }
+}
+
 /// Recuerda la version que arranco: si cambio desde la ultima vez, es una actualizacion.
 fn mark_launch<R: Runtime>(app: &AppHandle<R>) {
     let Ok(dir) = app.path().app_data_dir() else { return };
@@ -258,6 +290,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             set_bars,
             minimize,
             request_network,
+            device,
             updater::update_state,
             updater::update_check,
             updater::update_install,

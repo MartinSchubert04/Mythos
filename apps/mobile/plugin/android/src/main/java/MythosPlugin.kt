@@ -1,8 +1,13 @@
 package dev.mrtn.mythos.plugin
 
 import android.app.Activity
-import android.os.Build
+import android.app.ActivityManager
+import android.app.UiModeManager
+import android.content.Context
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
 import android.view.WindowManager
 import android.webkit.WebView
 import androidx.core.view.WindowCompat
@@ -66,6 +71,43 @@ class MythosPlugin(private val activity: Activity) : Plugin(activity) {
   /** Lo bajado en una sesion anterior ya se instalo (o quedo viejo): se borra. */
   override fun load(webView: WebView) {
     io.execute { Updater.clean(context) }
+    // TV: la interfaz pide un ancho fijo con <meta name="viewport" content="width=960"> (la escala
+    // de 10 pies, como el lienzo de 960x540 dp de Android TV) y el WebView la agranda hasta llenar
+    // la pantalla. Sin wide viewport el WebView ignora el ancho del meta.
+    if (device.tv) {
+      webView.settings.useWideViewPort = true
+      webView.settings.loadWithOverviewMode = true
+    }
+  }
+
+  /** Que clase de aparato es: TV (o sin pantalla tactil) y cuanta memoria tiene. */
+  private class Device(val tv: Boolean, val touch: Boolean, val lowRam: Boolean, val ramMb: Long)
+
+  private val device: Device by lazy {
+    val pm = context.packageManager
+    val ui = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+    val touch = pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+    // Algunos TV box no se declaran TV (ni modo TV ni leanback) pero tampoco tienen pantalla
+    // tactil: se manejan con el control igual.
+    val tv = ui?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+      pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+      !touch
+    val mem = ActivityManager.MemoryInfo()
+    am?.getMemoryInfo(mem)
+    Device(tv, touch, am?.isLowRamDevice == true, mem.totalMem / (1024 * 1024))
+  }
+
+  /** Para la interfaz: el modo TV (control remoto, escala de 10 pies) y la memoria. */
+  @Command
+  fun device(invoke: Invoke) {
+    val d = device
+    val result = JSObject()
+    result.put("tv", d.tv)
+    result.put("touch", d.touch)
+    result.put("lowRam", d.lowRam)
+    result.put("ramMb", d.ramMb)
+    invoke.resolve(result)
   }
 
   private fun bars() = WindowCompat.getInsetsController(activity.window, activity.window.decorView)

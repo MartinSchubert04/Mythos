@@ -113,6 +113,7 @@ pub fn routes() -> Router<AppState> {
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
         .route("/me/password", put(no_password_change))
+        .route("/me/username", put(no_rename))
         .route("/local/status", get(status))
         .route("/local/sync", post(sync_now))
         .route("/admin", any(no_admin))
@@ -125,6 +126,26 @@ async fn no_admin() -> ApiError {
 
 async fn no_password_change() -> ApiError {
     ApiError::forbidden("Change your password on the server; this device picks it up on the next online sign-in")
+}
+
+async fn no_rename() -> ApiError {
+    ApiError::forbidden("Change your username on the server; this device picks it up when it syncs")
+}
+
+/// La cuenta local vinculada a esa cuenta del remoto toma su nombre (si lo cambiaron en el server).
+/// Si otra cuenta local vieja tiene ese nombre (no vinculada a esta), se le corre el suyo para que
+/// no choque. Devuelve si cambio algo.
+fn follow_remote_name(c: &rusqlite::Connection, uid: i64, name: &str) -> ApiResult<bool> {
+    let cur: String = c.query_row("SELECT username FROM users WHERE id = ?1", [uid], |r| r.get(0))?;
+    if cur == name {
+        return Ok(false);
+    }
+    c.execute(
+        "UPDATE users SET username = username || '~' || id WHERE username = ?1 AND id <> ?2",
+        params![name, uid],
+    )?;
+    c.execute("UPDATE users SET username = ?2 WHERE id = ?1", params![uid, name])?;
+    Ok(true)
 }
 
 /// Solo `Host` de loopback (127.0.0.1, localhost, [::1]): una página web que apunte su dominio a
@@ -236,6 +257,17 @@ struct Link {
     last_error: Option<String>,
 }
 
+/// El id de la cuenta del remoto vinculada a esta cuenta local, si hay.
+async fn load_link_remote_id(st: &AppState, uid: i64) -> ApiResult<Option<i64>> {
+    st.db
+        .call(move |c| {
+            Ok(c.query_row("SELECT remote_user_id FROM local_link WHERE user_id = ?1", [uid], |r| r.get::<_, Option<i64>>(0))
+                .optional()?
+                .flatten())
+        })
+        .await
+}
+
 async fn load_link(st: &AppState, uid: i64) -> ApiResult<Option<Link>> {
     st.db
         .call(move |c| {
@@ -294,12 +326,22 @@ async fn save_link(st: &AppState, uid: i64, url: &str, token: &str, remote_user_
     Ok(())
 }
 
-/// Cuenta local con la contraseña ya validada por el remoto: verificación propia (sal nueva).
-async fn enroll(st: &AppState, remote: &RemoteUser, password: &str) -> ApiResult<User> {
-    let (name, pw) = (remote.username.clone(), password.to_string());
+/// Cuenta local con la contraseña ya validada por el remoto: verificación propia (sal nueva). Si
+/// esa cuenta del remoto ya estaba vinculada a una local, es esa (aunque le hayan cambiado el
+/// nombre en el server: toma el nuevo); si no, la del mismo nombre o una nueva.
+async fn enroll(st: &AppState, url: &str, remote: &RemoteUser, password: &str) -> ApiResult<User> {
+    let (name, pw, url, rid) = (remote.username.clone(), password.to_string(), url.to_string(), remote.id);
     st.db
         .call(move |c| {
             let hash = hash_password(&pw)?;
+            let linked: Option<i64> = c
+                .query_row("SELECT user_id FROM local_link WHERE remote_url = ?1 AND remote_user_id = ?2", params![url, rid], |r| r.get(0))
+                .optional()?;
+            if let Some(uid) = linked {
+                follow_remote_name(c, uid, &name)?;
+                c.execute("UPDATE users SET password_hash = ?2, disabled = 0 WHERE id = ?1", params![uid, hash])?;
+                return Ok(c.query_row(&format!("SELECT {USER_COLS} FROM users WHERE id = ?1"), [uid], user_from_row)?);
+            }
             Ok(c.query_row(
                 &format!(
                     "INSERT INTO users (username, password_hash, is_admin) VALUES (?1, ?2, 0)
@@ -372,7 +414,7 @@ async fn login(State(st): State<AppState>, ClientIp(ip): ClientIp, headers: Head
         match remote_login(&ctx, url, &username, &b.password, meta.device.as_deref()).await {
             Ok(r) => {
                 ctx.set_reachable(url, true);
-                let user = enroll(&st, &r.user, &b.password).await?;
+                let user = enroll(&st, url, &r.user, &b.password).await?;
                 save_link(&st, user.id, url, &r.token, r.user.id).await?;
                 let token = st.auth.open_session(&user, ip, meta).await?;
                 // Primera sincronización enseguida.
@@ -528,6 +570,20 @@ async fn sync_inner(st: &AppState, ctx: &LocalCtx, uid: i64) -> Result<SyncRepor
     let url = link.remote_url.clone();
     let mut report = SyncReport::default();
 
+    // 0. El nombre de la cuenta: si lo cambiaron en el server, el dispositivo lo toma (y el login
+    // sin conexion acepta el nuevo).
+    let me = remote_me(ctx, &url, &token).await.map_err(|e| {
+        if matches!(e, RemoteErr::Unreachable(_)) {
+            ctx.set_reachable(&url, false);
+        }
+        remote_err(e)
+    })?;
+    let name = me.username.clone();
+    if st.db.call(move |c| follow_remote_name(c, uid, &name)).await? {
+        st.auth.clear_cache();
+        tracing::info!(user = uid, name = %me.username, "nombre tomado del server");
+    }
+
     // 1. Subir.
     let mut since = link.pushed_seq;
     loop {
@@ -665,7 +721,13 @@ async fn sync_now(State(st): State<AppState>, u: AuthUser, body: axum::body::Byt
             RemoteErr::Rejected(..) => ApiError::unauthorized("The server rejected that token"),
             e => ApiError::bad_gateway(e.to_string()),
         })?;
-        if !remote.username.eq_ignore_ascii_case(&u.user.username) {
+        // La misma cuenta: por el vinculo (id del remoto) o, sin vinculo, por el nombre.
+        let linked_id = load_link_remote_id(&st, u.user.id).await?;
+        let same = match linked_id {
+            Some(id) => id == remote.id,
+            None => remote.username.eq_ignore_ascii_case(&u.user.username),
+        };
+        if !same {
             return Err(ApiError::conflict("That server session belongs to a different account"));
         }
         save_link(&st, u.user.id, &url, &token, remote.id).await?;

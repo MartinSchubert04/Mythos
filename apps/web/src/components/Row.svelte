@@ -4,6 +4,7 @@
   import { ChevronLeft, ChevronRight } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import { scrollBehavior } from "../lib/motion";
+  import { tv } from "../lib/tv.svelte";
 
   let {
     title,
@@ -64,6 +65,8 @@
   // Teclado: flechas izquierda/derecha entre tarjetas de la fila; arriba/abajo a la fila vecina
   // (a la tarjeta en la misma posicion).
   function onKey(e: KeyboardEvent) {
+    // En TV las flechas son de la navegacion espacial (lib/spatial.svelte.ts).
+    if (tv.on) return;
     if (!track || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
     const cards = (t: Element) => [...t.querySelectorAll<HTMLElement>(":scope > a")];
     const mine = cards(track);

@@ -6,6 +6,10 @@
 //! desde el último uso (se renueva sola) y para no escribir en la DB en cada request la renovación
 //! se guarda como mucho una vez por día; el "último uso" fino (y la IP) se lleva en memoria y se
 //! mezcla al listar las sesiones. El logout revoca la sesión.
+//!
+//! Sesiones que no vencen (`persistent`, las pide la app de TV en el login): `expires_at` queda en
+//! `NEVER_EXPIRES` y no se renueva; solo se anota el último uso (una vez por día). Se revocan igual
+//! que las demás (logout, `/api/me/sessions`, cambio de contraseña, el admin).
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -41,6 +45,9 @@ pub const SESSION_TTL_S: i64 = 180 * 24 * 3600;
 /// La renovación (y `last_used`/`last_ip` en la DB) se escribe como mucho una vez por día: es
 /// decir, cuando al vencimiento le queda menos que `TTL − 1 día`.
 const RENEW_EVERY_S: i64 = 24 * 3600;
+/// Vencimiento de las sesiones que no vencen: 9999-12-31T23:59:59Z (un número que cualquier
+/// cliente sabe leer y que pasa todos los filtros `expires_at > ahora`).
+pub const NEVER_EXPIRES: i64 = 253_402_300_799;
 /// Caché en memoria token → usuario, para no ir a SQLite en cada request de media.
 const AUTH_CACHE_TTL: Duration = Duration::from_secs(60);
 /// Rate limit de login: 10 intentos fallidos por IP cada 5 minutos.
@@ -54,9 +61,11 @@ pub struct User {
     pub is_admin: bool,
     pub disabled: bool,
     pub created_at: String,
+    /// El avatar que eligio de la galeria (avatars.rs); `null` = la inicial.
+    pub avatar_id: Option<i64>,
 }
 
-pub const USER_COLS: &str = "id, username, is_admin, disabled, created_at";
+pub const USER_COLS: &str = "id, username, is_admin, disabled, created_at, avatar_id";
 
 pub fn user_from_row(r: &rusqlite::Row) -> rusqlite::Result<User> {
     Ok(User {
@@ -65,6 +74,7 @@ pub fn user_from_row(r: &rusqlite::Row) -> rusqlite::Result<User> {
         is_admin: r.get(2)?,
         disabled: r.get(3)?,
         created_at: r.get(4)?,
+        avatar_id: r.get(5)?,
     })
 }
 
@@ -74,6 +84,8 @@ pub struct SessionMeta {
     /// Etiqueta que manda la UI en el login ("Pixel 8", "Desktop"...).
     pub device: Option<String>,
     pub user_agent: Option<String>,
+    /// La sesión no vence (la app de TV: el login es de una sola vez para siempre).
+    pub persistent: bool,
 }
 
 impl SessionMeta {
@@ -81,6 +93,7 @@ impl SessionMeta {
         Self {
             device: device.and_then(|d| clean(d, 64)),
             user_agent: headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).and_then(|v| clean(v, 200)),
+            persistent: false,
         }
     }
 }
@@ -161,19 +174,27 @@ impl Auth {
                 let now = now_unix();
                 let row = c
                     .query_row(
-                        "SELECT u.id, u.username, u.is_admin, u.disabled, u.created_at, s.expires_at
+                        "SELECT u.id, u.username, u.is_admin, u.disabled, u.created_at, u.avatar_id, s.expires_at, s.persistent, s.last_used
                          FROM sessions s JOIN users u ON u.id = s.user_id
                          WHERE s.token_hash = ?1 AND s.expires_at > ?2",
                         params![h, now],
-                        |r| Ok((user_from_row(r)?, r.get::<_, i64>(5)?)),
+                        |r| Ok((user_from_row(r)?, r.get::<_, i64>(6)?, r.get::<_, bool>(7)?, r.get::<_, i64>(8)?)),
                     )
                     .optional()?;
-                let Some((user, expires_at)) = row else { return Ok(None) };
+                let Some((user, expires_at, persistent, last_used)) = row else { return Ok(None) };
                 if user.disabled {
                     return Ok(None);
                 }
-                // Renovar solo si al vencimiento le queda menos que TTL − 1 día.
-                if expires_at - now < SESSION_TTL_S - RENEW_EVERY_S {
+                if persistent {
+                    // No vence: solo el último uso, una vez por día.
+                    if now - last_used >= RENEW_EVERY_S {
+                        c.execute(
+                            "UPDATE sessions SET last_used = ?2, last_ip = COALESCE(?3, last_ip) WHERE token_hash = ?1",
+                            params![h, now, ip_s],
+                        )?;
+                    }
+                } else if expires_at - now < SESSION_TTL_S - RENEW_EVERY_S {
+                    // Renovar solo si al vencimiento le queda menos que TTL − 1 día.
                     c.execute(
                         "UPDATE sessions SET last_used = ?2, expires_at = ?3, last_ip = COALESCE(?4, last_ip) WHERE token_hash = ?1",
                         params![h, now, now + SESSION_TTL_S, ip_s],
@@ -209,7 +230,7 @@ impl Auth {
                 Ok(c.query_row(
                     &format!("SELECT {USER_COLS}, password_hash FROM users WHERE username = ?1"),
                     [name],
-                    |r| Ok((user_from_row(r)?, r.get::<_, String>(5)?)),
+                    |r| Ok((user_from_row(r)?, r.get::<_, String>(6)?)),
                 )
                 .optional()?)
             })
@@ -265,15 +286,16 @@ impl Auth {
         self.db
             .call(move |c| {
                 let now = now_unix();
+                let expires = if meta.persistent { NEVER_EXPIRES } else { now + SESSION_TTL_S };
                 c.execute(
-                    "INSERT INTO sessions (token_hash, user_id, created_at, last_used, expires_at, device, user_agent, last_ip)
-                     VALUES (?1, ?2, ?3, ?3, ?4, ?5, ?6, ?7)",
-                    params![h, uid, now, now + SESSION_TTL_S, meta.device, meta.user_agent, ip_s],
+                    "INSERT INTO sessions (token_hash, user_id, created_at, last_used, expires_at, device, user_agent, last_ip, persistent)
+                     VALUES (?1, ?2, ?3, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![h, uid, now, expires, meta.device, meta.user_agent, ip_s, meta.persistent],
                 )?;
                 Ok(())
             })
             .await?;
-        tracing::info!(user = %user.username, %ip, device = ?device, "login");
+        tracing::info!(user = %user.username, %ip, device = ?device, persistent = meta.persistent, "login");
         self.recorder.audit("login_ok", Some(user.id), Some(&user.username), Some(ip), device);
         Ok(token)
     }
@@ -377,6 +399,29 @@ pub fn validate_password(p: &str) -> ApiResult<()> {
         6..=256 => Ok(()),
         _ => Err(ApiError::bad_request("Password is too long")),
     }
+}
+
+/// Cambia el nombre de un usuario (mismas reglas que al crear; único sin distinguir mayúsculas).
+/// Devuelve el nombre viejo y el usuario. 409 si otro ya lo tiene. Las sesiones siguen valiendo:
+/// van por `user_id`.
+pub fn rename_user(c: &Connection, id: i64, new_name: &str) -> ApiResult<(String, User)> {
+    let name = new_name.trim();
+    validate_username(name)?;
+    let old: String = c
+        .query_row("SELECT username FROM users WHERE id = ?1", [id], |r| r.get(0))
+        .optional()?
+        .ok_or_else(|| ApiError::not_found("User not found"))?;
+    if old != name {
+        match c.execute("UPDATE users SET username = ?2 WHERE id = ?1", params![id, name]) {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
+                return Err(ApiError::conflict("Username already exists"));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    let user = c.query_row(&format!("SELECT {USER_COLS} FROM users WHERE id = ?1"), [id], user_from_row)?;
+    Ok((old, user))
 }
 
 /// Crea un usuario (bloqueante: hashea con argon2). 409 si el nombre ya existe.
@@ -514,6 +559,7 @@ where
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
         .route("/me/password", put(change_password))
+        .route("/me/username", put(change_username))
         .merge(account_routes())
 }
 
@@ -525,7 +571,7 @@ where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
-        .route("/me", get(me))
+        .route("/me", get(me).patch(crate::avatars::update_me))
         .route("/me/sessions", get(list_sessions).delete(revoke_other_sessions))
         .route("/me/sessions/{id}", delete(revoke_session))
 }
@@ -536,6 +582,9 @@ pub struct LoginBody {
     pub password: String,
     /// Etiqueta del dispositivo para la lista de sesiones (opcional).
     pub device: Option<String>,
+    /// Sesión que no vence (la app de TV). Por defecto, la de siempre (180 días desde el último uso).
+    #[serde(default)]
+    pub persistent: bool,
 }
 
 #[derive(Serialize)]
@@ -545,7 +594,7 @@ pub struct LoginResponse {
 }
 
 async fn login(State(auth): State<Auth>, ClientIp(ip): ClientIp, headers: HeaderMap, Json(b): Json<LoginBody>) -> ApiResult<Json<LoginResponse>> {
-    let meta = SessionMeta::new(b.device.as_deref(), &headers);
+    let meta = SessionMeta { persistent: b.persistent, ..SessionMeta::new(b.device.as_deref(), &headers) };
     let (token, user) = auth.login(ip, &b.username, &b.password, meta).await?;
     Ok(Json(LoginResponse { token, user }))
 }
@@ -569,18 +618,26 @@ pub struct SessionInfo {
     /// unix s
     pub created_at: i64,
     pub last_used_at: i64,
+    /// `NEVER_EXPIRES` si no vence.
     pub expires_at: i64,
+    /// No vence (la app de TV).
+    pub persistent: bool,
     /// Es la sesión de este request.
     pub current: bool,
 }
 
 async fn list_sessions(State(auth): State<Auth>, u: AuthUser) -> ApiResult<Json<Vec<SessionInfo>>> {
-    let uid = u.user.id;
+    Ok(Json(sessions_of(&auth, u.user.id, &u.token_hash).await?))
+}
+
+/// Las sesiones abiertas de un usuario, la más usada primero (`current`: la de `current_hash`).
+/// También la usa el admin (`/api/admin/users/{id}/sessions`).
+pub async fn sessions_of(auth: &Auth, uid: i64, current_hash: &str) -> ApiResult<Vec<SessionInfo>> {
     let rows = auth
         .db
         .call(move |c| {
             let mut st = c.prepare(
-                "SELECT rowid, token_hash, device, user_agent, last_ip, created_at, last_used, expires_at
+                "SELECT rowid, token_hash, device, user_agent, last_ip, created_at, last_used, expires_at, persistent
                  FROM sessions WHERE user_id = ?1 AND expires_at > ?2",
             )?;
             let rows = st
@@ -595,6 +652,7 @@ async fn list_sessions(State(auth): State<Auth>, u: AuthUser) -> ApiResult<Json<
                             created_at: r.get(5)?,
                             last_used_at: r.get(6)?,
                             expires_at: r.get(7)?,
+                            persistent: r.get(8)?,
                             current: false,
                         },
                     ))
@@ -613,12 +671,12 @@ async fn list_sessions(State(auth): State<Auth>, u: AuthUser) -> ApiResult<Json<
                     s.last_ip = Some(ip.to_string());
                 }
             }
-            s.current = hash == u.token_hash;
+            s.current = hash == current_hash;
             s
         })
         .collect();
     out.sort_by_key(|s| std::cmp::Reverse(s.last_used_at));
-    Ok(Json(out))
+    Ok(out)
 }
 
 async fn revoke_session(State(auth): State<Auth>, ClientIp(ip): ClientIp, u: AuthUser, Path(id): Path<i64>) -> ApiResult<StatusCode> {
@@ -678,6 +736,23 @@ async fn change_password(State(auth): State<Auth>, ClientIp(ip): ClientIp, u: Au
     auth.clear_cache();
     auth.recorder.audit("password_changed", Some(uid), Some(&u.user.username), Some(ip), None);
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct UsernameBody {
+    username: String,
+}
+
+/// `PUT /api/me/username`: cada uno cambia su nombre (en modo local, 403: se cambia en el server y
+/// el dispositivo lo toma al sincronizar).
+async fn change_username(State(auth): State<Auth>, ClientIp(ip): ClientIp, u: AuthUser, Json(b): Json<UsernameBody>) -> ApiResult<Json<User>> {
+    let uid = u.user.id;
+    let (old, user) = auth.db.call(move |c| rename_user(c, uid, &b.username)).await?;
+    auth.clear_cache();
+    if old != user.username {
+        auth.recorder.audit("user_renamed", Some(uid), Some(&user.username), Some(ip), Some(format!("{old} → {}", user.username)));
+    }
+    Ok(Json(user))
 }
 
 #[cfg(test)]
@@ -871,5 +946,76 @@ mod tests {
         assert_eq!(call(&app, "GET", "/api/me", Some(&t3), None).await.0, StatusCode::UNAUTHORIZED);
         assert_eq!(call(&app, "GET", "/api/me", Some(&desk), None).await.0, StatusCode::OK);
         assert_eq!(call(&app, "GET", "/api/me", Some(&other), None).await.0, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn rename_self_keeps_sessions() {
+        let (_auth, app) = setup().await;
+        let t = login_ok(&app, "bob", "hunter22").await;
+        let (st, _) = call(&app, "PUT", "/api/me/username", Some(&t), Some(r#"{"username":"bad name"}"#)).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        let (st, _) = call(&app, "PUT", "/api/me/username", Some(&t), Some(r#"{"username":"ADMIN"}"#)).await;
+        assert_eq!(st, StatusCode::CONFLICT, "unico sin distinguir mayusculas");
+        let (st, v) = call(&app, "PUT", "/api/me/username", Some(&t), Some(r#"{"username":" robert "}"#)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["username"], "robert");
+        // La sesion sigue (va por user_id) y /me ya dice el nombre nuevo.
+        let (st, v) = call(&app, "GET", "/api/me", Some(&t), None).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["username"], "robert");
+        // Entra con el nombre nuevo, no con el viejo.
+        login_ok(&app, "robert", "hunter22").await;
+        let (st, _) = call(&app, "POST", "/api/auth/login", None, Some(r#"{"username":"bob","password":"hunter22"}"#)).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+        // Solo mayusculas: vale (es el mismo).
+        let (st, v) = call(&app, "PUT", "/api/me/username", Some(&t), Some(r#"{"username":"Robert"}"#)).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["username"], "Robert");
+    }
+
+    #[tokio::test]
+    async fn persistent_sessions_never_expire_but_revoke() {
+        let (auth, app) = setup().await;
+        let (st, v) = call(&app, "POST", "/api/auth/login", None, Some(r#"{"username":"bob","password":"hunter22","device":"Mythos TV","persistent":true}"#)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        let tv = v["token"].as_str().unwrap().to_string();
+        let phone = login_ok(&app, "bob", "hunter22").await;
+
+        let (_, v) = call(&app, "GET", "/api/me/sessions", Some(&phone), None).await;
+        let list = v.as_array().unwrap();
+        let tv_s = list.iter().find(|s| s["device"] == "Mythos TV").unwrap();
+        assert_eq!(tv_s["persistent"], true);
+        assert_eq!(tv_s["expires_at"].as_i64().unwrap(), NEVER_EXPIRES);
+        let phone_s = list.iter().find(|s| s["current"] == true).unwrap();
+        assert_eq!(phone_s["persistent"], false, "las de siempre no cambian");
+        assert!(phone_s["expires_at"].as_i64().unwrap() < now_unix() + SESSION_TTL_S + 10);
+
+        // Años sin usarla: sigue valiendo y no se "renueva" (el vencimiento no se toca); el
+        // ultimo uso si se anota.
+        let h = token_hash(&tv);
+        auth.db
+            .call(move |c| Ok(c.execute("UPDATE sessions SET last_used = 1, created_at = 1 WHERE token_hash = ?1", [h])?))
+            .await
+            .unwrap();
+        auth.clear_cache();
+        assert_eq!(call(&app, "GET", "/api/me", Some(&tv), None).await.0, StatusCode::OK);
+        let h = token_hash(&tv);
+        let (exp, used): (i64, i64) = auth
+            .db
+            .call(move |c| Ok(c.query_row("SELECT expires_at, last_used FROM sessions WHERE token_hash = ?1", [h], |r| Ok((r.get(0)?, r.get(1)?)))?))
+            .await
+            .unwrap();
+        assert_eq!(exp, NEVER_EXPIRES);
+        assert!(used > 1);
+
+        // La limpieza de vencidas no la toca.
+        auth.db.call(|c| Ok(c.execute("DELETE FROM sessions WHERE expires_at < ?1", [now_unix()])?)).await.unwrap();
+        auth.clear_cache();
+        assert_eq!(call(&app, "GET", "/api/me", Some(&tv), None).await.0, StatusCode::OK);
+
+        // Se revoca como cualquier otra: desde otro dispositivo.
+        let id = tv_s["id"].as_i64().unwrap();
+        assert_eq!(call(&app, "DELETE", &format!("/api/me/sessions/{id}"), Some(&phone), None).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(call(&app, "GET", "/api/me", Some(&tv), None).await.0, StatusCode::UNAUTHORIZED);
     }
 }

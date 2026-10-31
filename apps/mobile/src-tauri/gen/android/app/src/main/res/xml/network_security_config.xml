@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Release: solo HTTPS (el server de casa va por tailscale serve), salvo el propio dispositivo:
-     el server embebido del modo local escucha en http://127.0.0.1:<puerto>. -->
+<!-- Release: se permite http porque el server de casa también puede estar en la red local
+     (http://<ip-del-server>:7700 con MYTHOS_EXTRA_BIND, p. ej. en un TV box sin Tailscale), y el
+     server embebido del modo local escucha en http://127.0.0.1:<puerto>. La configuración de red de
+     Android no acepta rangos de IP (192.168.0.0/16), así que no se puede limitar a la LAN.
+     La app solo habla con el server que elige la persona; desde afuera de casa va por HTTPS
+     (tailscale serve), y sin "http://" escrito la dirección se completa con https://. -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

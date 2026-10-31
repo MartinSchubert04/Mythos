@@ -3,6 +3,34 @@
   import { X } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import { fadeQuick, slideIn, slideOut } from "../lib/motion";
+  import { focusEl, focusFirst } from "../lib/spatial.svelte";
+  import { tv } from "../lib/tv.svelte";
+
+  let panel = $state<HTMLElement>();
+  // TV: al cerrar, el foco vuelve a lo que lo abrio (si no, quedaria en el cajon que se esta
+  // yendo y despues en la nada).
+  const opener = document.activeElement as HTMLElement | null;
+  let shown: HTMLElement | undefined;
+  $effect(() => () => {
+    if (!tv.on || !opener?.isConnected) return;
+    const cur = document.activeElement;
+    if (!cur || cur === document.body || !cur.isConnected || shown?.contains(cur)) focusEl(opener);
+  });
+  // TV: el foco entra al cajon apenas abre (si no, quedaria detras, en lo que lo abrio). Lo de
+  // adentro puede tardar (streams): se reintenta un rato mientras el foco siga afuera.
+  $effect(() => {
+    if (!tv.on || !panel) return;
+    const el = panel;
+    shown = el;
+    let n = 0;
+    const id = setInterval(() => {
+      const inside = el.contains(document.activeElement);
+      const real = !!el.querySelector('button:not([aria-label="Close"]), input, select, textarea, a[href]');
+      if ((!inside || (real && document.activeElement?.matches('[aria-label="Close"]'))) && focusFirst(el) && real) clearInterval(id);
+      if (++n > 30) clearInterval(id);
+    }, 150);
+    return () => clearInterval(id);
+  });
 
   let {
     title,
@@ -30,7 +58,7 @@
 <svelte:window onkeydown={onKey} />
 
 <div class="scrim" onclick={onclose} role="presentation" transition:fadeQuick|global></div>
-<aside class="drawer card" in:slideIn|global out:slideOut|global>
+<aside class="drawer card" data-nav-scope bind:this={panel} in:slideIn|global out:slideOut|global>
   <header class="titlebar">
     <h2>{title}</h2>
     <button class="icon-btn" onclick={onclose} aria-label="Close"><X size={16} /></button>

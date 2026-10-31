@@ -1,0 +1,31 @@
+/* Modo TV (lib/tv.svelte.ts, data-tv en <html>): se maneja con el control remoto y se mira a 3 m.
+   La escala de 10 pies la da el viewport de 960 px (todo se dibuja ~2x en un TV 1080p); aca va lo
+   que cambia porque no hay mouse: un foco que se ve de lejos, y nada que aparezca solo al pasar
+   el mouse. Solo variables de themes.css; las transiciones son las de cada componente (con
+   "reducir animaciones" duran 0, base.css). Lo propio de cada tarjeta esta en su componente. */
+
+/* El foco: un anillo grueso del acento, separado del borde. */
+html[data-tv] :focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Lo enfocado no queda pegado al borde al desplazarse (deja ver el titulo de la fila). */
+html[data-tv] main * {
+  scroll-margin-block: 56px 28px;
+}
+
+/* Las flechas de las filas son para el mouse: con el control la fila se desplaza sola. */
+html[data-tv] .shelf .arrow {
+  display: none;
+}
+
+/* Los TV box tienen GPUs chicas (p. ej. Mali-450) y poca memoria: el desenfoque de lo que hay
+   detras (paneles, menus, el reproductor encima del video) se recalcula en cada cuadro y hace
+   saltar el video y el desplazamiento. En TV, sin desenfoque: quedan los fondos de cada tema. */
+html[data-tv] *,
+html[data-tv] *::before,
+html[data-tv] *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}

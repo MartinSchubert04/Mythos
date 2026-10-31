@@ -295,17 +295,19 @@ const UA = {
   safariIos: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1",
 };
 const sessions = new Map<string, SessionInfo[]>();
-function sessionsOf(user: string): SessionInfo[] {
+export function sessionsOf(user: string): SessionInfo[] {
   let l = sessions.get(user);
   if (l) return l;
-  const mk = (id: number, device: string | null, ua: string, ip: string, created: number, used: number, current = false): SessionInfo => ({
+  const mk = (id: number, device: string | null, ua: string, ip: string, created: number, used: number, current = false, persistent = false): SessionInfo => ({
     id,
     device,
     user_agent: ua,
     last_ip: ip,
     created_at: s(created),
     last_used_at: s(used),
-    expires_at: s(used) + 180 * 86400,
+    // Las de la TV no vencen (auth::NEVER_EXPIRES).
+    expires_at: persistent ? 253402300799 : s(used) + 180 * 86400,
+    persistent,
     current,
   });
   l =
@@ -318,7 +320,7 @@ function sessionsOf(user: string): SessionInfo[] {
         ]
       : [
           mk(44, null, UA.chromeWin, "100.72.3.9", 2, 0, true),
-          mk(39, "Living room TV", UA.tv, "100.64.0.23", 14 * 24, 5),
+          mk(39, "Living room TV", UA.tv, "100.64.0.23", 14 * 24, 5, false, true),
           mk(33, null, UA.safariIos, "100.72.3.9", 25 * 24, 3 * 24),
         ];
   sessions.set(user, l);

@@ -52,6 +52,10 @@ impl<R: Runtime> Native<R> {
         Ok(self.call::<Access>("requestNetwork", ())?.granted)
     }
 
+    pub fn device(&self) -> Result<crate::Device, String> {
+        self.call::<crate::Device>("device", ())
+    }
+
     /// La ultima version publicada para Android, si hay.
     pub fn update_latest(&self) -> Result<Option<Release>, String> {
         let v = self.call::<Value>("updateLatest", ())?;

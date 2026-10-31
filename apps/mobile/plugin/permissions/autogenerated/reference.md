@@ -12,6 +12,7 @@ Todo lo del plugin, para la pagina que viene en el APK
 - `allow-set-bars`
 - `allow-minimize`
 - `allow-request-network`
+- `allow-device`
 - `allow-update-state`
 - `allow-update-check`
 - `allow-update-install`
@@ -24,6 +25,32 @@ Todo lo del plugin, para la pagina que viene en el APK
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`mythos:allow-device`
+
+</td>
+<td>
+
+Enables the device command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mythos:deny-device`
+
+</td>
+<td>
+
+Denies the device command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>

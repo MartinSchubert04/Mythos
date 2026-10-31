@@ -2,13 +2,17 @@ name: android
 
 # App de Android (apps/mobile), igual que en Haze:
 # - En cada push a main y PR que toque algo de Android o de la interfaz: tests del plugin y un
-#   APK de debug para celulares (arm64), que queda como artefacto.
+#   APK de debug para celulares (solo arm64, para que sea rapido), que queda como artefacto.
 # - Al etiquetar vX.Y.Z: compila el APK de release firmado y lo suma al Release de esa version
 #   con latest-android.json, que es lo que consultan las apps instaladas para actualizarse. El
 #   mismo tag dispara desktop.yml, que sube el instalador de Windows.
 #
 #     git tag v0.3.0
 #     git push origin v0.3.0
+#
+# El APK de release es universal: arm64-v8a (celulares) y armeabi-v7a (TV box y celulares de 32
+# bits, ver docs/mobile.md "TV"). Un solo APK con las dos: mismo versionCode y la misma firma, asi
+# las apps instaladas se siguen actualizando solas.
 #
 # El APK es generico: no lleva la direccion del server (el repo y los Releases son publicos).
 # La app la pide la primera vez. Por eso VITE_DEFAULT_SERVER va vacio a proposito.
@@ -67,7 +71,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -147,7 +151,7 @@ jobs:
         run: |
           V="${{ steps.version.outputs.version }}"
           # La version sale del tag; Tauri arma el versionCode con ella.
-          NDK_HOME="$ANDROID_NDK_LATEST_HOME" npx tauri android build --target aarch64 --apk --config "{\"version\":\"$V\"}"
+          NDK_HOME="$ANDROID_NDK_LATEST_HOME" npx tauri android build --target aarch64 armv7 --apk --config "{\"version\":\"$V\"}"
 
       - name: Publicar el Release
         if: steps.version.outputs.version
@@ -160,6 +164,10 @@ jobs:
             echo "No se genero el APK de release" >&2
             exit 1
           fi
+          # Tiene que traer las dos ABIs (celulares de 64 bits y TV box de 32).
+          for ABI in arm64-v8a armeabi-v7a; do
+            unzip -l "$APK" | grep -q "lib/$ABI/libmythos_mobile_lib.so" || { echo "El APK no trae lib/$ABI" >&2; exit 1; }
+          done
           cp "$APK" "Mythos-$V-android.apk"
           SHA=$(sha256sum "Mythos-$V-android.apk" | cut -d' ' -f1)
           URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Mythos-$V-android.apk"

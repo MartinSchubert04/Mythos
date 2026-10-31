@@ -144,6 +144,21 @@ CREATE TABLE local_link (
     last_sync_ms   INTEGER,
     last_error     TEXT
 );
+"#, r#"
+-- Sesiones que no vencen (la app de TV: docs/API.md, "Sesiones"). `expires_at` queda en
+-- auth::NEVER_EXPIRES, asi todo lo que filtra por vencimiento sigue igual.
+ALTER TABLE sessions ADD COLUMN persistent INTEGER NOT NULL DEFAULT 0;
+"#, r#"
+-- Avatares (avatars.rs): la imagen esta en <data_dir>/avatars/<id>.<ext>. AUTOINCREMENT: un id
+-- nunca se reusa (la imagen se cachea para siempre por id).
+CREATE TABLE avatars (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    mime       TEXT NOT NULL,
+    ext        TEXT NOT NULL,
+    created_at INTEGER NOT NULL                 -- unix s
+);
+ALTER TABLE users ADD COLUMN avatar_id INTEGER REFERENCES avatars(id) ON DELETE SET NULL;
 "#];
 
 #[derive(Clone)]

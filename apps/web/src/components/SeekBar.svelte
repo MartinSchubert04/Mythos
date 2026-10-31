@@ -2,6 +2,7 @@
   // Barra de progreso del reproductor: lo visto, lo bufferizado (en tramos), y al pasar el mouse
   // el tiempo de ese punto. Se arrastra (la posicion se aplica al soltar) y anda con flechas.
   import { clock } from "../lib/format";
+  import { tv } from "../lib/tv.svelte";
 
   let {
     time,
@@ -50,6 +51,8 @@
   }
 
   function key(e: KeyboardEvent) {
+    // En TV las flechas las maneja el reproductor (saltos de 10 s que se aceleran manteniendo).
+    if (tv.on) return;
     const step = e.shiftKey ? 30 : 5;
     if (e.key === "ArrowRight") onseek(Math.min(duration, time + step));
     else if (e.key === "ArrowLeft") onseek(Math.max(0, time - step));

@@ -4,6 +4,7 @@ import { markDown, markUp } from "./net.svelte";
 import { deviceLabel, serverBase, setActiveServer } from "./platform";
 import { read, write } from "./store";
 import type {
+  Avatar,
   AdminStats,
   AuditRow,
   ClientCaps,
@@ -111,7 +112,10 @@ async function req<T>(method: string, path: string, body?: unknown, o: Opts = {}
   const wasLocal = onLocal;
   const headers: Record<string, string> = {};
   if (tok) headers.Authorization = `Bearer ${tok}`;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // Un formulario (una imagen) va tal cual, con el Content-Type (y el boundary) que pone el
+  // navegador; lo demas, JSON.
+  const raw = body instanceof FormData;
+  if (body !== undefined && !raw) headers["Content-Type"] = "application/json";
   // Server de casa caido con Auto: se pasa al local y el mismo pedido se repite ahi.
   const retry = async () => !o.to && !o.retried && !wasLocal && !o.signal?.aborted && (await unreachable());
   let r: Response;
@@ -119,7 +123,7 @@ async function req<T>(method: string, path: string, body?: unknown, o: Opts = {}
     r = await fetch(base + path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : raw ? (body as FormData) : JSON.stringify(body),
       signal: o.signal,
       keepalive: o.keepalive,
     });
@@ -189,6 +193,23 @@ export function mediaUrl(path: string, extra?: Record<string, string | number | 
   return u.toString();
 }
 
+/** Modo mock (solo desarrollo): las imagenes de avatares no pasan por fetch. */
+let mockAvatar: ((id: number) => string) | null = null;
+export function setMockAvatar(f: (id: number) => string) {
+  mockAvatar = f;
+}
+
+/** La imagen de un avatar para <img> (con el token en ?t=). `to`: el server y la sesion de otro
+ *  perfil (el selector de perfiles de la TV). */
+export function avatarUrl(id: number, to?: { base: string; token: string | null }): string {
+  if (mockAvatar) return mockAvatar(id);
+  const base = (to ? to.base : serverBase()) || location.origin;
+  const tok = to ? to.token : getToken();
+  const u = new URL(`${base}/api/media/avatars/${id}`);
+  if (tok) u.searchParams.set("t", tok);
+  return u.toString();
+}
+
 /** Agrega el token a una URL que arma hls.js (segmentos relativos a la playlist). */
 export function withToken(url: string): string {
   const pin = pinOf(url);
@@ -240,11 +261,31 @@ export type PlayRequest = {
 
 export const api = {
   health: () => req<{ ok: boolean; version: string }>("GET", "/api/health", undefined, { noAuthRedirect: true }),
-  login: (username: string, password: string) =>
-    req<{ token: string; user: User }>("POST", "/api/auth/login", { username, password, device: deviceLabel() }, { noAuthRedirect: true }),
+  /** `persistent`: sesion que no vence (la app de TV, docs/API.md). */
+  login: (username: string, password: string, persistent = false) =>
+    req<{ token: string; user: User }>(
+      "POST",
+      "/api/auth/login",
+      { username, password, device: deviceLabel(), ...(persistent ? { persistent: true } : {}) },
+      { noAuthRedirect: true },
+    ),
   logout: () => req<void>("POST", "/api/auth/logout", undefined, { noAuthRedirect: true }),
   me: () => req<User>("GET", "/api/me"),
+  /** Elegir el avatar de la galeria (null = la inicial). Devuelve el usuario actualizado. `to`:
+   *  el server y la sesion de otro perfil guardado (el selector de perfiles de la TV). */
+  setAvatar: (avatar_id: number | null, to?: Target) => req<User>("PATCH", "/api/me", { avatar_id }, { to }),
+  avatars: (to?: Target) => req<Avatar[]>("GET", "/api/avatars", undefined, { to }),
+  /** Admin: sube una imagen (PNG, JPEG, WebP o GIF, hasta 2 MB) en un formulario multipart. */
+  uploadAvatar: (file: Blob, name: string) => {
+    const f = new FormData();
+    f.append("name", name);
+    f.append("file", file);
+    return req<Avatar>("POST", "/api/admin/avatars", f);
+  },
+  deleteAvatar: (id: number) => req<void>("DELETE", `/api/admin/avatars/${id}`),
   changePassword: (current: string, next: string) => req<void>("PUT", "/api/me/password", { current, new: next }),
+  /** Cambiar el nombre propio (en modo local, 403: se cambia en el server). */
+  changeUsername: (username: string) => req<User>("PUT", "/api/me/username", { username }),
   settings: () => req<Settings>("GET", "/api/me/settings"),
   saveSettings: (s: SettingsUpdate) => req<Settings>("PUT", "/api/me/settings", s),
 
@@ -290,9 +331,12 @@ export const api = {
 
   users: () => req<User[]>("GET", "/api/admin/users"),
   createUser: (u: { username: string; password: string; is_admin: boolean }) => req<User>("POST", "/api/admin/users", u),
-  patchUser: (id: number, p: { password?: string; is_admin?: boolean; disabled?: boolean }) =>
+  patchUser: (id: number, p: { username?: string; password?: string; is_admin?: boolean; disabled?: boolean }) =>
     req<User>("PATCH", `/api/admin/users/${id}`, p),
   deleteUser: (id: number) => req<void>("DELETE", `/api/admin/users/${id}`),
+  /** Admin: las sesiones abiertas de un usuario (las de la TV no vencen) y cerrar una. */
+  userSessions: (id: number) => req<SessionInfo[]>("GET", `/api/admin/users/${id}/sessions`),
+  revokeUserSession: (id: number, sid: number) => req<void>("DELETE", `/api/admin/users/${id}/sessions/${sid}`),
   torrents: () => req<TorrentStat[]>("GET", "/api/admin/torrents"),
   deleteTorrent: (hash: string, files: boolean) => req<void>("DELETE", `/api/admin/torrents/${hash}${q({ files: files ? "true" : undefined })}`),
   stats: () => req<AdminStats>("GET", "/api/admin/stats"),

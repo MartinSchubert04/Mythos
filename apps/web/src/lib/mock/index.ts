@@ -2,10 +2,12 @@
 // `npm run dev:mock`). Contesta el contrato con datos reales de Cinemeta guardados en
 // fixtures.json y un video de prueba publico. El build de produccion no lo incluye.
 import fixtures from "./fixtures.json";
-import { mockAudit, mockLogs, mockMetrics, mockSessions } from "./traffic";
+import { setMockAvatar } from "../api";
+import { mockAudit, mockLogs, mockMetrics, mockSessions, sessionsOf } from "./traffic";
 import type { MetricsRange } from "../types";
 import type {
   AdminStats,
+  Avatar,
   Episode,
   MediaStatus,
   Meta,
@@ -34,7 +36,22 @@ type Db = {
   library: MetaPreview[];
   settings: Record<string, Settings>;
   nextId: number;
+  /** Galeria de avatares: las imagenes como data: URL. */
+  avatars?: (Avatar & { src: string })[];
 };
+
+/** Tres avatares de muestra (circulos de color con una figura), como data: URL. */
+function sampleAvatars(): (Avatar & { src: string })[] {
+  const svg = (bg: string, fg: string, shape: string) =>
+    "data:image/svg+xml," +
+    encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${bg}"/><g fill="${fg}">${shape}</g></svg>`);
+  const t = Math.floor(Date.now() / 1000);
+  return [
+    { id: 1, name: "Moon", created_at: t, src: svg("#1e293b", "#fde68a", '<circle cx="34" cy="30" r="16"/><circle cx="42" cy="24" r="14" fill="#1e293b"/>') },
+    { id: 2, name: "Leaf", created_at: t, src: svg("#14532d", "#86efac", '<path d="M16 46C16 24 32 14 50 14c0 22-12 34-32 34z"/>') },
+    { id: 3, name: "Wave", created_at: t, src: svg("#1e3a8a", "#93c5fd", '<path d="M6 40c10-10 16-10 26 0s16 10 26 0v18H6z"/>') },
+  ];
+}
 function load(): Db {
   try {
     const d = JSON.parse(localStorage.getItem(KEY) ?? "");
@@ -83,6 +100,8 @@ const db = load();
 const save = () => localStorage.setItem(KEY, JSON.stringify(db));
 
 const tokens = new Map<string, string>(); // token -> username
+const avatarsOf = () => (db.avatars ??= sampleAvatars());
+
 function userOf(req: Request): User | null {
   const url = new URL(req.url);
   const t = req.headers.get("Authorization")?.replace(/^Bearer /, "") ?? url.searchParams.get("t") ?? "";
@@ -256,7 +275,57 @@ async function route(req: Request): Promise<Response> {
 
   let r: RegExpMatchArray | null;
   if (path === "/api/auth/logout") return none();
+  if (path === "/api/me" && m === "PATCH") {
+    const b = await body<{ avatar_id?: number | null }>();
+    if (b.avatar_id !== undefined) {
+      if (b.avatar_id !== null && !avatarsOf().some((a) => a.id === b.avatar_id)) return err(404, "Avatar not found");
+      me.avatar_id = b.avatar_id;
+      save();
+    }
+    return json(me);
+  }
   if (path === "/api/me") return json(me);
+  if (path === "/api/me/username" && m === "PUT") {
+    const { username } = await body<{ username: string }>();
+    const name = username.trim();
+    if (!/^[A-Za-z0-9_.-]{1,32}$/.test(name)) return err(400, "Username must be 1-32 characters: letters, numbers, '_', '-' or '.'");
+    if (db.users.some((u) => u.id !== me.id && u.username.toLowerCase() === name.toLowerCase())) return err(409, "Username already exists");
+    db.passwords[name] = db.passwords[me.username];
+    // La sesion sigue: el token viejo ahora es de este nombre (hasta recargar la pagina).
+    tokens.set(`mock-${me.username}`, name);
+    me.username = name;
+    save();
+    return json(me);
+  }
+  if (path === "/api/avatars") return json(avatarsOf().map(({ src: _, ...a }) => a));
+  if (path === "/api/admin/avatars" && m === "POST") {
+    if (!me.is_admin) return err(403, "Admin access required");
+    // Como el server: un formulario multipart con `file` y `name`.
+    const form = await req.formData();
+    const blob = form.get("file");
+    if (!(blob instanceof Blob)) return err(400, "Send the image in a `file` field");
+    if (blob.size > 2 * 1024 * 1024) return err(413, "Images can be up to 2 MB");
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(blob.type)) return err(415, "Use a PNG, JPEG, WebP or GIF image");
+    const src = await new Promise<string>((ok) => {
+      const r = new FileReader();
+      r.onload = () => ok(String(r.result));
+      r.readAsDataURL(blob);
+    });
+    const list = avatarsOf();
+    const a = { id: Math.max(0, ...list.map((x) => x.id)) + 1, name: String(form.get("name") ?? "") || "Avatar", created_at: Math.floor(Date.now() / 1000), src };
+    list.push(a);
+    save();
+    const { src: _, ...out } = a;
+    return json(out, 201);
+  }
+  if ((r = path.match(/^\/api\/admin\/avatars\/(\d+)$/)) && m === "DELETE") {
+    if (!me.is_admin) return err(403, "Admin access required");
+    const id = Number(r[1]);
+    db.avatars = avatarsOf().filter((a) => a.id !== id);
+    for (const u of db.users) if (u.avatar_id === id) u.avatar_id = null;
+    save();
+    return none();
+  }
   if (path.startsWith("/api/me/sessions")) {
     const s = mockSessions(me.username, m, path);
     if (s) return s.status === 204 ? none() : json(s.body, s.status);
@@ -403,6 +472,18 @@ async function route(req: Request): Promise<Response> {
     save();
     return json(u);
   }
+  if ((r = path.match(/^\/api\/admin\/users\/(\d+)\/sessions(?:\/(\d+))?$/))) {
+    const u = db.users.find((x) => x.id === Number(r![1]));
+    if (!u) return err(404, "User not found");
+    const l = sessionsOf(u.username);
+    if (!r[2] && m === "GET") return json([...l].sort((a, b) => b.last_used_at - a.last_used_at).map((x) => ({ ...x, current: x.current && u.id === me.id })));
+    if (r[2] && m === "DELETE") {
+      const i = l.findIndex((x) => x.id === Number(r![2]));
+      if (i < 0) return err(404, "Session not found");
+      l.splice(i, 1);
+      return none();
+    }
+  }
   if ((r = path.match(/^\/api\/admin\/users\/(\d+)$/))) {
     const u = db.users.find((x) => x.id === Number(r![1]));
     if (!u) return err(404, "No such user");
@@ -412,7 +493,15 @@ async function route(req: Request): Promise<Response> {
       save();
       return none();
     }
-    const b = await body<{ password?: string; is_admin?: boolean; disabled?: boolean }>();
+    const b = await body<{ username?: string; password?: string; is_admin?: boolean; disabled?: boolean }>();
+    if (b.username !== undefined && b.username.trim() !== u.username) {
+      const name = b.username.trim();
+      if (!/^[A-Za-z0-9_.-]{1,32}$/.test(name)) return err(400, "Username must be 1-32 characters: letters, numbers, '_', '-' or '.'");
+      if (db.users.some((x) => x !== u && x.username.toLowerCase() === name.toLowerCase())) return err(409, "Username already exists");
+      db.passwords[name] = db.passwords[u.username];
+      tokens.set(`mock-${u.username}`, name);
+      u.username = name;
+    }
     if (b.password) db.passwords[u.username] = b.password;
     if (b.is_admin !== undefined) u.is_admin = b.is_admin;
     if (b.disabled !== undefined) u.disabled = b.disabled;
@@ -454,6 +543,8 @@ async function route(req: Request): Promise<Response> {
 }
 
 export function installMock() {
+  // Las imagenes de los avatares van por <img>, no por fetch.
+  setMockAvatar((id) => avatarsOf().find((a) => a.id === id)?.src ?? "data:,");
   const real = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init);

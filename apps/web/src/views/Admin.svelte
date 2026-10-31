@@ -2,10 +2,13 @@
   // Admin, en pestañas: Overview (cache, disco, que se esta viendo y torrents en vivo), Traffic
   // (cuanto se le pega al server, por IP y por usuario), Logs (requests y actividad de las
   // cuentas) y Users. La pestaña va en la URL (#/admin?tab=logs).
-  import { HardDrive, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UserPlus, Users } from "@lucide/svelte";
+  import { HardDrive, KeyRound, MonitorSmartphone, PencilLine, Plus, RefreshCw, ShieldCheck, Trash2, UserPlus, Users } from "@lucide/svelte";
   import { onDestroy } from "svelte";
+  import AdminAvatars from "../components/AdminAvatars.svelte";
   import AdminLogs from "../components/AdminLogs.svelte";
   import AdminTraffic from "../components/AdminTraffic.svelte";
+  import Avatar from "../components/Avatar.svelte";
+  import Devices from "../components/Devices.svelte";
   import Drawer from "../components/Drawer.svelte";
   import Seg from "../components/Seg.svelte";
   import Switch from "../components/Switch.svelte";
@@ -19,12 +22,13 @@
   import { attempt, toast } from "../lib/toast.svelte";
   import type { AdminStats, LogFilters, TorrentStat, User } from "../lib/types";
 
-  type Tab = "overview" | "traffic" | "logs" | "users";
+  type Tab = "overview" | "traffic" | "logs" | "users" | "avatars";
   const TABS: { value: Tab; label: string }[] = [
     { value: "overview", label: "Overview" },
     { value: "traffic", label: "Traffic" },
     { value: "logs", label: "Logs" },
     { value: "users", label: "Users" },
+    { value: "avatars", label: "Avatars" },
   ];
   const fromUrl = (): Tab => {
     const t = route.query.get("tab");
@@ -101,7 +105,7 @@
     }
   }
 
-  async function patch(u: User, p: { disabled?: boolean; is_admin?: boolean; password?: string }, ok?: string) {
+  async function patch(u: User, p: { username?: string; disabled?: boolean; is_admin?: boolean; password?: string }, ok?: string) {
     try {
       const r = await api.patchUser(u.id, p);
       users = users?.map((x) => (x.id === u.id ? r : x)) ?? null;
@@ -110,6 +114,16 @@
       toast(errText(e), true);
       loadUsers();
     }
+  }
+
+  /** Las sesiones abiertas de ese usuario (Drawer): cerrar una, p. ej. una TV que no vence. */
+  let devicesOf = $state<User | null>(null);
+
+  async function rename(u: User) {
+    const name = await prompt({ title: `Rename ${u.username}`, placeholder: "New username", value: u.username, confirm: "Rename" });
+    if (!name || name.trim() === u.username) return;
+    await patch(u, { username: name.trim() }, `Renamed to ${name.trim()}`);
+    if (u.id === session.user?.id) session.user = users?.find((x) => x.id === u.id) ?? session.user;
   }
 
   async function resetPw(u: User) {
@@ -174,6 +188,8 @@
   <div class="tab" in:rise={{ y: 6 }}>
   {#if tab === "traffic"}
     <AdminTraffic onfilter={openLogs} />
+  {:else if tab === "avatars"}
+    <AdminAvatars />
   {:else if tab === "logs"}
     <AdminLogs bind:filters bind:mode={logMode} users={users?.map((u) => u.username) ?? []} />
   {:else if tab === "overview"}
@@ -257,7 +273,7 @@
               {@const me = u.id === session.user?.id}
               <tr class="stagger" style="--i: {i}" class:off={u.disabled}>
                 <td>
-                  <span class="who"><span class="avatar">{u.username.slice(0, 1).toUpperCase()}</span>{u.username}{#if me}<span class="chip">you</span>{/if}</span>
+                  <span class="who"><Avatar name={u.username} id={u.avatar_id} size={26} />{u.username}{#if me}<span class="chip">you</span>{/if}</span>
                 </td>
                 <td>
                   <button class="chip role" class:accent={u.is_admin} disabled={me} title={me ? "" : "Click to change"} onclick={() => patch(u, { is_admin: !u.is_admin }, u.is_admin ? "No longer admin" : "Now admin")}>
@@ -267,6 +283,8 @@
                 <td class="faint">{relTime(u.created_at)}</td>
                 <td><Switch checked={!u.disabled} disabled={me} onchange={(v) => patch(u, { disabled: !v }, v ? "Enabled" : "Disabled. Their sessions were closed.")} /></td>
                 <td class="acts">
+                  <button class="icon-btn" title="Signed-in devices" onclick={() => (devicesOf = u)}><MonitorSmartphone size={15} /></button>
+                  <button class="icon-btn" title="Rename" onclick={() => rename(u)}><PencilLine size={15} /></button>
                   <button class="icon-btn" title="Reset password" onclick={() => resetPw(u)}><KeyRound size={15} /></button>
                   <button class="icon-btn del" title="Delete user" disabled={me} onclick={() => remove(u)}><Trash2 size={15} /></button>
                 </td>
@@ -300,6 +318,13 @@
       <button class="btn" onclick={() => (creating = false)}>Cancel</button>
       <button class="btn primary" disabled={saving || !nu.username.trim() || !nu.password} onclick={create}><Plus size={15} />Create user</button>
     {/snippet}
+  </Drawer>
+{/if}
+
+{#if devicesOf}
+  <Drawer title="{devicesOf.username}'s devices" onclose={() => (devicesOf = null)}>
+    <p class="muted">Each sign-in is a device. TV profiles never expire on their own: sign them out here when a TV isn't used anymore.</p>
+    {#key devicesOf.id}<Devices user={devicesOf} />{/key}
   </Drawer>
 {/if}
 
@@ -385,17 +410,6 @@
     align-items: center;
     gap: 9px;
     font-weight: 560;
-  }
-  .avatar {
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    font-weight: 700;
-    font-size: 12px;
-    color: var(--accent-ink);
-    background: var(--primary-bg);
   }
   .role {
     cursor: pointer;

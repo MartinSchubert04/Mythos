@@ -17,6 +17,7 @@
 //! local en `docs/local-mode.md`.
 mod admin;
 mod auth;
+mod avatars;
 mod cache;
 mod cinemeta;
 mod config;
@@ -243,9 +244,10 @@ fn app(state: AppState) -> Router {
         .merge(streams::routes())
         .merge(subtitles::routes())
         .merge(user_data::routes())
-        .merge(sync::routes());
+        .merge(sync::routes())
+        .merge(avatars::routes());
     api = match mode {
-        Mode::Server => api.merge(auth::routes()).merge(admin::routes()).merge(metrics::routes()),
+        Mode::Server => api.merge(auth::routes()).merge(admin::routes()).merge(avatars::admin_routes()).merge(metrics::routes()),
         // Login/logout propios (online contra el remoto u offline), sin admin.
         Mode::Local => api.merge(auth::account_routes()).merge(local::routes()),
     };
@@ -258,6 +260,7 @@ fn app(state: AppState) -> Router {
         .with_state(state.clone());
 
     let media = subtitles::media_routes()
+        .merge(avatars::media_routes())
         .with_state(state.clone())
         .merge(state.media.router())
         .layer(middleware::from_fn_with_state(state.auth.clone(), auth::media_auth));

@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the device command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-device",
+          "markdownDescription": "Enables the device command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the device command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-device",
+          "markdownDescription": "Denies the device command without any pre-configured scope."
+        },
+        {
           "description": "Enables the handoff command without any pre-configured scope.",
           "type": "string",
           "const": "allow-handoff",
@@ -427,10 +439,10 @@
           "markdownDescription": "Denies the update_state command without any pre-configured scope."
         },
         {
-          "description": "Todo lo del plugin, para la pagina que viene en el APK\n#### This default permission set includes:\n\n- `allow-open-server`\n- `allow-leave-server`\n- `allow-handoff`\n- `allow-set-fullscreen`\n- `allow-set-playing`\n- `allow-set-bars`\n- `allow-minimize`\n- `allow-request-network`\n- `allow-update-state`\n- `allow-update-check`\n- `allow-update-install`",
+          "description": "Todo lo del plugin, para la pagina que viene en el APK\n#### This default permission set includes:\n\n- `allow-open-server`\n- `allow-leave-server`\n- `allow-handoff`\n- `allow-set-fullscreen`\n- `allow-set-playing`\n- `allow-set-bars`\n- `allow-minimize`\n- `allow-request-network`\n- `allow-device`\n- `allow-update-state`\n- `allow-update-check`\n- `allow-update-install`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Todo lo del plugin, para la pagina que viene en el APK\n#### This default permission set includes:\n\n- `allow-open-server`\n- `allow-leave-server`\n- `allow-handoff`\n- `allow-set-fullscreen`\n- `allow-set-playing`\n- `allow-set-bars`\n- `allow-minimize`\n- `allow-request-network`\n- `allow-update-state`\n- `allow-update-check`\n- `allow-update-install`"
+          "markdownDescription": "Todo lo del plugin, para la pagina que viene en el APK\n#### This default permission set includes:\n\n- `allow-open-server`\n- `allow-leave-server`\n- `allow-handoff`\n- `allow-set-fullscreen`\n- `allow-set-playing`\n- `allow-set-bars`\n- `allow-minimize`\n- `allow-request-network`\n- `allow-device`\n- `allow-update-state`\n- `allow-update-check`\n- `allow-update-install`"
         }
       ]
     }

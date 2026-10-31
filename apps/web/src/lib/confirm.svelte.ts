@@ -9,6 +9,8 @@ export interface Ask {
 export interface Prompt extends Ask {
   placeholder?: string;
   secret?: boolean;
+  /** Texto con el que arranca el campo (renombrar). */
+  value?: string;
 }
 
 export const confirmState = $state({
@@ -30,7 +32,7 @@ function open(o: Ask, input: Prompt | null, done: (ok: boolean) => void) {
     confirm: o.confirm ?? "OK",
     danger: o.danger ?? false,
     input: input ? { placeholder: input.placeholder ?? "", secret: input.secret ?? false } : null,
-    value: "",
+    value: input?.value ?? "",
     open: true,
     resolve: (ok: boolean) => {
       confirmState.open = false;

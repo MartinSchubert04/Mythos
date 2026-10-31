@@ -12,13 +12,17 @@ apps/mobile/
     src/lib.rs        comandos para la interfaz, permisos de la interfaz del server
     src/updater.rs    buscar / bajar / instalar (igual que Haze)
     android/          Kotlin: MythosPlugin.kt (pantalla completa, atras, pantalla encendida,
-                      barras, red local) y Updater.kt (GitHub Releases + PackageInstaller)
+                      barras, red local, `device`: TV y memoria) y Updater.kt (GitHub Releases +
+                      PackageInstaller)
   src-tauri/          la app: tauri.conf.json (carga apps/web/dist), capabilities, iconos
     src/lib.rs        solo el Builder (plugins mythos y mythos-local)
     gen/android/      proyecto de Gradle (de `tauri android init`, con firma y MainActivity propios)
 apps/web/src/lib/
   platform.ts         isTauri / isAndroid / isDesktop, serverBase(), setActiveServer(), pantalla completa
   shell.svelte.ts     todo lo de Android del lado de la interfaz
+  tv.svelte.ts        modo TV: deteccion, escala de 10 pies (viewport de 960 px)
+  spatial.svelte.ts   navegacion con el control remoto (flechas, centro, menu)
+  profiles.svelte.ts  perfiles de la TV ("Who's watching?", views/Profiles.svelte)
 ```
 
 ## La dirección del server
@@ -71,9 +75,12 @@ Settings → Connection) con la carpeta privada de la app, y la interfaz le preg
 (`info`). La interfaz cambia de server en caliente con `useLocal()` de `lib/api.ts` (que usa
 `setActiveServer(url)` de `platform.ts`); ver `lib/local.svelte.ts`.
 
-- **Red:** el release solo permite HTTPS, salvo `127.0.0.1` y `localhost`
-  (`gen/android/app/src/main/res/xml/network_security_config.xml`); el debug, HTTP a cualquier lado
-  (`src/debug/res/xml/`). El loopback no necesita el permiso de red local de Android 17.
+- **Red:** el release permite HTTP (`gen/android/app/src/main/res/xml/network_security_config.xml`)
+  para entrar al server por la red de casa (`http://<ip-del-server>:7700`, con `MYTHOS_EXTRA_BIND`
+  en el server; útil en un TV box sin Tailscale) y para el server embebido en `127.0.0.1`. Android no
+  deja limitarlo a un rango de IP. Desde afuera de casa va por HTTPS (`tailscale serve`); una
+  dirección sin `http://` se completa con `https://`. El loopback no necesita el permiso de red
+  local de Android 17; la IP de casa sí (se pide al conectar).
 - **TLS:** Gradle trae `org.rustls:rustls-platform-verifier` (repositorio maven de rustls en
   `gen/android/build.gradle.kts`); el plugin lo inicializa al arrancar.
 - **Logs:** `adb logcat -s mythos` (los del server embebido).
@@ -95,6 +102,129 @@ Settings → Connection) con la carpeta privada de la app, y la interfaz le preg
   opus, flac y `mkv: maybe`; no ac3/eac3/dts (el server convierte el audio). Si el directo falla,
   el reproductor degrada y pasa a HLS (hls.js con MSE).
 - Debajo de 700 px de ancho, la barra de pestañas abajo (DESIGN.md §8); en horizontal, la lateral.
+
+## TV (Android TV y TV box)
+
+El mismo APK sirve para un TV box o un Android TV: aparece en el launcher de TV con su banner
+(`res/drawable-xhdpi/banner.png`, 320x180, hecho con el logo) y se maneja con el control remoto.
+En el celular no cambia nada.
+
+**Instalar en un TV box** (p. ej. un X96 Mini, que no tiene Play Store ni ADB a mano):
+
+- Con la app **Downloader** (o el navegador del box): abrir el link del APK del ultimo Release
+  (`Mythos-X.Y.Z-android.apk` en GitHub) e instalar. Hay que permitirle a Downloader "instalar
+  apps desconocidas".
+- O con un **pendrive**: copiar el APK, abrirlo desde el administrador de archivos del box e
+  instalar.
+- Despues se actualiza sola como en el celular (Settings → App).
+
+**32 y 64 bits.** Muchos TV box (Allwinner H313, Amlogic S905W...) tienen procesador de 64 bits
+pero Android de 32 (userspace `armeabi-v7a`). El APK es universal: trae `lib/arm64-v8a` y
+`lib/armeabi-v7a` (librqbit, rusqlite, ring/rustls compilan igual para armv7) y Android elige la
+que corresponde. Un solo APK, mismo `versionCode` (lo arma Tauri de la version) y la misma firma:
+las apps instaladas se siguen actualizando solas. Pesa unos MB mas que el de solo 64 bits.
+
+**Que es "TV".** El plugin (`MythosPlugin.kt`, comando `device`) dice que es TV si el sistema
+esta en modo TV (`UiModeManager`), si tiene `android.software.leanback` o si no tiene pantalla
+tactil. Con eso la interfaz (`lib/tv.svelte.ts`) pone `data-tv` en `<html>`; queda guardado y al
+abrir de nuevo se aplica antes de pintar (script de `index.html`). En la app es automatico, sin
+opcion.
+
+**En el navegador (p. ej. Firefox en el TV box).** Si el WebView del box no se puede actualizar,
+la alternativa es la interfaz web del server en Firefox para Android (motor propio, no usa el
+WebView; anda en Android 8+ y en 32 bits) por Tailscale. Ahi el modo TV es el mismo y se decide
+asi: lo elegido en Settings → Appearance → "TV mode (remote control)" (guardado en ese
+navegador), o `?tv=1` / `?tv=0` / `?tv=auto` en la URL (tambien queda guardado). Sin eleccion,
+automatico: Android sin pantalla tactil (`maxTouchPoints` 0 y sin puntero "coarse") o un
+navegador de Smart TV (Android TV, Fire TV, BRAVIA, Tizen, webOS...). Con el modo TV el login
+tambien pide la sesion que no vence y la cuenta queda como perfil, igual que en la app. Lo que
+cambia: el boton atras del control navega el historial del navegador; el router
+(`setBackGuard`) le pregunta antes a `lib/spatial.svelte.ts`, que con algo abierto (cajon,
+dialogo, menu, menu del reproductor, "Who's watching?", "Add profile") lo cierra como Esc y deja
+la ruta como estaba; si no hay nada abierto es el atras de siempre (sale del reproductor, vuelve
+a la vista anterior). Tambien se aceptan las teclas `BrowserBack` / `GoBack`. Esc del teclado
+hace lo mismo que atras.
+
+**Solo server.** En un TV, o con menos de 2 GB de RAM (`MemTotal` < 1,5 GiB o
+`isLowRamDevice()`), el server embebido del modo local no arranca nunca (no da para bajar
+torrents ahi): el modo es siempre "Server only" y Settings → Connection lo explica en vez de
+ofrecer Auto / Local only (`docs/local-mode.md`). El login va directo al server de casa.
+
+**Escala de 10 pies.** La pagina se arma en 960 px de ancho (el lienzo de 960x540 dp de Android TV)
+con `<meta name="viewport" content="width=960">`, y el WebView la agranda hasta llenar la
+pantalla (el plugin prende `useWideViewPort` y `loadWithOverviewMode` en TV). En un TV 1080p todo
+se dibuja al doble, en cualquier densidad que tenga el box. La barra lateral queda en iconos y se
+abre encima del contenido cuando el foco entra en ella.
+
+**Liviano.** Los TV box tienen poca memoria y GPU chica (el X96 Mini real: Hi3798MV310, Android 9,
+userspace de 32 bits, 1 GB de RAM con ~380 MB libres, Mali-450). En TV no corre el server
+embebido (arriba), no se precarga nada grande (hls.js y cada vista se bajan recien al usarse) y
+`styles/tv.css` saca todos los `backdrop-filter` (el desenfoque detras de paneles, menus y los
+controles del reproductor se recalcula en cada cuadro y hace saltar el video): quedan los fondos
+de cada tema.
+
+**Control remoto** (`lib/spatial.svelte.ts`, solo en TV):
+
+- Flechas: el foco va a lo que se puede apretar mas cercano para ese lado, mirando donde esta
+  dibujado (filas de posters, hero, barra lateral, detalle, streams, Settings, menus, dialogos).
+  A los costados solo se va a lo que esta a la misma altura; arriba/abajo no salta entre la barra
+  lateral y el contenido; si no hay nada, la pagina se desplaza (y las filas que cargan al
+  acercarse aparecen). La fila se corre sola para que lo enfocado se vea.
+- Centro (Enter): aprieta lo enfocado. En un campo de texto abre el teclado del sistema (pasar por
+  encima no lo abre: `inputmode="none"` mientras se navega).
+- Atras: el Esc de siempre (cierra menus y dialogos, sale del reproductor, vuelve a la vista
+  anterior) y al volver el foco queda en la tarjeta de donde se salio. Al cerrar un cajon el foco
+  vuelve a lo que lo abrio; si lo enfocado desaparece (un boton que se deshabilita mientras
+  guarda), la proxima flecha sigue desde donde estaba.
+- Menu del control: el menu contextual del elemento (el de clic derecho / mantener apretado).
+- Foco: anillo de 3 px del acento separado del borde, y las tarjetas crecen un poco (con "reducir
+  animaciones", sin animar).
+- Reproductor: centro = play/pausa; izquierda/derecha = -10/+10 s (manteniendo, el salto crece:
+  10, 30 y 60 s por paso, y se aplica una sola vez al soltar); arriba/abajo muestran los controles
+  y se mueven entre ellos (subtitulos, audio, velocidad, streams); abajo de todo los esconde; atras
+  sale. Las teclas multimedia del control (play/pausa, adelantar, retroceder) tambien andan.
+
+**Perfiles.** En la TV cada cuenta queda guardada como un perfil (`lib/profiles.svelte.ts`): se
+entra una sola vez con la contraseña y la sesion no vence (`persistent`, `docs/API.md`). Al abrir,
+con mas de un perfil, "Who's watching?" (el ultimo usado ya elegido); el avatar de la barra lateral
+lo vuelve a abrir (atras lo cierra sin cambiar de perfil). "Add profile" suma otra cuenta; "Manage
+profiles" abre cada perfil para elegirle el avatar (con la sesion de ese perfil, sin entrar) o
+quitarlo (cierra su sesion en el server). Si alguien revoca esa sesion desde Settings → Signed-in
+devices o el admin desde Admin → Users → "Signed-in devices", el perfil se borra solo y vuelve el
+selector. Cambiar de perfil recarga la pagina (ninguna cache queda de la cuenta anterior). Solo
+en TV: en el celular y la PC "Switch account" sigue siendo salir y entrar.
+
+**WebView minimo: Chromium 111.** La interfaz usa `color-mix()` en casi todos los colores (111),
+`:has()` (105) y `AbortSignal.timeout` (103). Muchos TV box traen un Android System WebView viejo
+(el X96 Mini, 66 de 2018): con eso el modulo de la app ni compila. Por eso `index.html` tiene un
+script ES5 que mira la version de Chrome/Chromium del userAgent antes de cargar nada: si es menor
+a 111 no carga la app (el plugin `gate` de `vite.config.ts` saca el `<script type="module">` del
+HTML y lo carga `mythosBoot` solo si alcanza) y muestra "Update Android System WebView" con los
+pasos, las dos versiones y, como alternativa, abrir la direccion del server en Firefox (ver "En el
+navegador"). En un navegador de PC viejo basado en Chromium dice "Update your browser"; Firefox
+pide la 121 (`:has()`; si no, "Update Firefox") y Safari pasa siempre. Para verla en la PC:
+`http://localhost:5173/?webviewTest=66`.
+
+Como actualizar el WebView de un TV box: desde Google Play ("Android System WebView" → Update) o,
+sin Play Store, instalando el APK de Android System WebView de la ABI del box (armeabi-v7a o
+arm64-v8a) con Downloader o un pendrive y eligiendolo en Developer options → WebView
+implementation. Ojo: algunos firmwares traen un WebView de AOSP (`com.android.webview`) firmado
+por el fabricante que no se puede reemplazar sin root (y no muestran "WebView implementation");
+ahi la app no anda y queda Firefox. Ojo tambien con el minSdk del APK del WebView: un box con
+Android 8-9 (API 26-28, aunque diga 10 o 13) no instala uno que pida API 29.
+
+**Android del APK.** `minSdk` 24 (Android 7.0): anda en los box de Android 8-9. Lo que solo
+existe en versiones nuevas del plugin tiene su chequeo (`canRequestPackageInstalls` desde 26,
+`setRequireUserAction` y `FLAG_MUTABLE` desde 31, `ACCESS_LOCAL_NETWORK` desde 37); los permisos
+que el sistema no conoce se ignoran.
+
+**Probar en la PC** (sin el box): `npm run dev:mock` y `http://localhost:5173/?tv=1` (o el switch
+de Settings → Appearance; `?tv=auto` vuelve a automatico), con flechas, Enter y Esc (Esc hace de
+atras). El navegador de escritorio ignora el ancho del meta viewport: para ver la escala, una
+ventana (o un iframe) de 960x540.
+
+Sin probar en el aparato real todavia: la deteccion (`device`) y el viewport de 960 px dependen del
+WebView del box.
 
 ## Actualizaciones del APK
 
@@ -124,7 +254,8 @@ adb shell run-as dev.mrtn.mythos sh -c 'echo http://10.0.2.2:8000/latest-android
 ## Compilar
 
 Hace falta el SDK y el NDK de Android, Java 21 y los targets de Rust
-(`rustup target add aarch64-linux-android x86_64-linux-android`). La CLI de Tauri lee:
+(`rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android`). La CLI
+de Tauri lee:
 
 ```
 ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk
@@ -135,7 +266,8 @@ JAVA_HOME=C:\Program Files\Java\jdk-21
 ```
 cd apps/mobile
 npm run build:emulator     # APK de debug x86_64 para el emulador
-npm run build:debug        # APK de debug arm64 para un celular
+npm run build:debug        # APK de debug arm64 + armv7 (celular o TV box)
+npm run build              # APK de release arm64 + armv7 (el que se publica)
 adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
 ```
 
@@ -144,7 +276,16 @@ En Windows `tauri android build` necesita el modo de desarrollador (crea un enla
 `src-tauri/target/x86_64-linux-android/debug/libmythos_mobile_lib.so` a
 `gen/android/app/src/main/jniLibs/x86_64/` y correr en `gen/android`
 `gradlew assembleUniversalDebug -PabiList=x86_64 -ParchList=x86_64 -PtargetList=x86_64 -x rustBuildUniversalDebug -x rustBuildX86_64Debug`.
-El CI corre en Linux y no tiene el problema.
+Con dos ABIs (el release), lo mismo para cada una:
+
+```
+copy src-tauri\target\aarch64-linux-android\release\libmythos_mobile_lib.so gen\android\app\src\main\jniLibs\arm64-v8a\
+copy src-tauri\target\armv7-linux-androideabi\release\libmythos_mobile_lib.so gen\android\app\src\main\jniLibs\armeabi-v7a\
+cd src-tauri\gen\android
+gradlew.bat assembleUniversalRelease -PabiList=arm64-v8a,armeabi-v7a -ParchList=arm64,arm -PtargetList=aarch64,armv7 -x rustBuildUniversalRelease -x rustBuildArm64Release -x rustBuildArmRelease
+```
+
+El CI corre en Linux y no tiene el problema (compila las dos y verifica que el APK las traiga).
 
 Los registros nativos salen en `adb logcat` (filtrar por `mythos` o `Tauri`). En debug el WebView
 se inspecciona desde `chrome://inspect`.

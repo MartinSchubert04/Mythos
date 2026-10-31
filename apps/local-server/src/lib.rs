@@ -12,6 +12,9 @@
 //! - **ffmpeg**: no viene con la app (la deja liviana). En Windows, si hay un `ffmpeg` y un
 //!   `ffprobe` en el PATH se usan; si no, solo reproduccion directa. En Android, nunca.
 //! - **Cierre**: al salir de la app, `Handle::shutdown()` (suelta puertos y archivos).
+//! - **TV y poca RAM** (Android): en un TV box o con menos de 2 GB el server embebido no arranca
+//!   nunca: el modo queda en `server` sin importar lo guardado y `set_mode` no acepta los otros
+//!   (`Info.unavailable` dice por que).
 //!
 //! La interfaz (apps/web/src/lib/local.svelte.ts) llama a `info` y `set_mode`; elegir a que server
 //! hablarle y sincronizar al volver es cosa suya y del server local.
@@ -68,6 +71,8 @@ enum Slot {
 struct Local {
     /// Carpeta de la app (el server usa `<dir>/local`).
     dir: PathBuf,
+    /// Este aparato no corre el server embebido (`"tv"` o `"low_ram"`): solo server.
+    limit: Option<&'static str>,
     mode: Mutex<Mode>,
     /// Async: quien pregunta mientras arranca espera a que termine.
     slot: tokio::sync::Mutex<Slot>,
@@ -82,14 +87,26 @@ struct Info {
     /// Hay ffmpeg en el dispositivo (si no, solo reproduccion directa).
     transcode_available: bool,
     error: Option<String>,
+    /// El modo local no existe en este aparato: `"tv"` (TV box) o `"low_ram"` (menos de 2 GB).
+    /// Con esto el modo es siempre `server`.
+    unavailable: Option<&'static str>,
 }
 
-fn info_of(mode: Mode, slot: &Slot) -> Info {
-    match slot {
-        Slot::Running(h) => Info { mode, base_url: Some(h.base_url()), transcode_available: h.media_tools().ffmpeg, error: None },
-        Slot::Failed(e) => Info { mode, base_url: None, transcode_available: false, error: Some(e.clone()) },
-        Slot::Stopped => Info { mode, base_url: None, transcode_available: false, error: None },
-    }
+fn info_of(mode: Mode, slot: &Slot, unavailable: Option<&'static str>) -> Info {
+    let (base_url, transcode_available, error) = match slot {
+        Slot::Running(h) => (Some(h.base_url()), h.media_tools().ffmpeg, None),
+        Slot::Failed(e) => (None, false, Some(e.clone())),
+        Slot::Stopped => (None, false, None),
+    };
+    Info { mode, base_url, transcode_available, error, unavailable }
+}
+
+/// En Android: si el aparato puede con el server embebido (ver `android::limit`).
+fn device_limit() -> Option<&'static str> {
+    #[cfg(target_os = "android")]
+    return android::limit();
+    #[cfg(not(target_os = "android"))]
+    None
 }
 
 fn mode_file(dir: &Path) -> PathBuf {
@@ -141,7 +158,7 @@ async fn ensure(local: &Local) -> Info {
     if mode.embedded() && !matches!(*slot, Slot::Running(_)) {
         *slot = start(&local.dir).await;
     }
-    info_of(mode, &slot)
+    info_of(mode, &slot, local.limit)
 }
 
 async fn stop(local: &Local) {
@@ -164,6 +181,9 @@ async fn info<R: Runtime>(app: AppHandle<R>) -> Info {
 #[tauri::command]
 async fn set_mode<R: Runtime>(app: AppHandle<R>, mode: Mode) -> Result<Info, String> {
     let local = app.state::<Local>();
+    if mode.embedded() && local.limit.is_some() {
+        return Err("Local mode isn't available on this device".into());
+    }
     std::fs::create_dir_all(&local.dir).map_err(|e| e.to_string())?;
     std::fs::write(mode_file(&local.dir), mode.as_str()).map_err(|e| e.to_string())?;
     *local.mode.lock().unwrap() = mode;
@@ -200,8 +220,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             #[cfg(target_os = "android")]
             android::init_tls();
             let dir = app.path().app_local_data_dir()?;
-            let mode = std::fs::read_to_string(mode_file(&dir)).ok().and_then(|s| Mode::parse(&s)).unwrap_or(Mode::Auto);
-            app.manage(Local { dir, mode: Mutex::new(mode), slot: tokio::sync::Mutex::new(Slot::Stopped) });
+            let limit = device_limit();
+            let saved = std::fs::read_to_string(mode_file(&dir)).ok().and_then(|s| Mode::parse(&s)).unwrap_or(Mode::Auto);
+            // En un TV box o con poca RAM, siempre solo server (lo guardado no se toca).
+            let mode = if limit.is_some() { Mode::Server } else { saved };
+            app.manage(Local { dir, limit, mode: Mutex::new(mode), slot: tokio::sync::Mutex::new(Slot::Stopped) });
             // En segundo plano: la ventana no espera al server.
             if mode.embedded() {
                 let app = app.clone();

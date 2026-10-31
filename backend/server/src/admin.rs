@@ -9,7 +9,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    auth::{create_user, hash_password, user_from_row, validate_password, AdminUser, ClientIp, User, USER_COLS},
+    auth::{
+        create_user, hash_password, rename_user, sessions_of, user_from_row, validate_password, validate_username, AdminUser, ClientIp, SessionInfo, User,
+        USER_COLS,
+    },
     db::now_unix,
     error::{ApiError, ApiResult, Json, Path, Query},
     state::{AppState, Watching},
@@ -19,9 +22,35 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/admin/users", get(list_users).post(add_user))
         .route("/admin/users/{id}", patch(edit_user).delete(remove_user))
+        .route("/admin/users/{id}/sessions", get(user_sessions))
+        .route("/admin/users/{id}/sessions/{sid}", delete(revoke_user_session))
         .route("/admin/torrents", get(torrents))
         .route("/admin/torrents/{info_hash}", delete(remove_torrent))
         .route("/admin/stats", get(stats))
+}
+
+/// Las sesiones abiertas de un usuario (las de la TV, que no vencen, incluidas). `current`: la del
+/// admin que pregunta.
+async fn user_sessions(State(st): State<AppState>, a: AdminUser, Path(id): Path<i64>) -> ApiResult<Json<Vec<SessionInfo>>> {
+    st.db.call(move |c| get_user(c, id)).await?;
+    Ok(Json(sessions_of(&st.auth, id, &a.0.token_hash).await?))
+}
+
+/// Cierra una sesión de ese usuario (p. ej. una TV que ya no se usa).
+async fn revoke_user_session(State(st): State<AppState>, ClientIp(ip): ClientIp, a: AdminUser, Path((id, sid)): Path<(i64, i64)>) -> ApiResult<StatusCode> {
+    let (n, name) = st
+        .db
+        .call(move |c| {
+            let u = get_user(c, id)?;
+            Ok((c.execute("DELETE FROM sessions WHERE rowid = ?1 AND user_id = ?2", params![sid, id])?, u.username))
+        })
+        .await?;
+    if n == 0 {
+        return Err(ApiError::not_found("Session not found"));
+    }
+    st.auth.clear_cache();
+    st.recorder.audit("session_revoked", Some(a.0.user.id), Some(&a.0.user.username), Some(ip), Some(format!("{name}: session {sid}")));
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_users(State(st): State<AppState>, _a: AdminUser) -> ApiResult<Json<Vec<User>>> {
@@ -59,6 +88,8 @@ async fn add_user(State(st): State<AppState>, ClientIp(ip): ClientIp, a: AdminUs
 
 #[derive(Deserialize)]
 struct EditUser {
+    /// Nombre nuevo (mismas reglas que al crear; 409 si ya existe).
+    username: Option<String>,
     password: Option<String>,
     is_admin: Option<bool>,
     disabled: Option<bool>,
@@ -97,6 +128,9 @@ async fn edit_user(
     if let Some(p) = &b.password {
         validate_password(p)?;
     }
+    if let Some(n) = &b.username {
+        validate_username(n.trim())?;
+    }
     let me = a.0.user.id;
     let my_token = a.0.token_hash.clone();
     let user = st
@@ -114,6 +148,13 @@ async fn edit_user(
                 return Err(ApiError::bad_request("There must be at least one active admin"));
             }
             let tx = c.transaction()?;
+            let mut renamed = None;
+            if let Some(n) = &b.username {
+                let (old, u) = rename_user(&tx, id, n)?;
+                if old != u.username {
+                    renamed = Some(format!("{old} → {}", u.username));
+                }
+            }
             if let Some(p) = &b.password {
                 tx.execute("UPDATE users SET password_hash = ?2 WHERE id = ?1", params![id, hash_password(p)?])?;
             }
@@ -129,9 +170,10 @@ async fn edit_user(
                 tx.execute("DELETE FROM sessions WHERE user_id = ?1 AND token_hash <> ?2", params![id, my_token])?;
             }
             tx.commit()?;
-            get_user(c, id)
+            Ok((get_user(c, id)?, renamed))
         })
         .await?;
+    let (user, renamed) = user;
     st.auth.clear_cache();
     if user.disabled {
         let w = st.watching.lock().unwrap().remove(&user.id);
@@ -140,8 +182,13 @@ async fn edit_user(
         }
     }
     tracing::info!(by = %a.0.user.username, user = %user.username, admin = user.is_admin, disabled = user.disabled, "usuario editado");
-    let event = if disabling { "user_disabled" } else { "user_updated" };
-    st.recorder.audit(event, Some(a.0.user.id), Some(&a.0.user.username), Some(ip), Some(format!("{}: {}", user.username, what.join(", "))));
+    if let Some(r) = renamed {
+        st.recorder.audit("user_renamed", Some(a.0.user.id), Some(&a.0.user.username), Some(ip), Some(r));
+    }
+    if !what.is_empty() {
+        let event = if disabling { "user_disabled" } else { "user_updated" };
+        st.recorder.audit(event, Some(a.0.user.id), Some(&a.0.user.username), Some(ip), Some(format!("{}: {}", user.username, what.join(", "))));
+    }
     Ok(Json(user))
 }
 

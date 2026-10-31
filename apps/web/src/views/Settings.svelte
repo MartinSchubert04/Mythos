@@ -4,20 +4,23 @@
   import { Captions, Download, Keyboard, KeyRound, LogOut, Monitor, Palette, Play, RefreshCw, Server, Smartphone, UserRound } from "@lucide/svelte";
   import { MonitorSmartphone, Users } from "@lucide/svelte";
   import { conn } from "../lib/local.svelte";
+  import AvatarPicker from "../components/AvatarPicker.svelte";
   import ConnectionSettings from "../components/ConnectionSettings.svelte";
   import Devices from "../components/Devices.svelte";
   import Section from "../components/Section.svelte";
   import Seg from "../components/Seg.svelte";
   import Select from "../components/Select.svelte";
   import Switch from "../components/Switch.svelte";
-  import { api } from "../lib/api";
+  import { api, ApiError, errText } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
   import { checkServer, isAndroid, isDesktop, isRemoteShell, normalizeServer, pickServer, serverSetting, setServer } from "../lib/platform";
   import { LANGS, prefs, savePrefs } from "../lib/prefs.svelte";
   import { ALL_KEYS as KEYS } from "../lib/shortcuts";
   import { AUDIO_LANGS } from "../lib/streamlang";
   import { keepScroll } from "../lib/scroll";
+  import { profiles, syncProfile } from "../lib/profiles.svelte";
   import { logout, session } from "../lib/session.svelte";
+  import { setTvPref, tv } from "../lib/tv.svelte";
   import { MIN_OPACITY, glass, setGlass } from "../lib/glass.svelte";
   import { checkUpdate, installUpdate, leaveServer, remoteUi, setRemoteUi, shell } from "../lib/shell.svelte";
   import { THEMES, applyTheme, currentPalette, currentTheme, palettesOf, type ThemeId } from "../lib/themes";
@@ -85,11 +88,36 @@
     if (newPw.length < 4) return attempt(() => Promise.reject(new Error("Use at least 4 characters")));
     if (await attempt(() => api.changePassword(oldPw, newPw), "Password changed")) oldPw = newPw = "";
   }
-  async function signOut() {
-    if (await ask({ title: "Sign out?", body: "You'll need your password to come back.", confirm: "Sign out" })) logout();
+  let newName = $state(session.user?.username ?? "");
+  let renaming = $state(false);
+  async function rename() {
+    const name = newName.trim();
+    if (!name || name === session.user?.username) return;
+    renaming = true;
+    try {
+      const u = await api.changeUsername(name);
+      session.user = u;
+      newName = u.username;
+      syncProfile(u);
+      toast(`You're now ${u.username}`);
+    } catch (e) {
+      toast(e instanceof ApiError && e.status === 409 ? "That username is taken." : errText(e), true);
+    } finally {
+      renaming = false;
+    }
   }
-  /** Lo mismo que salir (las dos sesiones, en desktop y Android): queda el login con el server. */
+
+  async function signOut() {
+    const body = tv.on ? "This TV forgets this profile. You'll need the password to add it again." : "You'll need your password to come back.";
+    if (await ask({ title: tv.on ? "Remove this profile?" : "Sign out?", body, confirm: tv.on ? "Remove profile" : "Sign out" })) logout();
+  }
+  /** Lo mismo que salir (las dos sesiones, en desktop y Android): queda el login con el server. En
+   *  la TV, los perfiles guardados (sin salir de nada). */
   async function switchAccount() {
+    if (tv.on) {
+      profiles.picking = true;
+      return;
+    }
     if (await ask({ title: "Switch account?", body: "You'll sign out here and can sign in with another account on the same server.", confirm: "Switch" })) logout();
   }
 
@@ -175,6 +203,18 @@
         {/each}
       </div>
       <Switch bind:checked={prefs.reduceMotion} onchange={() => savePrefs()}>Reduce motion (no animations or transitions)</Switch>
+      {#if !isAndroid}
+        <!-- Modo TV en la web (lib/tv.svelte.ts): en la app de Android es automatico. -->
+        <Switch checked={tv.on} onchange={(v) => setTvPref(v ? "on" : "off")}>TV mode (remote control)</Switch>
+        <span class="app-hint">
+          Big focus ring and arrow-key navigation for a TV remote: arrows move, Enter selects, Back goes back. Saved in this browser.
+          {#if tv.pref}
+            <button class="btn ghost sm" onclick={() => setTvPref(null)}>Detect automatically</button>
+          {:else}
+            Detected automatically ({tv.auto ? "this looks like a TV" : "this doesn't look like a TV"}).
+          {/if}
+        </span>
+      {/if}
       {#if isDesktop}
         <Switch checked={glass.on} onchange={(v) => setGlass(v)}>Frosted glass window (see your desktop blurred behind Mythos)</Switch>
         {#if glass.on}
@@ -285,6 +325,14 @@
     {#if conn.available}<ConnectionSettings />{/if}
 
     <Section id="account" title="Account" icon={UserRound} summary="Signed in as {session.user?.username}">
+      <div class="sub">Avatar</div>
+      <AvatarPicker />
+      <div class="sub">Username</div>
+      <div class="row">
+        <input bind:value={newName} autocomplete="username" spellcheck="false" autocapitalize="off" maxlength="32" />
+        <button class="btn" disabled={renaming || !newName.trim() || newName.trim() === session.user?.username} onclick={rename}>Rename</button>
+      </div>
+      {#if conn.on === "local"}<span class="app-hint">Running on this device: the username can only change on your server (this device picks it up when it syncs).</span>{/if}
       <div class="sub">Change password</div>
       <div class="grid2">
         <input type="password" placeholder="Current password" bind:value={oldPw} autocomplete="current-password" />
@@ -309,8 +357,8 @@
       <Devices />
       <div class="sep"></div>
       <div class="row">
-        <button class="btn danger" onclick={signOut}><LogOut size={14} />Sign out</button>
-        <button class="btn ghost" onclick={switchAccount}><Users size={14} />Switch account</button>
+        <button class="btn danger" onclick={signOut}><LogOut size={14} />{tv.on ? "Remove profile" : "Sign out"}</button>
+        <button class="btn ghost" onclick={switchAccount}><Users size={14} />{tv.on ? "Switch profile" : "Switch account"}</button>
       </div>
     </Section>
 

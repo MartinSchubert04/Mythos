@@ -13,6 +13,7 @@ permissions = [
   "allow-set-bars",
   "allow-minimize",
   "allow-request-network",
+  "allow-device",
   "allow-update-state",
   "allow-update-check",
   "allow-update-install",

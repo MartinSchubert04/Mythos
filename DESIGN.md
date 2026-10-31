@@ -18,7 +18,10 @@ cada carga tiene esqueleto con brillo, cada imagen aparece en fundido, nada salt
 - **Seis temas, una estructura.** Cambian colores, bordes, sombras, fondos y fuentes; nunca el layout.
 - **La única diferencia entre web y desktop** es la barra de título propia del desktop. En Android
   (`docs/mobile.md`): botón atrás, reproductor en pantalla completa horizontal, de borde a borde con
-  `env(safe-area-inset-*)` y Settings → App (versión y actualizaciones).
+  `env(safe-area-inset-*)` y Settings → App (versión y actualizaciones). En Android TV / TV box
+  (`docs/mobile.md`, "TV"): escala de 10 pies (página de 960 px agrandada), foco grande con el
+  acento, barra lateral en iconos que se abre con el foco, control remoto y "Who's watching?".
+  Lo mismo en la web con el modo TV (Settings → Appearance, o automatico en un navegador de TV).
 
 ## 2. Colores y roles
 
@@ -132,6 +135,11 @@ Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en
   una hoja de lado a lado con filas de 44 px. Los subtítulos los dibuja la app (no `<track>` ni
   `::cue`), así se ven igual en Chrome, WebView2 y Android y siguen al tiempo real en HLS.
 - **Botones del detalle**: siempre en una fila; en celular "Choose stream" queda solo con el ícono.
+- **Avatar** (`Avatar.svelte`): la imagen que el usuario eligió de la galería del server
+  (Settings → Account; el admin la arma en Admin → Avatars) o, sin avatar, la inicial sobre
+  `--primary-bg`. Redondo, en la barra lateral, Settings y el selector de perfiles de la TV.
+- **Foco en TV** (`styles/tv.css`, `data-tv`): anillo de 3 px de `--accent` separado 3 px; las
+  tarjetas crecen 6 % con el anillo en el marco. Nada depende del hover.
 - **Cast** (detalle): avatares con iniciales sobre el acento (el catálogo no trae fotos). Debajo,
   la fila "More like this" (mismo género principal).
 - **Episodios**: en pantallas anchas van en dos o tres columnas; los especiales (temporada 0) se
