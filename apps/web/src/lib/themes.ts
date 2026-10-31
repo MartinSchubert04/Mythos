@@ -26,9 +26,12 @@ export function isTheme(t: unknown): t is ThemeId {
   return THEMES.some((x) => x.id === t);
 }
 
+/** Sin elegir: Neovim (su paleta oscura, la primera), el que va con el logo. */
+export const DEFAULT_THEME: ThemeId = "neovim";
+
 export function currentTheme(): ThemeId {
   const t = read(KEY);
-  return isTheme(t) ? t : "default";
+  return isTheme(t) ? t : DEFAULT_THEME;
 }
 
 /** La paleta elegida para un tema (cada tema recuerda la suya). */

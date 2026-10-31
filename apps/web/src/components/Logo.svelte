@@ -1,31 +1,26 @@
 <script lang="ts">
-  // La marca de Mythos: una M de dos cumbres con una estrella, en el acento del tema.
-  // Con `shine`, un brillo la cruza cada tanto (login, splash).
+  // La marca de Mythos: una M sólida en 3D vista de tres cuartos (frente, cantos de arriba y
+  // costados). Los tonos salen del tema: el frente es el color del texto y las caras de la
+  // extrusión lo mezclan con el fondo, así en un tema oscuro queda clara con costados oscuros
+  // (como el ícono de la app, en los grises de Neovim) y en uno claro se invierte sola.
+  // Con `shine`, un reflejo la cruza cada tanto (login, splash).
   let { size = 28, shine = false, word = false }: { size?: number; shine?: boolean; word?: boolean } = $props();
-  const uid = Math.random().toString(36).slice(2, 8);
 </script>
 
 <span class="logo" class:shine style="--s: {size}px">
   <svg viewBox="0 0 512 512" width={size} height={size} aria-hidden="true">
-    <defs>
-      <linearGradient id="lg-{uid}" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" style="stop-color: var(--accent)" />
-        <stop offset="1" style="stop-color: color-mix(in srgb, var(--accent) 55%, var(--text))" />
-      </linearGradient>
-      <clipPath id="lc-{uid}">
-        <path d="M120 372 V176 L256 316 L392 176 V372" />
-      </clipPath>
-    </defs>
-    <path
-      class="m"
-      d="M120 372 V176 L256 316 L392 176 V372"
-      fill="none"
-      stroke="url(#lg-{uid})"
-      stroke-width="58"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    />
-    <path class="star" d="M256 92 L268 126 L302 138 L268 150 L256 184 L244 150 L210 138 L244 126 Z" />
+    <g transform="translate(256 256) scale(1.7308) translate(-273 -247)">
+      <path class="top" d="M319.6 143.6 L373 135 L407 113 L353.6 121.6 Z" />
+      <path class="side" d="M373 135 L373 343 L407 321 L407 113 Z" />
+      <path class="side" d="M319.6 224.8 L256 312.9 L290 290.9 L353.6 202.8 Z" />
+      <path class="top" d="M192.4 164.4 L256 231.7 L290 209.7 L226.4 142.4 Z" />
+      <path class="top" d="M139 173 L192.4 164.4 L226.4 142.4 L173 151 Z" />
+      <path class="side" d="M192.4 245.6 L192.4 372.4 L226.4 350.4 L226.4 223.6 Z" />
+      <path
+        class="front"
+        d="M139 381 L139 173 L192.4 164.4 L256 231.7 L319.6 143.6 L373 135 L373 343 L319.6 351.6 L319.6 224.8 L256 312.9 L192.4 245.6 L192.4 372.4 Z"
+      />
+    </g>
   </svg>
   {#if word}<span class="word">Mythos</span>{/if}
 </span>
@@ -42,9 +37,20 @@
     display: block;
     overflow: visible;
   }
-  .star {
+  .front {
     fill: var(--text);
-    transform-origin: 256px 138px;
+  }
+  .top {
+    fill: color-mix(in srgb, var(--text) 62%, var(--bg));
+    stroke: color-mix(in srgb, var(--text) 62%, var(--bg));
+    stroke-width: 0.6;
+    stroke-linejoin: round;
+  }
+  .side {
+    fill: color-mix(in srgb, var(--text) 36%, var(--bg));
+    stroke: color-mix(in srgb, var(--text) 36%, var(--bg));
+    stroke-width: 0.6;
+    stroke-linejoin: round;
   }
   .word {
     font-family: var(--display);
@@ -53,10 +59,7 @@
     letter-spacing: -0.02em;
     color: var(--text);
   }
-  /* Brillo: la estrella titila y un reflejo cruza la marca. */
-  .shine .star {
-    animation: twinkle 3.2s ease-in-out infinite;
-  }
+  /* Brillo: un reflejo cruza la marca cada tanto. */
   .shine::after {
     content: "";
     position: absolute;
@@ -70,18 +73,6 @@
     animation: glow-sweep 4.5s ease-in-out infinite;
   }
   .shine svg {
-    filter: drop-shadow(0 0 calc(var(--s) * 0.18) color-mix(in srgb, var(--accent) 45%, transparent));
-  }
-  @keyframes twinkle {
-    0%,
-    70%,
-    100% {
-      transform: scale(1) rotate(0);
-      opacity: 1;
-    }
-    80% {
-      transform: scale(1.35) rotate(45deg);
-      opacity: 0.85;
-    }
+    filter: drop-shadow(0 0 calc(var(--s) * 0.16) color-mix(in srgb, var(--text) 22%, transparent));
   }
 </style>
