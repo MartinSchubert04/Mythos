@@ -336,7 +336,9 @@ pub struct Config {
     pub bind: SocketAddr,              // Config::local: 127.0.0.1:0 (puerto libre)
     pub data_dir: PathBuf,             // mythos.db + caché de torrents
     pub web_dir: Option<PathBuf>,      // None = no sirve UI (local)
-    pub cache_gb: f64, pub peer_port: u16 /* 0 = efímero */, pub hwaccel: HwAccel,
+    pub cache_gb: f64,                 // 0 = sin tope (local)
+    pub cache_max_age: Option<Duration>, // local: 24 h desde el último uso; server: None
+    pub peer_port: u16 /* 0 = efímero */, pub hwaccel: HwAccel,
     pub admin_user: Option<String>, pub admin_password: Option<String>, pub dev_users: bool, // solo server
     pub torrentio_url: String,
     pub ffmpeg: PathBuf, pub ffprobe: PathBuf,   // ruta vacía = sin ffmpeg (solo directo)

@@ -153,6 +153,7 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
     let media = Media::new(MediaConfig {
         data_dir: cfg.data_dir.clone(),
         cache_limit_bytes: cfg.cache_limit_bytes(),
+        cache_max_age_secs: cfg.cache_max_age.map_or(0, |d| d.as_secs()),
         peer_port: cfg.peer_port,
         ffmpeg: cfg.ffmpeg.clone(),
         ffprobe: cfg.ffprobe.clone(),

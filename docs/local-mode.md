@@ -145,8 +145,10 @@ dispositivo.
 
 ## Reproducción en el dispositivo y ffmpeg
 
-- Los torrents se bajan en el dispositivo (`data_dir/torrents`, LRU con `cache_gb`, 20 GB por
-  defecto). El primer play tarda lo mismo que en el server; no hay NVENC.
+- Los torrents se bajan en el dispositivo (`data_dir/torrents`). Sin tope de tamaño: cada película
+  se borra a las 24 h de su último uso (`cache_max_age`; nunca la que se está viendo, y lo que
+  venció con la app cerrada se borra al abrirla). Con menos de 2 GB libres se borran antes, y con
+  menos de 1 GB se pausa la descarga. El primer play tarda lo mismo que en el server; no hay NVENC.
 - ffmpeg es opcional. El shell puede pasar la ruta de un ffmpeg (en Windows, si está en el PATH,
   `Config::local` ya lo usa). Sin ffmpeg: solo reproducción directa, sondeo con el lector propio
   de cabeceras MP4/MKV, `PlayInfo.transcode_available: false` y `direct_ok` dice si el

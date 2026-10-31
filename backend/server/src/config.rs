@@ -25,7 +25,10 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// UI compilada para servir en `/`. `None` = no se sirve (la app trae la UI adentro).
     pub web_dir: Option<PathBuf>,
+    /// Tope de la caché de torrents. 0 = sin tope (solo el vencimiento y el espacio libre).
     pub cache_gb: f64,
+    /// Se borra cada torrent sin usar hace más que esto. `None` = sin vencimiento.
+    pub cache_max_age: Option<Duration>,
     /// Puerto de peers de BitTorrent. 0 = efímero.
     pub peer_port: u16,
     pub hwaccel: HwAccel,
@@ -60,6 +63,7 @@ impl Config {
             data_dir: data_dir.into(),
             web_dir: Some("./web".into()),
             cache_gb: 60.0,
+            cache_max_age: None,
             peer_port: 42069,
             hwaccel: HwAccel::None,
             admin_user: None,
@@ -76,14 +80,16 @@ impl Config {
     }
 
     /// Valores para el modo embebido: solo en 127.0.0.1 con puerto libre, sin UI, sin métricas,
-    /// caché de 20 GB, puerto de peers efímero y sincronización cada 60 s si hay remoto.
+    /// caché sin tope que borra cada película a las 24 h de su último uso, puerto de peers efímero
+    /// y sincronización cada 60 s si hay remoto.
     /// ffmpeg/ffprobe se buscan en el PATH; si no están, solo reproducción directa.
     pub fn local(data_dir: impl Into<PathBuf>) -> Self {
         Self {
             mode: Mode::Local,
             bind: SocketAddr::from(([127, 0, 0, 1], 0)),
             web_dir: None,
-            cache_gb: 20.0,
+            cache_gb: 0.0,
+            cache_max_age: Some(Duration::from_secs(24 * 3600)),
             peer_port: 0,
             metrics: false,
             sync_interval: Some(Duration::from_secs(60)),
@@ -91,7 +97,11 @@ impl Config {
         }
     }
 
+    /// 0 = sin tope.
     pub fn cache_limit_bytes(&self) -> u64 {
+        if self.cache_gb <= 0.0 {
+            return 0;
+        }
         (self.cache_gb.max(1.0) * 1024.0 * 1024.0 * 1024.0) as u64
     }
 

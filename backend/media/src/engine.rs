@@ -612,6 +612,38 @@ impl Engine {
         }
     }
 
+    /// Borra los torrents sin usar hace `cache_max_age_secs` (nunca los en uso). Corre al arrancar,
+    /// así lo que venció con la app cerrada se borra apenas se abre.
+    async fn evict_expired(&self) {
+        let max_age = self.cfg.cache_max_age_secs;
+        if max_age == 0 {
+            return;
+        }
+        let handles: Vec<ManagedTorrentHandle> = self.rq.with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+        let entries: Vec<cache::Entry> = {
+            let usage = self.usage.lock().unwrap();
+            handles
+                .iter()
+                .map(|h| {
+                    let hash = h.info_hash().as_string();
+                    cache::Entry {
+                        in_use: self.in_use(&hash),
+                        bytes: 0,
+                        // Sin registro de uso: cuenta desde que arrancó el motor.
+                        last_used: usage.get(&hash).unwrap_or(self.started_unix),
+                        hash,
+                    }
+                })
+                .collect()
+        };
+        for hash in cache::pick_expired(&entries, now_unix(), max_age) {
+            info!(%hash, "unused for too long: removing torrent");
+            if let Err(e) = self.remove_torrent(&hash, true).await {
+                warn!(%hash, "could not remove expired torrent: {e:#}");
+            }
+        }
+    }
+
     /// Disco casi lleno: primero se libera caché (LRU, también lo usado hace poco) y, si igual no
     /// alcanza, se pausan los torrents que siguen bajando, con un error claro en sus sesiones. Así
     /// lo ya bajado sigue reproduciéndose, en vez de que librqbit falle al escribir y el torrent
@@ -849,7 +881,7 @@ async fn build_session(cfg: &MediaConfig, tuning: &Tuning, out: &Path, trackers:
 }
 
 /// Tareas periódicas: cerrar sesiones abandonadas, matar ffmpeg ocioso, pausar torrents sin uso,
-/// LRU y guardar el uso a disco.
+/// borrar los vencidos, LRU y guardar el uso a disco.
 async fn keeper(engine: Weak<Engine>, stop: CancellationToken) {
     let mut tick = tokio::time::interval(Duration::from_secs(5));
     let mut n: u64 = 0;
@@ -871,6 +903,7 @@ async fn keeper(engine: Weak<Engine>, stop: CancellationToken) {
         e.prefetching.lock().unwrap().retain(|_, until| *until > Instant::now());
         e.pause_idle_torrents().await;
         if n % 12 == 1 {
+            e.evict_expired().await;
             e.evict_lru(0).await;
         }
         e.usage.lock().unwrap().save_if_dirty();

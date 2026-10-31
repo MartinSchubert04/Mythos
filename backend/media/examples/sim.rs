@@ -97,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
     let cfg = MediaConfig {
         data_dir: PathBuf::from(std::env::var("MYTHOS_DATA").unwrap_or_else(|_| "./data/media-sim".into())),
         cache_limit_bytes: 0,
+        cache_max_age_secs: 0,
         peer_port: 42071,
         ffmpeg: "ffmpeg".into(),
         ffprobe: "ffprobe".into(),

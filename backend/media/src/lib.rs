@@ -43,8 +43,11 @@ pub enum HwAccel {
 pub struct MediaConfig {
     /// torrents en `data_dir/torrents`, HLS temporal en `data_dir/hls`.
     pub data_dir: PathBuf,
-    /// LRU: se borran los torrents menos usados que no estén en uso.
+    /// LRU: se borran los torrents menos usados que no estén en uso. 0 = sin tope de tamaño.
     pub cache_limit_bytes: u64,
+    /// Se borra todo torrent sin usar hace más que esto (aunque la caché no esté llena).
+    /// 0 = sin vencimiento.
+    pub cache_max_age_secs: u64,
     /// Puerto de peers (TCP y uTP/UDP).
     pub peer_port: u16,
     pub ffmpeg: PathBuf,

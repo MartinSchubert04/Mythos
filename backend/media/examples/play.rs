@@ -54,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
     let cfg = MediaConfig {
         data_dir: PathBuf::from(std::env::var("MYTHOS_DATA").unwrap_or_else(|_| "./data/media-example".into())),
         cache_limit_bytes: std::env::var("MYTHOS_CACHE_GB").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(20) << 30,
+        cache_max_age_secs: 0,
         peer_port: 42069,
         ffmpeg: std::env::var("FFMPEG").unwrap_or_else(|_| "ffmpeg".into()).into(),
         ffprobe: std::env::var("FFPROBE").unwrap_or_else(|_| "ffprobe".into()).into(),

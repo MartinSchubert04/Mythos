@@ -83,6 +83,14 @@ pub fn pick_evictions(entries: &[Entry], limit: u64, extra_needed: u64) -> Vec<S
     out
 }
 
+/// Qué torrents vencieron: sin usar hace `max_age` segundos o más (nunca los en uso).
+pub fn pick_expired(entries: &[Entry], now: u64, max_age: u64) -> Vec<String> {
+    if max_age == 0 {
+        return Vec::new();
+    }
+    entries.iter().filter(|e| !e.in_use && now.saturating_sub(e.last_used) >= max_age).map(|e| e.hash.clone()).collect()
+}
+
 /// Espacio libre del disco que contiene `path`.
 #[cfg(unix)]
 pub fn disk_free(path: &Path) -> u64 {
@@ -137,6 +145,17 @@ mod tests {
         // Si todo lo que sobra está en uso, no se borra nada en uso.
         let busy = vec![e("x", 500, 1, true)];
         assert!(pick_evictions(&busy, 100, 0).is_empty());
+    }
+
+    #[test]
+    fn expired_after_max_age() {
+        let day = 86_400;
+        let now = 10 * day;
+        let es = vec![e("old", 10, now - day, false), e("fresh", 10, now - day + 1, false), e("busy", 10, 0, true)];
+        // Justo 24 h: vence. Un segundo menos: no. En uso: nunca.
+        assert_eq!(pick_expired(&es, now, day), vec!["old".to_string()]);
+        // Sin vencimiento configurado: nada.
+        assert!(pick_expired(&es, now, 0).is_empty());
     }
 
     #[test]
