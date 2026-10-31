@@ -13,6 +13,7 @@ import "./styles/app.css";
 import "./styles/tv.css";
 import App from "./App.svelte";
 import { initGlass } from "./lib/glass.svelte";
+import { applyLite } from "./lib/perf";
 import { isDesktop } from "./lib/platform";
 import { initShell } from "./lib/shell.svelte";
 import { initSpatial } from "./lib/spatial.svelte";
@@ -25,6 +26,7 @@ async function boot() {
     const { installMock } = await import("./lib/mock");
     installMock();
   }
+  applyLite();
   initShell();
   // Modo TV (control remoto): se averigua de fondo; la navegacion con flechas espera a saberlo.
   initTv();

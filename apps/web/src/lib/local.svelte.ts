@@ -200,8 +200,10 @@ export async function startConn() {
     if (!(await loadLocal())) return;
   } else {
     // Auto con sesion del server: se arranca contra el; el local se averigua de fondo (para
-    // pasar a el sin esperar si el server no contesta).
-    loadLocal();
+    // pasar a el sin esperar si el server no contesta), despues del primer render: preguntar
+    // ya lo arrancaria y en un equipo flojo compite con la interfaz (el shell tambien espera,
+    // apps/local-server). Si el server no contesta antes, `onUnreachable` lo pide en el momento.
+    setTimeout(() => loadLocal(), 8000);
     return;
   }
   if (conn.mode === "local" || (conn.mode === "auto" && !remoteToken() && getLocalToken())) goLocal(false);

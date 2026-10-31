@@ -173,7 +173,7 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 
 | Método | Ruta | Cuerpo / query | Respuesta |
 |---|---|---|---|
-| GET | `/api/health` | | `{ok:true, version, mode: "server"\|"local", transcode: boolean}` (sin auth; `transcode` = hay ffmpeg) |
+| GET | `/api/health` | | `{ok:true, version, mode: "server"\|"local", transcode: boolean, images: boolean}` (sin auth; `transcode` = hay ffmpeg; `images` = existe `/api/media/img`) |
 | POST | `/api/auth/login` | `{username, password, device?, persistent?}` (`device`: etiqueta para la lista de sesiones, ≤ 64; `persistent: true`: sesión que no vence, ver Generalidades) | `{token, user}`; 401 si falla o está deshabilitado. Rate limit por IP: 10 fallos / 5 min → 429. En modo local cambia: ver "Modo local" |
 | POST | `/api/auth/logout` | | 204 (revoca la sesión) |
 | GET | `/api/me` | | `User` |
@@ -318,6 +318,15 @@ Rutas montadas desde el crate de media, con auth (Bearer o `?t=`):
 | GET | `/api/media/{session}/status` | `MediaStatus` |
 | DELETE | `/api/media/{session}` | 204 (para ffmpeg; el torrent queda en caché) |
 | GET | `/api/media/subs/external` | `?u=<url de OpenSubtitles>` → VTT (gz/srt → vtt) — lo hace el server |
+| GET | `/api/media/img` | `?u=<url https de *.metahub.space>&w=<ancho>` → la imagen achicada a 320/480/640/960/1280 px de ancho (el primero ≥ `w`, JPEG), o la original si ya es chica o tiene transparencia. Cacheada en disco (`<data>/img-cache`, tope 512 MB en server y 96 MB en local, se borran las menos usadas) con `Cache-Control: private, max-age=2592000, immutable`. 400 si no es de metahub, 502 si metahub falla |
+
+**Imágenes achicadas (`/api/media/img`)**: metahub da los fondos en 480 px (`background/small`) o
+1920 px (`background/medium`, ~800 KB y ~8 MB decodificado). La UI (`apps/web/src/lib/images.ts`)
+pide el tamaño justo para cada lugar: hasta 480 px `small` directo de metahub; entre 480 y 1280 px
+esta ruta; más, la original (en equipos flojos, `lib/perf.ts`, el tope es 1280). Las miniaturas
+de episodios (`episodes.metahub.space/…/w780.jpg`) se piden en el tamaño de TMDB que alcanza
+(`w185`…`w780`) sin pasar por acá, y los pósters ya vienen chicos en WebP. Si la ruta falla (un
+server viejo), la UI vuelve a la URL original. `GET /api/health` trae `images: true`.
 
 **HLS espera, no da 404**: un segmento o la playlist que ffmpeg todavía no generó se queda
 esperando a que exista (hasta 120 s la playlist y 90 s un segmento) en vez de responder 404, que

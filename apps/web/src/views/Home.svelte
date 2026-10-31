@@ -14,10 +14,12 @@
   let featured = $state<MetaPreview[] | null>(null);
   let cont = $state<Progress[] | null>(null);
 
+  // Las dos a la vez (y quedan en cache para las filas "Popular", que piden lo mismo).
+  const seriesTop = api.catalog("series", "top").catch(() => [] as MetaPreview[]);
   api
     .catalog("movie", "top")
     .then(async (movies) => {
-      const series = await api.catalog("series", "top").catch(() => [] as MetaPreview[]);
+      const series = await seriesTop;
       // Peliculas y series intercaladas, solo las que tienen fondo.
       const pick = (l: MetaPreview[]) => l.filter((m) => m.background).slice(0, 4);
       const a = pick(movies);

@@ -188,7 +188,7 @@
     border-radius: var(--radius);
     background: var(--panel);
     border: var(--border) solid var(--line);
-    animation: rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
     animation-delay: calc(min(var(--i), 14) * 28ms);
     transition:
       border-color 0.15s,

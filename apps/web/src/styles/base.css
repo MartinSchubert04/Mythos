@@ -455,7 +455,7 @@ code {
   }
 }
 .stagger {
-  animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
   animation-delay: calc(var(--i, 0) * 35ms);
 }
 @keyframes shake {
@@ -542,6 +542,16 @@ table.list tr.click:hover td {
 }
 [data-reduce-motion] * {
   transition: none !important;
+  animation: none !important;
+}
+
+/* Equipos flojos (lib/perf.ts): sin desenfoques detras de nada y las tarjetas aparecen sin
+   escalonar (cada una seria una animacion propia al montar una fila). El resto queda igual. */
+[data-lite] * {
+  backdrop-filter: none !important;
+}
+[data-lite] .card-poster,
+[data-lite] .stagger {
   animation: none !important;
 }
 

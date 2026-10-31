@@ -12,7 +12,20 @@ export function keepScroll(node: HTMLElement, key: string) {
   };
   if (want) restore();
   const stop = () => cancelAnimationFrame(raf);
-  node.addEventListener("scroll", () => saved.set(key, node.scrollTop), { passive: true });
+  // Se guarda cuando el scroll se queda quieto: leer scrollTop en cada evento (o cuadro) fuerza
+  // el layout mientras se montan filas nuevas.
+  let saveT = 0;
+  node.addEventListener(
+    "scroll",
+    () => {
+      clearTimeout(saveT);
+      saveT = window.setTimeout(() => {
+        // Ya desmontada (se fue a otra vista): scrollTop daria 0.
+        if (node.isConnected) saved.set(key, node.scrollTop);
+      }, 120);
+    },
+    { passive: true },
+  );
   // Si la persona scrollea, manda ella.
   node.addEventListener("wheel", stop, { passive: true, once: true });
   node.addEventListener("touchstart", stop, { passive: true, once: true });

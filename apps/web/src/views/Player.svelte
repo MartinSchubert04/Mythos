@@ -674,7 +674,11 @@
     if (nextEp && prefs.autoplayNext) startCountdown();
   }
 
-  // Tiempo y subtitulos a 60 fps solo mientras se reproduce (barato: un rAF).
+  // Mientras se reproduce, un rAF: los subtitulos cambian justo a tiempo y, con los controles a
+  // la vista, la barra y el reloj van a 60 fps. Con los controles escondidos `t` no se toca en
+  // cada cuadro (la barra y todo lo que depende de `t` se recalcularian igual aunque no se vean):
+  // alcanza con `timeupdate` (~4 por segundo). Asi la interfaz no le compite al video, que en
+  // una TV box es lo que importa.
   let raf = 0;
   function frame() {
     if (!video) return;
@@ -682,9 +686,10 @@
       raf = requestAnimationFrame(frame);
       return;
     }
-    t = offset + video.currentTime;
+    const now = offset + video.currentTime;
+    if (ui || dragging) t = now;
     if (cues.length) {
-      const h = cuesAt(cues, t - subDelay);
+      const h = cuesAt(cues, now - subDelay);
       if (h !== subHtml) subHtml = h;
     }
     raf = requestAnimationFrame(frame);
@@ -1635,7 +1640,9 @@
   const VolIcon = $derived(prefs.muted || prefs.volume === 0 ? VolumeX : prefs.volume < 0.5 ? Volume1 : Volume2);
   const subSize = $derived(`calc(clamp(18px, 2.4vw, 40px) * ${prefs.subSize / 100})`);
   const subPreview = $derived(stylePeek && !!subSel);
-  const bgImg = $derived(sized(meta?.background, "medium"));
+  // Va desenfocado detras de la pantalla de carga: el de 480 px alcanza (el de 1920 son ~800 KB
+  // que competirian con el video justo al arrancar).
+  const bgImg = $derived(sized(meta?.background, "small"));
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 </script>
 

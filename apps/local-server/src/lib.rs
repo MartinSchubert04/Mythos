@@ -23,6 +23,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+/// Auto: cuanto espera el server local para arrancar solo (ver `init`).
+const AUTO_START_DELAY: Duration = Duration::from_secs(8);
+
 use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{AppHandle, Manager, RunEvent, Runtime};
@@ -225,10 +228,16 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             // En un TV box o con poca RAM, siempre solo server (lo guardado no se toca).
             let mode = if limit.is_some() { Mode::Server } else { saved };
             app.manage(Local { dir, limit, mode: Mutex::new(mode), slot: tokio::sync::Mutex::new(Slot::Stopped) });
-            // En segundo plano: la ventana no espera al server.
+            // En segundo plano: la ventana no espera al server. En Auto (se usa el server de casa y
+            // el local es el respaldo) arranca unos segundos despues: en una TV box o un celular
+            // flojo competiria por CPU y red con el primer render. Si hace falta antes (login,
+            // server caido), `info` lo arranca en el momento.
             if mode.embedded() {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
+                    if mode == Mode::Auto {
+                        tokio::time::sleep(AUTO_START_DELAY).await;
+                    }
                     ensure(&app.state::<Local>()).await;
                 });
             }

@@ -4,7 +4,7 @@
 # rustls que ya trae el crate de media, y nada de chrono (las fechas las arma SQLite).
 [package]
 name = "mythos"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 
 [dependencies]
@@ -16,6 +16,8 @@ base64 = "0.23"
 flate2 = "1"
 getrandom = "0.4"
 http-body = "1"
+# Achicar fondos de metahub (/api/media/img). Solo los decodificadores que hacen falta.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "gzip"] }
 rusqlite = { version = "0.41", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

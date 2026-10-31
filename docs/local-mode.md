@@ -27,7 +27,10 @@ Contrato HTTP en `docs/API.md` (secciones "Sincronización", "Modo local" y "Emb
 ```
 
 - **El shell** arranca el server local al abrir la app (`mythos::run`) y le pasa a la UI la URL
-  (`Handle::base_url()`, puerto elegido por el sistema). Al cerrar, `Handle::shutdown()`.
+  (`Handle::base_url()`, puerto elegido por el sistema). Al cerrar, `Handle::shutdown()`. En
+  **Auto** arranca ~8 s después (la UI tampoco lo pide antes): en una TV box o un celular flojo
+  competiría por CPU y red con el primer render. Si hace falta antes (login por el local, server
+  de casa caído), el comando `info` lo arranca en el momento. En Solo local arranca enseguida.
 - **La UI** habla con el server remoto mientras se lo alcance (streaming con NVENC, caché grande)
   y con el local cuando no. No implementa sincronización: solo elige a quién hablarle.
 - **El server local** guarda los datos en su propia SQLite y sincroniza con el remoto por su

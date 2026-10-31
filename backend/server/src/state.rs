@@ -9,8 +9,8 @@ use mythos_media::Media;
 use serde::Serialize;
 
 use crate::{
-    auth::Auth, cinemeta::Cinemeta, config::Config, db::Db, local::LocalCtx, metrics::Recorder, streams::StreamCtx,
-    subtitles::Subtitles,
+    auth::Auth, cinemeta::Cinemeta, config::Config, db::Db, images::Images, local::LocalCtx, metrics::Recorder,
+    streams::StreamCtx, subtitles::Subtitles,
 };
 
 #[derive(Clone)]
@@ -22,6 +22,8 @@ pub struct AppState {
     pub cinemeta: Arc<Cinemeta>,
     pub streams: Arc<StreamCtx>,
     pub subs: Arc<Subtitles>,
+    /// Fondos y miniaturas achicados (`/api/media/img`).
+    pub images: Arc<Images>,
     /// Qué está viendo cada usuario (lo anota `/api/play` con `meta_id`), por id de usuario.
     pub watching: Arc<Mutex<HashMap<i64, Watching>>>,
     /// Métricas y auditoría (deshabilitado en modo local).

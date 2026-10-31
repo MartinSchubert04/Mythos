@@ -14,6 +14,7 @@
   import StreamList from "../components/StreamList.svelte";
   import { api, ApiError, errText } from "../lib/api";
   import { clock, epCode, sized } from "../lib/format";
+  import { coverWidth, fit, retryOriginal } from "../lib/images";
   import { takeOver } from "../lib/handoff";
   import { fadeQuick, fadeSlow, pop, rise } from "../lib/motion";
   import { streamLink } from "../lib/external";
@@ -292,6 +293,10 @@
       .map((w) => w[0])
       .join("")
       .toUpperCase();
+  // Tamaños justos: el fondo cubre el ancho y min(82vh, 820px) de alto; el poster mide
+  // clamp(170px, 20vw, 280px) (150 en celular) y el de 300 px alcanza salvo en pantallas densas.
+  const bgWidth = coverWidth(innerWidth, Math.min(innerHeight * 0.82, 820));
+  const posterHi = (innerWidth <= 700 ? 150 : Math.min(280, Math.max(170, innerWidth * 0.2))) * devicePixelRatio > 330;
   const future = (e: Episode) => !!e.released && new Date(e.released).getTime() > Date.now();
   const fmtDate = (s?: string | null) => (s ? new Date(s).toLocaleDateString("en", { year: "numeric", month: "short", day: "numeric" }) : "");
 </script>
@@ -299,7 +304,14 @@
 <div class="page detail" use:keepScroll={`detail:${id}`}>
   <div class="backdrop">
     {#if m?.background}
-      <img src={sized(m.background, "medium")} alt="" in:fadeSlow={{ duration: 600 }} decoding="async" fetchpriority="high" />
+      <img
+        src={fit(sized(m.background, "medium"), bgWidth)}
+        alt=""
+        in:fadeSlow={{ duration: 600 }}
+        decoding="async"
+        fetchpriority="high"
+        onerror={(e) => retryOriginal(e.currentTarget)}
+      />
     {:else if m?.poster}
       <!-- Sin fondo en el catalogo: el poster, grande y desenfocado. -->
       <img class="blurred" src={sized(m.poster, "small")} alt="" in:fadeSlow={{ duration: 600 }} decoding="async" />
@@ -313,7 +325,7 @@
     <div class="poster-frame poster">
       <!-- La version chica es la misma que la de la tarjeta: la transicion arranca sin espera. -->
       <Img src={sized(m?.poster, "small")} eager vt="poster" fallback={m?.name ?? ""} />
-      {#if m?.poster}<Img src={sized(m.poster, "medium")} eager />{/if}
+      {#if m?.poster && posterHi}<Img src={sized(m.poster, "medium")} eager />{/if}
     </div>
 
     <div class="info">
@@ -436,7 +448,7 @@
               <div class="ep" class:now={current?.id === e.id} class:future={future(e)} class:spoiler={hidden(e) && !shown[e.id]} style="--i: {i}">
                 <button class="ep-main" onclick={(ev) => epClick(ev, e)} disabled={future(e)} use:press={(x, y) => epMenu(e, x, y)}>
                   <span class="thumb">
-                    <Img src={e.thumbnail} alt="" fallback={epCode(e.season, e.episode)} />
+                    <Img src={fit(e.thumbnail, 200)} alt="" fallback={epCode(e.season, e.episode)} />
                     <span class="ep-play"><Play size={18} fill="currentColor" /></span>
                     {#if pct > 0}<span class="ep-prog"><span style="width: {pct}%"></span></span>{/if}
                     {#if pct > 92}<span class="seen" title="Watched"><Check size={12} /></span>{/if}
@@ -705,7 +717,7 @@
     gap: 8px;
     width: 92px;
     text-align: center;
-    animation: rise 0.36s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.36s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
     animation-delay: calc(var(--i) * 35ms);
   }
   /* Sin fotos en el catalogo: iniciales sobre el acento, mas o menos intenso segun el nombre. */
@@ -768,7 +780,7 @@
     display: flex;
     align-items: center;
     border-radius: var(--radius);
-    animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
     animation-delay: calc(min(var(--i, 0), 12) * 30ms);
     transition: background 0.15s;
   }
