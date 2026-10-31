@@ -3,8 +3,30 @@ name = "mythos-media"
 version = "0.1.0"
 edition = "2021"
 
+# Dependencias mínimas: casi todo (reqwest, rand, bytes, tokio-util, tracing) ya lo trae librqbit,
+# así que no suma tiempo de compilación ni binario. TLS con rustls para no depender de OpenSSL en
+# el contenedor Debian.
 [dependencies]
 anyhow = "1"
 axum = "0.8"
+bytes = "1"
+futures = "0.3"
+librqbit = { version = "9.1.0", default-features = false, features = ["rust-tls"] }
+rand = "0.10"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tracing = "0.1"
+url = "2"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+
+# Espacio libre en disco (stats): ya están en el árbol de dependencias, no suman compilación.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

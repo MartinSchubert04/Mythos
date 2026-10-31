@@ -1,0 +1,81 @@
+//! Rutas HTTP del crate.
+//!
+//! - `public_router`: lo que monta el server bajo `/api/media` (él pone la auth).
+//! - `internal_router`: endpoint solo en 127.0.0.1 (puerto efímero) para que ffmpeg y ffprobe
+//!   lean el archivo con la misma priorización de piezas que el reproductor.
+
+use crate::engine::Engine;
+use crate::stream::{self, json_error, Role};
+use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::get;
+use axum::{Json, Router};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+type St = State<Arc<Engine>>;
+
+pub fn public_router(engine: Arc<Engine>) -> Router {
+    Router::new()
+        .route("/{session}", axum::routing::delete(delete_session))
+        .route("/{session}/file", get(file))
+        .route("/{session}/status", get(status))
+        .route("/{session}/hls/index.m3u8", get(hls_index))
+        .route("/{session}/hls/{segment}", get(hls_segment))
+        .route("/{session}/subs/{file}", get(subs))
+        .with_state(engine)
+}
+
+pub fn internal_router(engine: Arc<Engine>) -> Router {
+    Router::new().route("/s/{session}/file", get(internal_file)).with_state(engine)
+}
+
+fn not_found() -> Response {
+    json_error(StatusCode::NOT_FOUND, "unknown or expired media session")
+}
+
+fn range_of(h: &HeaderMap) -> Option<&str> {
+    h.get(header::RANGE).and_then(|v| v.to_str().ok())
+}
+
+async fn file(State(e): St, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    let Some(s) = e.session(&id) else { return not_found() };
+    stream::serve_file(&e.api, &e.http, s, range_of(&headers), Role::Player).await
+}
+
+async fn internal_file(State(e): St, Path(id): Path<String>, Query(q): Query<HashMap<String, String>>, headers: HeaderMap) -> Response {
+    let Some(s) = e.session(&id) else { return not_found() };
+    let role = Role::parse(q.get("role").map(|s| s.as_str()));
+    stream::serve_file(&e.api, &e.http, s, range_of(&headers), role).await
+}
+
+async fn status(State(e): St, Path(id): Path<String>) -> Response {
+    match e.session(&id) {
+        Some(s) => Json(s.status()).into_response(),
+        None => not_found(),
+    }
+}
+
+async fn delete_session(State(e): St, Path(id): Path<String>) -> Response {
+    e.close_session(&id).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn hls_index(State(e): St, Path(id): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
+    let Some(s) = e.session(&id) else { return not_found() };
+    crate::hls::index(&e, s, &q).await
+}
+
+async fn hls_segment(State(e): St, Path((id, seg)): Path<(String, String)>, Query(q): Query<HashMap<String, String>>) -> Response {
+    let Some(s) = e.session(&id) else { return not_found() };
+    crate::hls::segment(&e, s, &seg, &q).await
+}
+
+async fn subs(State(e): St, Path((id, file)): Path<(String, String)>) -> Response {
+    let Some(s) = e.session(&id) else { return not_found() };
+    let Some(idx) = file.strip_suffix(".vtt").and_then(|x| x.parse::<usize>().ok()) else {
+        return json_error(StatusCode::NOT_FOUND, "subtitle not found");
+    };
+    crate::subs::serve(&e, s, idx).await
+}
