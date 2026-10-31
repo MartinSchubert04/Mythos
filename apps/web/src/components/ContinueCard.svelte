@@ -2,12 +2,24 @@
   // Tarjeta de "Continue watching": el fondo del titulo, la barra de progreso y el episodio.
   // Clic: vuelve al reproductor (con el mismo stream); la X lo saca de la fila.
   import { Play, X } from "@lucide/svelte";
+  import { api } from "../lib/api";
   import { clock, sized } from "../lib/format";
   import { go, loadView } from "../lib/router.svelte";
   import type { Progress } from "../lib/types";
   import Img from "./Img.svelte";
 
   let { p, i = 0, onremove }: { p: Progress; i?: number; onremove?: (p: Progress) => void } = $props();
+
+  // Si el progreso se guardo sin imagenes, se toman del catalogo (queda en cache).
+  let fromMeta = $state<string | null | undefined>(null);
+  const img = $derived(p.background ?? p.poster ?? fromMeta);
+  $effect(() => {
+    if (p.background || p.poster) return;
+    api
+      .meta(p.type, p.series_id ?? p.meta_id.split(":")[0])
+      .then((m) => (fromMeta = m.background ?? m.poster))
+      .catch(() => {});
+  });
 
   const pct = $derived(p.duration_s ? Math.min(100, (p.position_s / p.duration_s) * 100) : 0);
   const left = $derived(Math.max(0, p.duration_s - p.position_s));
@@ -27,7 +39,7 @@
   }}
 >
   <div class="frame">
-    <Img src={sized(p.background ?? p.poster, "medium")} alt="" fallback={p.name} />
+    <Img src={sized(img, "medium")} alt="" fallback={p.name} />
     <div class="shade"></div>
     <span class="play"><Play size={20} fill="currentColor" /></span>
     {#if onremove}

@@ -111,6 +111,8 @@
     filter: blur(28px) saturate(1.2);
     opacity: 0.55;
     animation: breathe 9s ease-in-out infinite alternate;
+    /* Capa propia: el desenfoque se dibuja una vez y despues solo se mueve. */
+    will-change: transform;
   }
   @keyframes breathe {
     to {

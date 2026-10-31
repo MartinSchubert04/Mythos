@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { House, Library, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldCheck } from "@lucide/svelte";
+  import { House, Library, LoaderCircle, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, ShieldCheck, WifiOff } from "@lucide/svelte";
   import { flip } from "svelte/animate";
   import { fade } from "svelte/transition";
   import Confirm from "./components/Confirm.svelte";
@@ -7,6 +7,7 @@
   import Titlebar from "./components/Titlebar.svelte";
   import { confirmState } from "./lib/confirm.svelte";
   import { flipMs, ms, rise, toastIn } from "./lib/motion";
+  import { check, net } from "./lib/net.svelte";
   import { isDesktop } from "./lib/platform";
   import { prefs, savePrefs } from "./lib/prefs.svelte";
   import { go, loadView, route, searchIntent, viewComponent, type ViewName } from "./lib/router.svelte";
@@ -29,6 +30,15 @@
   const items = $derived(nav.filter((n) => !n.admin || session.user?.is_admin));
 
   const View = $derived(viewComponent(route.view));
+
+  // Volvio la conexion: si al abrir no se pudo entrar, se reintenta; si no, la vista se recarga
+  // (su {#key} incluye net.epoch). El reproductor no se recarga: tiene su propia recuperacion.
+  let seenEpoch = 0;
+  $effect(() => {
+    if (net.epoch === seenEpoch) return;
+    seenEpoch = net.epoch;
+    if (session.offline) start();
+  });
   const playing = $derived(route.view === "player");
 
   function toggleSidebar() {
@@ -82,6 +92,17 @@
     <div class="splash" out:fade={{ duration: ms(200) }}>
       <Logo size={64} shine />
     </div>
+  {:else if session.offline}
+    {#if isDesktop}<Titlebar bare />{/if}
+    <div class="body offline" in:fade={{ duration: ms(200) }}>
+      <WifiOff size={36} />
+      <h2>Can't reach the server</h2>
+      <p class="muted">Mythos keeps trying by itself. Check that the server is running and that this device can reach it.</p>
+      <button class="btn primary" disabled={net.checking} onclick={() => (check(), start())}>
+        {#if net.checking}<LoaderCircle size={15} class="spin" />{:else}<RefreshCw size={15} />{/if}
+        Retry now
+      </button>
+    </div>
   {:else if !session.user}
     {#if isDesktop}<Titlebar bare />{/if}
     <div class="body"><Login /></div>
@@ -133,7 +154,7 @@
       </aside>
 
       <main>
-        {#key route.key}
+        {#key `${route.key}#${net.epoch}`}
           <div class="view-page" in:rise={{ y: 6, skip: route.vt }}>
             {#if View}
               <View params={route.params} query={route.query} />
@@ -157,6 +178,16 @@
   <Confirm />
 {/if}
 
+{#if net.down && session.user}
+  <div class="netbar" role="status" transition:fade={{ duration: ms(160) }}>
+    <WifiOff size={14} />
+    <span>Can't reach the server. Retrying…</span>
+    <button class="btn sm" disabled={net.checking} onclick={check}>
+      {#if net.checking}<LoaderCircle size={13} class="spin" />{/if}Retry
+    </button>
+  </div>
+{/if}
+
 <div class="toasts" class:raised={!playing}>
   {#each toasts as t (t.id)}
     <div class="toast card" class:bad={t.bad} in:toastIn out:fade={{ duration: ms(150) }} animate:flip={{ duration: flipMs() }}>
@@ -167,6 +198,7 @@
 
 <style>
   .frame {
+    position: relative;
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -176,10 +208,14 @@
     min-height: 0;
     position: relative;
   }
+  /* Encima de todo: mientras se desvanece, lo de abajo ya esta en su lugar (sin saltos). */
   .splash {
-    flex: 1;
+    position: absolute;
+    inset: 0;
+    z-index: 60;
     display: grid;
     place-items: center;
+    background: var(--bg-image), var(--bg);
   }
   .splash.dark {
     height: 100%;
@@ -192,7 +228,6 @@
     --side-w: 212px;
     display: grid;
     grid-template-columns: var(--side-w) 1fr;
-    transition: grid-template-columns 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .shell.collapsed {
     --side-w: 64px;
@@ -332,6 +367,47 @@
     flex: none;
     aspect-ratio: 2 / 3;
     border-radius: var(--radius);
+  }
+  .offline {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px;
+    text-align: center;
+    color: var(--text-2);
+  }
+  .offline h2 {
+    margin: 6px 0 0;
+    color: var(--text);
+    font-family: var(--display);
+  }
+  .offline p {
+    max-width: 380px;
+    margin: 0 0 10px;
+    line-height: 1.5;
+  }
+  .netbar {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    z-index: 130;
+    translate: -50% 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 6px 6px 14px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 560;
+    color: var(--text);
+    background: var(--sidebar);
+    border: var(--border) solid color-mix(in srgb, var(--warn) 50%, var(--line));
+    box-shadow: var(--pop-shadow);
+  }
+  .netbar :global(svg:first-child) {
+    color: var(--warn);
   }
   .toasts {
     position: fixed;

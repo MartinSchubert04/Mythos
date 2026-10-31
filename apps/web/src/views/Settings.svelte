@@ -1,14 +1,14 @@
 <script lang="ts">
   // Ajustes: tema y paleta con muestras en vivo (como Ethereon), reproduccion, subtitulos,
   // Real-Debrid y la cuenta. Lo de la interfaz se guarda solo (local y en el server).
-  import { Captions, KeyRound, LogOut, Palette, Play, Server, UserRound } from "@lucide/svelte";
+  import { Captions, Keyboard, KeyRound, LogOut, Palette, Play, Server, UserRound } from "@lucide/svelte";
   import Section from "../components/Section.svelte";
   import Seg from "../components/Seg.svelte";
   import Select from "../components/Select.svelte";
   import Switch from "../components/Switch.svelte";
   import { api } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
-  import { isDesktop, serverSetting, setServer } from "../lib/platform";
+  import { checkServer, isDesktop, normalizeServer, serverSetting, setServer } from "../lib/platform";
   import { LANGS, prefs, savePrefs } from "../lib/prefs.svelte";
   import { keepScroll } from "../lib/scroll";
   import { logout, session } from "../lib/session.svelte";
@@ -51,6 +51,21 @@
     { value: "720p", label: "720p" },
   ];
 
+  const KEYS: [string, string][] = [
+    ["/  ·  Ctrl K", "Search"],
+    ["← → ↑ ↓", "Move between posters in a row and between rows"],
+    ["Esc", "Close a panel or menu · in the player: leave full screen, then go back"],
+    ["Space  ·  K", "Play or pause"],
+    ["F", "Full screen"],
+    ["M", "Mute"],
+    ["← →", "Back or forward 5 seconds (in the player)"],
+    ["J  ·  L", "Back or forward 10 seconds"],
+    ["↑ ↓", "Volume (in the player)"],
+    ["C", "Subtitles on or off"],
+    ["N", "Next episode"],
+    ["Enter", "Resume (when the player asks)"],
+  ];
+
   const SIZES = [
     { value: 80, label: "Small" },
     { value: 100, label: "Normal" },
@@ -80,8 +95,19 @@
   }
 
   let server = $state(serverSetting());
+  let serverErr = $state("");
+  let serverBusy = $state(false);
   async function saveServerUrl() {
-    setServer(server);
+    const url = normalizeServer(server);
+    serverErr = "";
+    if (url) {
+      serverBusy = true;
+      serverErr = await checkServer(url);
+      serverBusy = false;
+      if (serverErr) return;
+    }
+    server = url;
+    setServer(url);
     if (await ask({ title: "Switch server?", body: "Mythos will sign you out to connect to the new address.", confirm: "Switch" })) {
       await logout();
       location.reload();
@@ -194,6 +220,14 @@
       </div>
     </Section>
 
+    <Section id="keys" title="Keyboard shortcuts" icon={Keyboard} summary="Search, rows and the player">
+      <div class="keys">
+        {#each KEYS as [k, what] (k + what)}
+          <div class="key-row"><span class="kbds">{#each k.split("  ·  ") as one, i (one)}{#if i}<span class="or">or</span>{/if}<kbd>{one}</kbd>{/each}</span><span class="what">{what}</span></div>
+        {/each}
+      </div>
+    </Section>
+
     <Section id="account" title="Account" icon={UserRound} summary="Signed in as {session.user?.username}">
       <div class="sub">Change password</div>
       <div class="grid2">
@@ -205,8 +239,9 @@
         <div class="sub"><Server size={12} /> Server</div>
         <div class="row">
           <input bind:value={server} placeholder="https://your-server.ts.net:7700" spellcheck="false" />
-          <button class="btn" disabled={server.trim() === serverSetting()} onclick={saveServerUrl}>Save</button>
+          <button class="btn" disabled={serverBusy || server.trim() === serverSetting()} onclick={saveServerUrl}>{serverBusy ? "Checking…" : "Save"}</button>
         </div>
+        {#if serverErr}<div class="srv-err">{serverErr}</div>{/if}
       {/if}
       <div class="sep"></div>
       <div><button class="btn danger" onclick={signOut}><LogOut size={14} />Sign out</button></div>
@@ -222,7 +257,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    max-width: 900px;
+    max-width: 1040px;
   }
   .sub {
     display: flex;
@@ -344,6 +379,37 @@
     color: var(--on-media);
     text-shadow: 0 2px 6px var(--media-bg);
     transition: font-size 0.2s;
+  }
+  .keys {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+    gap: 2px 24px;
+  }
+  .key-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  }
+  .kbds {
+    flex: none;
+    min-width: 132px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .or {
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .what {
+    color: var(--text-2);
+    font-size: 13px;
+  }
+  .srv-err {
+    color: var(--danger);
+    font-size: 12.5px;
   }
   .sep {
     height: 1px;

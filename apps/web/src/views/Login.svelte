@@ -5,8 +5,8 @@
   import Logo from "../components/Logo.svelte";
   import { api, ApiError, errText } from "../lib/api";
   import { expand } from "../lib/motion";
-  import { isDesktop, needsServer, serverSetting, setServer } from "../lib/platform";
-  import { login } from "../lib/session.svelte";
+  import { checkServer, isDesktop, needsServer, normalizeServer, serverSetting, setServer } from "../lib/platform";
+  import { login, session } from "../lib/session.svelte";
 
   let username = $state("");
   let password = $state("");
@@ -24,15 +24,28 @@
   async function submit(e: Event) {
     e.preventDefault();
     error = "";
+    busy = true;
     if (isDesktop) {
-      if (!server.trim() && needsServer()) {
+      const url = normalizeServer(server);
+      if (!url && needsServer()) {
         error = "Enter the address of your Mythos server.";
         showServer = true;
+        busy = false;
         return wobble();
       }
-      setServer(server);
+      if (url) {
+        // Antes de mandar la contraseña: ¿hay un Mythos en esa direccion?
+        const bad = await checkServer(url);
+        if (bad) {
+          error = bad;
+          showServer = true;
+          busy = false;
+          return wobble();
+        }
+      }
+      server = url;
+      setServer(url);
     }
-    busy = true;
     try {
       await login(username.trim(), password);
     } catch (err) {
@@ -65,7 +78,11 @@
     <form class="card box stagger" onsubmit={submit}>
       <div class="mark"><Logo size={56} shine /></div>
       <h1>Welcome to Mythos</h1>
-      <p class="muted">Sign in to keep watching.</p>
+      {#if session.expired}
+        <p class="notice">Your session expired. Sign in again to continue.</p>
+      {:else}
+        <p class="muted">Sign in to keep watching.</p>
+      {/if}
       <label class="field">
         Username
         <input bind:this={userField} autocomplete="username" bind:value={username} spellcheck="false" autocapitalize="off" />
@@ -112,20 +129,22 @@
     overflow: hidden;
   }
   /* Tres manchas del acento que se mueven despacio detras de la tarjeta. */
+  /* Sin filter: blur (re-dibujaria toda la capa en cada cuadro); los degradados ya son suaves y
+     el movimiento es solo transform. */
   .aurora {
     position: absolute;
     inset: 0;
     pointer-events: none;
-    filter: blur(70px);
-    opacity: 0.55;
+    opacity: 0.6;
   }
   .aurora span {
     position: absolute;
     width: 42vmax;
     height: 42vmax;
     border-radius: 50%;
-    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent), transparent 65%);
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, transparent), transparent 62%);
     animation: drift 18s ease-in-out infinite alternate;
+    will-change: transform;
   }
   .aurora span:nth-child(1) {
     left: -10vmax;
@@ -190,6 +209,13 @@
     margin: -6px 0 6px;
     text-align: center;
     font-size: 13px;
+  }
+  .notice {
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    border: var(--border) solid color-mix(in srgb, var(--warn) 40%, transparent);
   }
   .big {
     height: 40px;

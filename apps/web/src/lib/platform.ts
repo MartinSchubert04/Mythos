@@ -30,6 +30,24 @@ export function needsServer(): boolean {
   return isDesktop && !(read(SERVER_KEY) ?? DEFAULT_SERVER).trim() && !import.meta.env.DEV;
 }
 
+/** "my-server:7700" → "https://my-server:7700" (sin barra final). */
+export function normalizeServer(u: string): string {
+  const t = u.trim().replace(/\/+$/, "");
+  if (!t) return "";
+  return /^https?:\/\//i.test(t) ? t : `https://${t}`;
+}
+
+/** ¿Hay un Mythos en esa direccion? Devuelve el error para mostrar, o "" si contesta. */
+export async function checkServer(url: string): Promise<string> {
+  if (!/^https?:\/\/[^/\s]+$/.test(url)) return "That doesn't look like an address. Example: https://my-server.ts.net:7700";
+  try {
+    const r = await fetch(url + "/api/health", { signal: AbortSignal.timeout(6000) });
+    const j = r.ok ? await r.json().catch(() => null) : null;
+    if (j?.ok) return "";
+  } catch {}
+  return `Can't reach a Mythos server at ${url.replace(/^https?:\/\//, "")}. Check the address and that the server is running.`;
+}
+
 export function setServer(url: string) {
   write(SERVER_KEY, url.trim());
 }

@@ -61,6 +61,51 @@
     return () => ro.disconnect();
   });
 
+  // Teclado: flechas izquierda/derecha entre tarjetas de la fila; arriba/abajo a la fila vecina
+  // (a la tarjeta en la misma posicion).
+  function onKey(e: KeyboardEvent) {
+    if (!track || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    const cards = (t: Element) => [...t.querySelectorAll<HTMLElement>(":scope > a")];
+    const mine = cards(track);
+    const i = mine.indexOf((document.activeElement as HTMLElement)?.closest("a") as HTMLElement);
+    if (i < 0) return;
+    let next: HTMLElement | undefined;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") next = mine[i + (e.key === "ArrowRight" ? 1 : -1)];
+    else {
+      const shelves = [...document.querySelectorAll(".shelf .track")];
+      const other = shelves[shelves.indexOf(track) + (e.key === "ArrowDown" ? 1 : -1)];
+      if (other) {
+        const theirs = cards(other);
+        next = theirs[Math.min(i, theirs.length - 1)];
+        if (!next) {
+          // La fila de al lado todavia no cargo: se la trae a la vista y se enfoca cuando llega.
+          e.preventDefault();
+          other.scrollIntoView({ behavior: scrollBehavior(), block: "center" });
+          const mo = new MutationObserver(() => {
+            const l = cards(other);
+            if (!l.length) return;
+            mo.disconnect();
+            l[Math.min(i, l.length - 1)].focus({ preventScroll: true });
+          });
+          mo.observe(other, { childList: true });
+          setTimeout(() => mo.disconnect(), 4000);
+          return;
+        }
+      }
+    }
+    if (!next) return;
+    e.preventDefault();
+    next.focus({ preventScroll: true });
+    next.scrollIntoView({ behavior: scrollBehavior(), block: "nearest", inline: "nearest" });
+  }
+
+  $effect(() => {
+    const t = track;
+    if (!t) return;
+    t.addEventListener("keydown", onKey);
+    return () => t.removeEventListener("keydown", onKey);
+  });
+
   function page(dir: number) {
     if (!track) return;
     track.scrollBy({ left: dir * track.clientWidth * 0.85, behavior: scrollBehavior() });

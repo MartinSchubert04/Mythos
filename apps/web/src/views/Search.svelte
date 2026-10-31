@@ -1,6 +1,6 @@
 <script lang="ts">
   // Busqueda en vivo (con debounce): peliculas y series por separado. "/" o Ctrl K vienen aca.
-  import { LoaderCircle, Search, X } from "@lucide/svelte";
+  import { LoaderCircle, Search, SearchX, X } from "@lucide/svelte";
   import PosterCard from "../components/PosterCard.svelte";
   import { api, errText } from "../lib/api";
   import { uniq } from "../lib/format";
@@ -111,7 +111,11 @@
       {/if}
     {/if}
   {:else if empty}
-    <div class="empty" in:rise><h3>Nothing found</h3><span>Try another title or check the spelling.</span></div>
+    <div class="empty" in:rise>
+      <SearchX size={34} />
+      <h3>Nothing found for "{q.trim()}"</h3>
+      <span>Try another title, the original title, or check the spelling.</span>
+    </div>
   {:else}
     {#each [{ t: "Movies", l: res.movies }, { t: "Series", l: res.series }] as g (g.t)}
       {#if g.l.length}

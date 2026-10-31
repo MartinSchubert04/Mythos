@@ -650,3 +650,12 @@ a:focus-visible,
     transform: translateX(230%) skewX(-18deg);
   }
 }
+
+@media (max-width: 700px) {
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+  .page-head {
+    flex-wrap: wrap;
+  }
+}

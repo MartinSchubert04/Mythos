@@ -39,7 +39,7 @@
   import SeekBar from "../components/SeekBar.svelte";
   import StreamList from "../components/StreamList.svelte";
   import WindowControls from "../components/WindowControls.svelte";
-  import { api, errText, mediaUrl, withToken } from "../lib/api";
+  import { api, dropCache, errText, mediaUrl, withToken } from "../lib/api";
   import { degrade, detectCaps } from "../lib/caps";
   import { bytes, clock, epCode, sized } from "../lib/format";
   import { fadeQuick, pop, rise } from "../lib/motion";
@@ -206,7 +206,7 @@
     if (destroyed) return;
     streams = list;
     if (!list.length) {
-      fatal = "No streams found for this title.";
+      fatal = "No streams found for this title. It may be too new, or the size and quality limits in Settings leave nothing out. Try again in a while.";
       return;
     }
     const prog = await progP;
@@ -223,6 +223,15 @@
       }
     }
     await open(chosen, startAt);
+  }
+
+  /** Sin streams o sin respuesta: pedir todo de nuevo (sin la cache de streams). */
+  function retryAll() {
+    fatal = "";
+    started = false;
+    loadSince = Date.now();
+    dropCache(`streams:${type}/${id}`);
+    init();
   }
 
   /** Pide la sesion al server y la conecta al <video> en `at`. */
@@ -426,7 +435,7 @@
     const less = degrade(caps, info, what);
     if (!less || attempts.fallback >= 3) {
       stuck = "codec";
-      stuckMsg = "This browser can't play this file.";
+      stuckMsg = "Neither this device nor the server could play this file. Another stream will probably work.";
       return false;
     }
     attempts.fallback++;
@@ -840,6 +849,9 @@
     left = true;
     clearTimeout(pollTimer);
     clearInterval(cdTimer);
+    clearTimeout(hideTimer);
+    clearTimeout(waitTimer);
+    cancelAnimationFrame(raf);
     pollCtl?.abort();
     saveProgress(keepalive);
     if (info) api.closeSession(info.session_id);
@@ -1128,7 +1140,7 @@
       <div class="dialog-card stuck" transition:pop>
         <div class="dc-icon"><TriangleAlert size={22} /></div>
         <div class="dc-title">
-          {#if fatal}Can't play this{:else if stuck === "slow"}This stream is slow{:else if stuck === "codec"}This file won't play here{:else}Playback problem{/if}
+          {#if fatal}Can't play this{:else if stuck === "slow"}This stream is slow{:else if stuck === "codec"}This stream can't be played{:else}Playback problem{/if}
         </div>
         <div class="dc-sub">
           {#if fatal}{fatal}{:else if stuck === "slow"}
@@ -1143,6 +1155,7 @@
         {/if}
         <div class="dc-actions">
           {#if stuck === "slow"}<button class="btn glass" onclick={keepWaiting}><LoaderCircle size={15} />Keep waiting</button>{/if}
+          {#if fatal}<button class="btn glass" onclick={retryAll}><RotateCw size={15} />Retry</button>{/if}
           <button class="btn glass" onclick={exit}><ArrowLeft size={15} />Back</button>
         </div>
       </div>
@@ -1366,28 +1379,41 @@
   .dim {
     color: var(--on-media-2);
   }
+  /* La barra de volumen aparece al lado del parlante, flotando sobre el tiempo: solo opacidad y
+     transform (no empuja nada). */
   .vol {
+    position: relative;
     display: flex;
     align-items: center;
   }
   .vol input {
-    width: 0;
-    height: 18px;
-    padding: 0;
-    border: 0;
-    background: transparent;
+    position: absolute;
+    left: 40px;
+    top: 50%;
+    z-index: 2;
+    width: 112px;
+    height: 32px;
+    padding: 0 12px;
+    margin: 0;
+    border: 1px solid var(--media-line);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--media-bg) 80%, transparent);
+    backdrop-filter: blur(10px);
     appearance: none;
     opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%) scaleX(0.6);
+    transform-origin: left center;
     transition:
-      width 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
-      opacity 0.2s;
+      opacity 0.18s,
+      transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
     cursor: pointer;
   }
   .vol:hover input,
   .vol input:focus-visible {
-    width: 86px;
     opacity: 1;
-    margin-right: 6px;
+    pointer-events: auto;
+    transform: translateY(-50%);
   }
   .vol input::-webkit-slider-runnable-track {
     height: 4px;
@@ -1404,7 +1430,6 @@
   }
   .vol input:focus-visible {
     box-shadow: none;
-    border: 0;
   }
 
   /* ---- menus ---- */

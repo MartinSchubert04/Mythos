@@ -40,7 +40,12 @@
   let streamsErr = $state("");
 
   const m = $derived<MetaPreview | null>(meta ?? preview ?? null);
-  const seasons = $derived([...new Set((meta?.videos ?? []).map((v) => v.season))].sort((a, b) => a - b));
+  // Temporadas en orden, con los especiales (temporada 0) al final.
+  const seasons = $derived(
+    [...new Set((meta?.videos ?? []).map((v) => v.season))].sort((a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b)),
+  );
+  const seasonOpts = $derived(seasons.map((s) => ({ value: s, label: s === 0 ? "Specials" : `Season ${s}` })));
+  const realSeasons = $derived(seasons.filter((s) => s > 0).length);
   const episodes = $derived((meta?.videos ?? []).filter((v) => v.season === season));
 
   api
@@ -185,6 +190,9 @@
   <div class="backdrop">
     {#if m?.background}
       <img src={sized(m.background, "medium")} alt="" in:fadeSlow={{ duration: 600 }} decoding="async" fetchpriority="high" />
+    {:else if m?.poster}
+      <!-- Sin fondo en el catalogo: el poster, grande y desenfocado. -->
+      <img class="blurred" src={sized(m.poster, "small")} alt="" in:fadeSlow={{ duration: 600 }} decoding="async" />
     {/if}
     <div class="shade"></div>
   </div>
@@ -205,7 +213,7 @@
           {#if m.imdb_rating}<span class="imdb"><Star size={14} fill="currentColor" /><b>{m.imdb_rating}</b><span class="faint">IMDb</span></span>{/if}
           {#if m.year}<span>{m.year}</span>{/if}
           {#if meta?.runtime}<span class="fact"><Clock size={13} />{meta.runtime}</span>{/if}
-          {#if type === "series" && seasons.length}<span>{seasons.length} season{seasons.length > 1 ? "s" : ""}</span>{/if}
+          {#if type === "series" && realSeasons}<span>{realSeasons} season{realSeasons > 1 ? "s" : ""}</span>{/if}
         </div>
         {#if m.genres?.length}
           <div class="genres" in:rise={{ y: 10, delay: 140 }}>
@@ -276,10 +284,10 @@
         <h2>Episodes</h2>
         <div class="grow"></div>
         {#if seasons.length > 1 && seasons.length <= 6}
-          <Seg bind:value={season} options={seasons.map((s) => ({ value: s, label: `Season ${s}` }))} />
+          <Seg bind:value={season} options={seasonOpts} />
         {:else if seasons.length > 6}
           <div class="season-select">
-            <Select bind:value={season} options={seasons.map((s) => ({ value: s, label: `Season ${s}` }))} />
+            <Select bind:value={season} options={seasonOpts} />
           </div>
         {/if}
       </div>
@@ -370,7 +378,6 @@
     right: 0;
     height: min(82vh, 820px);
     overflow: hidden;
-    background: var(--media-bg);
     z-index: 0;
   }
   .backdrop img {
@@ -378,6 +385,11 @@
     height: 100%;
     object-fit: cover;
     object-position: center 20%;
+  }
+  .backdrop img.blurred {
+    filter: blur(40px) saturate(1.3);
+    transform: scale(1.2);
+    opacity: 0.7;
   }
   .shade {
     position: absolute;
@@ -562,7 +574,6 @@
     position: relative;
     z-index: 2;
     padding: 40px var(--gutter) 0;
-    max-width: 1200px;
   }
   .ep-head {
     display: flex;
@@ -579,10 +590,11 @@
   .season-select {
     width: 170px;
   }
+  /* En pantallas anchas los episodios van en dos (o tres) columnas: nada de media pantalla vacia. */
   .ep-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr));
+    gap: 6px 14px;
   }
   .ep {
     position: relative;

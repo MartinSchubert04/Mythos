@@ -163,6 +163,7 @@
   /* Zoom lento (Ken Burns): da vida sin distraer. */
   .kb {
     animation: kb 12s ease-out both;
+    will-change: transform;
   }
   @keyframes kb {
     from {
@@ -215,6 +216,11 @@
   }
   .title {
     font-size: clamp(30px, 4.6vw, 58px);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
     margin-bottom: 14px;
     text-shadow: 0 4px 30px var(--shadow);
   }
@@ -268,26 +274,32 @@
     right: var(--gutter);
     bottom: clamp(84px, 14vh, 134px);
     display: flex;
-    gap: 4px;
   }
   .dots button {
     padding: 8px 2px;
   }
+  /* Solo transform y color: el punto activo se estira con scaleX (sin recalcular layout). */
   .dots span {
     display: block;
-    width: 18px;
+    width: 34px;
     height: 3px;
     border-radius: 3px;
     background: var(--media-line);
+    transform: scaleX(0.53);
+    transform-origin: center;
     transition:
-      width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+      transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
       background 0.3s;
+  }
+  /* Cada punto mide 34 px y se ve de 18: se superponen un poco para quedar juntos. */
+  .dots button + button {
+    margin-left: -12px;
   }
   .dots button:hover span {
     background: var(--on-media-2);
   }
   .dots .on span {
-    width: 34px;
+    transform: none;
     background: var(--on-media);
   }
   @media (max-width: 700px) {

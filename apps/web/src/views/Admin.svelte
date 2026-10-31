@@ -252,7 +252,7 @@
 <style>
   .page {
     padding: 26px var(--gutter) 40px;
-    max-width: 1200px;
+    max-width: 1600px;
   }
   .stats-grid {
     display: grid;

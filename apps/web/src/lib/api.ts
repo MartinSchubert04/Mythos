@@ -1,5 +1,6 @@
 // Cliente tipado del contrato (docs/API.md). El token vive en localStorage; un 401 lleva al login.
 import { detectCaps } from "./caps";
+import { markDown, markUp } from "./net.svelte";
 import { serverBase } from "./platform";
 import { read, write } from "./store";
 import type {
@@ -59,13 +60,24 @@ async function req<T>(method: string, path: string, body?: unknown, o: Opts = {}
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const r = await fetch(serverBase() + path, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: o.signal,
-    keepalive: o.keepalive,
-  });
+  let r: Response;
+  try {
+    r = await fetch(serverBase() + path, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: o.signal,
+      keepalive: o.keepalive,
+    });
+  } catch (e) {
+    // Sin respuesta (server caido, sin red): aviso arriba y reconexion automatica.
+    if (e instanceof TypeError) markDown();
+    throw e;
+  }
+  // 502/503/504 de un proxy (Vite, tailscale serve) = el server no esta; cualquier otra
+  // respuesta, aunque sea un error, quiere decir que hay conexion.
+  if ([502, 503, 504].includes(r.status) && !path.startsWith("/api/play")) markDown();
+  else markUp();
   if (r.status === 401 && !o.noAuthRedirect) {
     setToken(null);
     unauthorized();

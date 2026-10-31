@@ -80,12 +80,13 @@
 >
   <div class="rail">
     {#each buffered as [a, b], i (i)}
-      <div class="buf" style="left: {pct(a)}%; width: {pct(b) - pct(a)}%"></div>
+      <div class="buf" style="transform: translateX({pct(a)}%) scaleX({(pct(b) - pct(a)) / 100})"></div>
     {/each}
     {#if hover !== null}<div class="hov" style="width: {pct(hover)}%"></div>{/if}
-    <div class="played" style="width: {pct(shown)}%"></div>
+    <!-- Lo visto y el pulgar se mueven con transform (cambia en cada cuadro: nada de layout). -->
+    <div class="played" style="transform: scaleX({pct(shown) / 100})"></div>
   </div>
-  <div class="thumb" style="left: {pct(shown)}%"></div>
+  <div class="thumb-track" style="transform: translateX({pct(shown)}%)"><div class="thumb"></div></div>
   {#if hover !== null || drag !== null}
     <div class="tip" style="left: clamp(28px, {pct(drag ?? hover ?? 0)}%, calc(100% - 28px))">{clock(drag ?? hover ?? 0)}</div>
   {/if}
@@ -103,16 +104,18 @@
   .rail {
     position: relative;
     width: 100%;
-    height: 4px;
+    height: 7px;
     border-radius: 4px;
     background: var(--media-line);
     overflow: hidden;
-    transition: height 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+    /* Se engrosa con scaleY (sin layout). */
+    transform: scaleY(0.58);
+    transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .seek:hover .rail,
   .seek:focus-visible .rail,
   .dragging .rail {
-    height: 7px;
+    transform: none;
   }
   .buf,
   .hov,
@@ -123,18 +126,27 @@
     left: 0;
   }
   .buf {
+    width: 100%;
+    transform-origin: left center;
     background: color-mix(in srgb, var(--on-media) 32%, transparent);
-    transition: width 0.3s;
   }
   .hov {
     background: color-mix(in srgb, var(--on-media) 22%, transparent);
   }
   .played {
+    width: 100%;
+    transform-origin: left center;
     background: var(--primary-bg);
     box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent);
   }
+  .thumb-track {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
   .thumb {
     position: absolute;
+    left: 0;
     top: 50%;
     width: 14px;
     height: 14px;

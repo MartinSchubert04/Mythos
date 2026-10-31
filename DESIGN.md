@@ -100,6 +100,22 @@ Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en
 - **Select**, **Switch**, **Seg**, **Confirm**, **Section**: los de Ethereon, iguales.
 - **Avisos (toasts):** entran desde abajo a la derecha; rojos si fallan.
 - **Tooltips propios** (`lib/tooltip.ts`): todo `title=` se muestra con demora y estilo del tema.
+- **Cast** (detalle): avatares con iniciales sobre el acento (el catálogo no trae fotos). Debajo,
+  la fila "More like this" (mismo género principal).
+- **Episodios**: en pantallas anchas van en dos o tres columnas; los especiales (temporada 0) se
+  llaman "Specials" y van al final; con más de 6 temporadas, Select en vez de Seg.
+
+## 4b. Estados
+
+| Estado | Qué se ve |
+|---|---|
+| Cargando | Esqueletos con brillo en filas, grillas, detalle, admin; splash con la marca al abrir |
+| Vacío | Ícono + frase + acción: Library vacía ("Browse"), búsqueda sin resultados, sin "Continue watching" (la fila no aparece) |
+| Sin streams | "No streams found" con la sugerencia (muy nuevo, o los límites de Settings) y Retry |
+| Server caído | Pastilla arriba "Can't reach the server. Retrying…" con Retry; se reintenta solo cada 5 s y al volver la vista se recarga. Si pasa al abrir: pantalla de reconexión (no el login) |
+| Sesión vencida (401) | Login con el aviso "Your session expired" |
+| Error al reproducir (502, códec) | Panel en el reproductor con el motivo y "Try another stream" |
+| Sin imágenes | Póster tipográfico (degradado del acento + nombre + año); detalle con el póster desenfocado de fondo |
 
 ## 5. Layout
 
@@ -117,14 +133,19 @@ ventana van en su barra de arriba, que también se arrastra.
 Rutas con hash: `#/`, `#/search?q=`, `#/title/{type}/{id}`, `#/watch/{type}/{id}?s={stream}`,
 `#/library`, `#/settings`, `#/admin`. Cada vista se carga recién cuando hace falta.
 
-Atajos: `/` o `Ctrl K` buscar. En el reproductor: espacio/K, F, M, ←/→ (5 s), J/L (10 s), ↑/↓
+Atajos (listados en Settings → Keyboard shortcuts): `/` o `Ctrl K` buscar (lo que se escribe
+mientras la vista carga no se pierde); flechas entre pósters de una fila y entre filas; Esc cierra
+paneles y menús. En el reproductor: espacio/K, F, M, ←/→ (5 s), J/L (10 s), ↑/↓
 volumen, C subtítulos, N siguiente episodio, Esc (cierra menú → sale de pantalla completa → vuelve).
 
 ## 5b. Movimiento
 
 Todas las animaciones pasan por `apps/web/src/lib/motion.ts` (transiciones de Svelte) o son CSS
 cortas de `base.css`, y duran 0 con "reducir animaciones" del sistema o de Settings
-(`data-reduce-motion` en `<html>`).
+(`data-reduce-motion` en `<html>`). **Solo `transform` y `opacity`**: nada que recalcule layout en
+cada cuadro (la barra del reproductor usa `scaleX`/`translateX`, los puntos del hero `scaleX`, el
+volumen flota encima). Sin `filter: blur` animado. Medido con un trace (home → detalle → player →
+atrás y scroll de filas): sin tareas largas (> 50 ms) y CLS 0.
 
 | Qué | Cómo |
 |---|---|

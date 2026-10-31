@@ -30,7 +30,7 @@
 </script>
 
 <div class="seg2" role="radiogroup" bind:this={root} style="--n: {options.length}">
-  <span class="pill" aria-hidden="true" style="left: {left}px; width: {width}px"></span>
+  <span class="pill" aria-hidden="true" style="transform: translateX({left}px); width: {width}px"></span>
   {#each options as o, i}
     <button
       bind:this={buttons[i]}
@@ -62,13 +62,14 @@
     position: absolute;
     top: 3px;
     bottom: 3px;
+    left: 0;
     background: var(--panel);
     border-radius: calc(var(--radius-sm) - 2px);
     box-shadow:
       0 0 0 var(--border) var(--line-strong),
       0 2px 8px -2px rgba(0, 0, 0, 0.35);
     transition:
-      left 0.28s cubic-bezier(0.34, 1.3, 0.64, 1),
+      transform 0.28s cubic-bezier(0.34, 1.3, 0.64, 1),
       width 0.28s cubic-bezier(0.34, 1.3, 0.64, 1);
   }
   button {

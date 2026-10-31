@@ -37,7 +37,10 @@
       {#if s.key === current}<span class="cur"><Check size={16} /></span>{:else if i === 0}<span class="best">Best</span>{/if}
     </button>
   {:else}
-    <div class="none">No streams found for this title.</div>
+    <div class="none">
+      <b>No streams found</b>
+      <span>It may be too new, or the size and quality limits in Settings leave nothing out. Try again in a while.</span>
+    </div>
   {/each}
 </div>
 
@@ -175,9 +178,16 @@
     color: var(--accent);
   }
   .none {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     padding: 30px 10px;
     text-align: center;
     color: var(--text-2);
+    line-height: 1.5;
+  }
+  .none b {
+    color: var(--text);
   }
   /* Encima del video: vidrio oscuro. */
   .onmedia .stream {

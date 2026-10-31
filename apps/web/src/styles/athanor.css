@@ -262,3 +262,7 @@
   border-radius: 0;
   animation-timing-function: steps(8);
 }
+/* Los botones "de vidrio" (sobre imagenes) en Athanor son de clay: el texto va en el color del tema. */
+[data-theme="athanor"] .btn.glass {
+  color: var(--text);
+}
