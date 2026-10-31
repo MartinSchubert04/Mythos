@@ -58,21 +58,37 @@ cd apps/desktop; npm run tauri dev
 cd apps/mobile; npm run build:emulator
 ```
 
-## Commits y versiones
+## Versiones: commit, tag y push
 
 Repo: https://github.com/MartinSchubert04/Mythos (público: nada de secretos, `.env` y `data/` fuera).
 
-- Conventional commits, en español: `feat: …`, `fix: …`, `docs: …`, `refactor: …`, `chore: …`
-  (con scope si ayuda: `feat(player): …`). En el cuerpo, una línea por cambio.
-- Cada `feat` o `fix` terminado (tests y check en verde) se commitea y pushea sin esperar a que lo
-  pidan, subiendo la versión con semver (`feat` → menor, `fix` → parche; mayor solo preguntando)
-  y con tag `vX.Y.Z` sobre ese commit. `docs`/`chore` sin tag.
-- La versión está en `backend/server/Cargo.toml`, `backend/media/Cargo.toml`,
-  `apps/web/package.json`, `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.toml`,
-  `apps/desktop/src-tauri/tauri.conf.json`, `apps/mobile/package.json`,
-  `apps/mobile/src-tauri/Cargo.toml`, `apps/mobile/src-tauri/tauri.conf.json`,
-  `apps/mobile/plugin/Cargo.toml` y `apps/local-server/Cargo.toml` (todas iguales). El tag
-  `vX.Y.Z` publica el instalador de Windows y el APK (los workflows la toman del tag).
+Cada fix o feature terminado (tests y check en verde) se publica sin esperar a que lo pidan:
+subir la versión, commitear, tagear y pushear `main` y el tag. El tag dispara los workflows que
+arman el Release (instalador de Windows + `latest.json`, APK + `latest-android.json`), y de ahí
+se actualizan solas las apps instaladas (desktop: `apps/desktop/src-tauri/src/updater.rs`;
+Android: `docs/mobile.md`).
+
+- **Qué número sube** (semver, `MAYOR.MENOR.PARCHE`):
+  - `x.y.Z` (parche): arreglos y retoques chicos de algo que ya existía (un texto, un ancho,
+    un bug, un valor por defecto).
+  - `x.Y.0` (menor): algo nuevo que se puede usar (una opción, una pantalla, una función), sin
+    romper nada.
+  - `X.0.0` (mayor): rompe algo de lo que ya existe (la API entre apps y server sin
+    compatibilidad, la base sin migración, quitar una función). Antes de subirla, preguntar.
+- **Dónde está la versión** (todas iguales): `backend/server/Cargo.toml`,
+  `backend/media/Cargo.toml`, `apps/web/package.json`, `apps/desktop/package.json`,
+  `apps/desktop/src-tauri/Cargo.toml`, `apps/desktop/src-tauri/tauri.conf.json`,
+  `apps/mobile/package.json`, `apps/mobile/src-tauri/Cargo.toml`,
+  `apps/mobile/src-tauri/tauri.conf.json`, `apps/mobile/plugin/Cargo.toml`,
+  `apps/local-server/Cargo.toml`, y las entradas de esos paquetes en los `Cargo.lock` y
+  `package-lock.json` (ojo con reemplazar a ciegas: otras dependencias pueden tener el mismo
+  número).
+- **Commit**: `vX.Y.Z: <resumen>` y en el cuerpo una línea por cambio, en español, terminando
+  con la versión (ver `git log`). Tag `vX.Y.Z` sobre ese commit.
+- Cambios que no son ni fix ni feature (docs, este archivo, CI) se commitean y pushean sin tag.
+- Las claves de firma (APK y actualizaciones de desktop) viven fuera del repo, en
+  `~/.mythos-signing/`, y como secrets del repo. Si se pierden, las apps instaladas no se pueden
+  actualizar sin desinstalar.
 
 ## Reglas
 

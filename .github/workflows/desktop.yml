@@ -1,0 +1,107 @@
+# Instalador de Windows (Tauri, NSIS) en cada tag v*: lo sube al GitHub Release del tag (con
+# .github/scripts/release.sh, igual que android.yml: el que termina primero crea el Release),
+# junto con latest.json, que es lo que consultan las apps instaladas para actualizarse solas
+# (apps/desktop/src-tauri/src/updater.rs). La firma de las actualizaciones sale de los secrets
+# TAURI_SIGNING_PRIVATE_KEY y TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+#
+# El instalador es generico: no lleva la direccion del server (el repo y los Releases son
+# publicos). La app la pide la primera vez en el login y la guarda. Por eso VITE_DEFAULT_SERVER
+# va vacio a proposito.
+name: desktop
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    env:
+      VITE_DEFAULT_SERVER: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: npm ci
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund --prefix apps/web
+          npm ci --no-audit --no-fund --prefix apps/desktop
+
+      # `beforeBuildCommand` compila apps/web. En un tag la version sale del tag.
+      - name: tauri build
+        shell: bash
+        working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then FIRMA=true; else FIRMA=false
+            echo "::warning::Falta el secret TAURI_SIGNING_PRIVATE_KEY: esta version no se ofrece como actualizacion automatica."
+          fi
+          CONF="{\"bundle\":{\"createUpdaterArtifacts\":$FIRMA}}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+            CONF="{\"version\":\"$V\",\"bundle\":{\"createUpdaterArtifacts\":$FIRMA}}"
+          fi
+          npx tauri build --config "$CONF"
+
+      - name: Upload to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          shopt -s nullglob
+          files=(apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No se generó el instalador"
+            exit 1
+          fi
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "No es un tag: se deja el instalador como artifact y no se publica"
+            exit 0
+          fi
+          V="${TAG#v}"
+          SETUP="${files[0]}"
+          cp "$SETUP" "Mythos-$V-setup.exe"
+          ARCHIVOS=("Mythos-$V-setup.exe")
+          if [ -f "$SETUP.sig" ]; then
+            URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/Mythos-$V-setup.exe"
+            node -e '
+              const fs = require("fs");
+              const [v, url, sig] = process.argv.slice(1);
+              fs.writeFileSync("latest.json", JSON.stringify({
+                version: v,
+                pub_date: new Date().toISOString(),
+                platforms: { "windows-x86_64": { url, signature: fs.readFileSync(sig, "utf8").trim() } },
+              }, null, 2));
+            ' "$V" "$URL" "$SETUP.sig"
+            ARCHIVOS+=(latest.json)
+          fi
+          bash .github/scripts/release.sh "$V" "${ARCHIVOS[@]}"
+
+      - name: Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mythos-windows-installer
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
