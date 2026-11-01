@@ -119,8 +119,8 @@ del APK guardan una **lista de direcciones del mismo server** (`lib/servers.svel
   plano (más de 15 s), cuando cambia la red (`online`, `navigator.connection`), cuando un pedido no
   llega (antes de pasar al local se prueban las demás) y, mientras no conteste ninguna, cada pocos
   segundos (la reconexión de `net.svelte.ts`, o el chequeo de 20 s del modo local).
-- **Indicador**: "Server · Home network" / "Server · Tailscale" (el nombre de la que se usa) en
-  `ConnBadge`, y en el detalle de Settings → Connection.
+- **Indicador**: el nombre de la que se usa ("Home network", "Tailscale") va en el tooltip de
+  `ConnBadge` y en el detalle de Settings → Connection.
 - **Si no contesta ninguna**: el failover al modo local de siempre (arriba). Para volver alcanza con
   que conteste cualquiera: la UI las prueba ella misma (el local solo conoce la que tiene guardada)
   y hace `POST /api/local/sync {token, remote_url}` con la que contestó.
@@ -305,8 +305,9 @@ build` pone estas variables solo.
 - Settings → Connection: Auto / Server only / Local only, "Show a notice when switching to local",
   estado (cambios sin subir, última sincronización, "Sync now"). Pasar a Auto/Local sin la cuenta
   en el dispositivo pide la contraseña ahí mismo (login por el local).
-- Indicador siempre visible "Server" / "Local" (con los cambios pendientes): en la barra de título
-  del desktop y arriba a la derecha en Android (`components/ConnBadge.svelte`).
+- Indicador siempre visible, solo el ícono (nube = server, disco = local, un punto si hay cambios
+  pendientes; el detalle en el tooltip): en la barra de título del desktop y arriba a la derecha en
+  Android (`components/ConnBadge.svelte`).
 - Dos tokens en `localStorage`: `mythos.token` (server de casa) y `mythos.localToken` (local).
   `lib/api.ts` usa el del server activo. Logout y "Switch account" cierran los dos.
 - Caída: un pedido al de casa que no llega (o 502/503/504) y `GET /api/health` que tampoco (en

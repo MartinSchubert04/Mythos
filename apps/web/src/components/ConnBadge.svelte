@@ -1,18 +1,16 @@
 <script lang="ts">
-  // A que server le habla la app: el de casa ("Server") o el que va adentro del dispositivo
-  // ("Local", modo local). Siempre a la vista en desktop (barra de titulo) y en Android (arriba a
-  // la derecha, `floating`); en la web no existe. El detalle (cambios sin sincronizar, ultima
-  // sincronizacion) va en el tooltip; un clic lleva a Settings. Con varias direcciones del server
-  // dice cual se usa: "Server · Home network" (lib/servers.svelte.ts).
+  // A que server le habla la app: el de casa o el que va adentro del dispositivo (modo local).
+  // Siempre a la vista en desktop (barra de titulo) y en Android (arriba a la derecha,
+  // `floating`); en la web no existe. El detalle (cambios sin sincronizar, ultima
+  // sincronizacion, que direccion del server se usa) va en el tooltip; un clic lleva a Settings. Es
+  // solo el icono: nube = server, disco = este dispositivo; un punto si hay cambios sin sincronizar.
   import { Cloud, HardDrive } from "@lucide/svelte";
   import { conn, connDetail } from "../lib/local.svelte";
   import { go } from "../lib/router.svelte";
-  import { activeLabel } from "../lib/servers.svelte";
 
   let { floating = false }: { floating?: boolean } = $props();
   const local = $derived(conn.on === "local");
   const pending = $derived(local ? (conn.status?.pending_changes ?? 0) : 0);
-  const via = $derived(local ? "" : activeLabel());
 </script>
 
 {#if conn.available}
@@ -26,23 +24,20 @@
     onclick={() => go("/settings")}
   >
     {#if local}<HardDrive size={13} />{:else}<Cloud size={13} />{/if}
-    <span>{local ? "Local" : "Server"}</span>
-    {#if via}<span class="via ellipsis">· {via}</span>{/if}
-    {#if pending > 0}<span class="count">{pending}</span>{/if}
+    {#if pending > 0}<span class="dot"></span>{/if}
   </button>
 {/if}
 
 <style>
   .conn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
     height: 24px;
-    padding: 0 9px 0 8px;
+    padding: 0;
     margin-right: 6px;
     border-radius: 999px;
-    font-size: 11.5px;
-    font-weight: 600;
     color: var(--text-2);
     background: var(--panel-2);
     border: var(--border) solid var(--line);
@@ -68,16 +63,14 @@
   .conn.warn :global(svg) {
     color: var(--danger);
   }
-  .via {
-    max-width: 140px;
-    font-weight: 500;
-    color: var(--text-3);
-  }
-  .count {
-    font-family: var(--mono);
-    font-variant-numeric: tabular-nums;
-    font-size: 10.5px;
-    color: var(--text-3);
+  .dot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn);
   }
   /* Android: flota arriba a la derecha, debajo de la barra del sistema. */
   .floating {
@@ -86,9 +79,8 @@
     right: calc(10px + env(safe-area-inset-right));
     z-index: 40;
     margin: 0;
-    height: 22px;
-    padding: 0 8px 0 7px;
-    font-size: 11px;
+    width: 26px;
+    height: 26px;
     background: color-mix(in srgb, var(--sidebar) 82%, transparent);
     backdrop-filter: var(--blur);
     box-shadow: var(--pop-shadow);
