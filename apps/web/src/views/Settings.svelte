@@ -63,7 +63,9 @@
     { value: "720p", label: "720p" },
   ];
 
-  // Los atajos viven en lib/shortcuts.ts (el "?" del reproductor muestra los mismos).
+  // Los atajos viven en lib/shortcuts.ts (el "?" del reproductor muestra los mismos). En el celular
+  // (pantalla tactil, sin modo TV) no hay teclado: la seccion no se muestra.
+  const touchOnly = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches && !tv.on;
 
   const SIZES = [
     { value: 80, label: "Small" },
@@ -295,13 +297,15 @@
       </div>
     </Section>
 
-    <Section id="keys" title="Keyboard shortcuts" icon={Keyboard} summary="Search, rows and the player">
-      <div class="keys">
-        {#each KEYS as [k, what] (k + what)}
-          <div class="key-row"><span class="kbds">{#each k.split("  ·  ") as one, i (one)}{#if i}<span class="or">or</span>{/if}<kbd>{one}</kbd>{/each}</span><span class="what">{what}</span></div>
-        {/each}
-      </div>
-    </Section>
+    {#if !touchOnly}
+      <Section id="keys" title="Keyboard shortcuts" icon={Keyboard} summary="Search, rows and the player">
+        <div class="keys">
+          {#each KEYS as [k, what] (k + what)}
+            <div class="key-row"><span class="kbds">{#each k.split("  ·  ") as one, i (one)}{#if i}<span class="or">or</span>{/if}<kbd>{one}</kbd>{/each}</span><span class="what">{what}</span></div>
+          {/each}
+        </div>
+      </Section>
+    {/if}
 
     {#if conn.available}<ConnectionSettings />{/if}
 
