@@ -400,16 +400,22 @@ async function route(req: Request): Promise<Response> {
     await wait(500);
     return json(streamsFor(decodeURIComponent(r[2])));
   }
-  if ((r = path.match(/^\/api\/subtitles\/(movie|series)\/(.+)$/)))
+  if ((r = path.match(/^\/api\/subtitles\/(movie|series)\/(.+)$/))) {
+    // Con demora (como OpenSubtitles) y una URL por episodio: asi se ven el aviso de "cargando" y
+    // la precarga del siguiente.
+    await wait(800);
+    const ep = encodeURIComponent(decodeURIComponent(r[2]));
+    const u = (lang: string) => `/api/media/subs/external?u=mock-${lang}-${ep}`;
     return json([
-      { id: "os-1", lang: "eng", url: "/api/media/subs/external?u=mock-eng" },
-      { id: "os-2", lang: "spa", url: "/api/media/subs/external?u=mock-spa" },
-      { id: "os-3", lang: "por", url: "/api/media/subs/external?u=mock-por" },
+      { id: "os-1", lang: "eng", url: u("eng") },
+      { id: "os-2", lang: "spa", url: u("spa") },
+      { id: "os-3", lang: "por", url: u("por") },
       // Mas de una version por idioma (y una variante): para probar el menu por pasos.
-      { id: "os-4", lang: "eng", url: "/api/media/subs/external?u=mock-eng" },
-      { id: "os-5", lang: "eng", url: "/api/media/subs/external?u=mock-eng" },
-      { id: "os-6", lang: "spl", url: "/api/media/subs/external?u=mock-spa" },
+      { id: "os-4", lang: "eng", url: u("eng") + "&v=2" },
+      { id: "os-5", lang: "eng", url: u("eng") + "&v=3" },
+      { id: "os-6", lang: "spl", url: u("spa") + "&v=2" },
     ]);
+  }
   if (path === "/api/prefetch") return none(202);
   if (path === "/api/play" && m === "POST") {
     const b = await body<{ stream_key: string }>();
@@ -443,7 +449,10 @@ async function route(req: Request): Promise<Response> {
     };
     return json(info);
   }
-  if ((r = path.match(/^\/api\/media\/subs\/external$/))) return new Response(vtt((url.searchParams.get("u") ?? "").slice(5)));
+  if ((r = path.match(/^\/api\/media\/subs\/external$/))) {
+    await wait(1500);
+    return new Response(vtt((url.searchParams.get("u") ?? "").slice(5, 8)));
+  }
   if ((r = path.match(/^\/api\/media\/([^/]+)\/subs\/(\d+)\.vtt$/))) return new Response(vtt(r[2] === "4" ? "spa" : "eng"));
   if ((r = path.match(/^\/api\/media\/([^/]+)\/status$/))) {
     const s = sessions.get(r[1]);

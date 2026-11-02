@@ -368,7 +368,10 @@ server viejo), la UI vuelve a la URL original. `GET /api/health` trae `images: t
 La UI la pide cuando al episodio que se está reproduciendo le quedan 10 min o pasó el 70 % (lo
 que llegue primero), con el stream del siguiente: el mismo torrent si es un pack de temporada que
 lo trae (otro archivo), si no el que elegiría al abrirlo (idioma de audio preferido, después el
-score); y al pasar de episodio abre exactamente ese stream (`/watch/series/<id>?s=<key>`). El
+score); y al pasar de episodio abre exactamente ese stream (`/watch/series/<id>?s=<key>`). En el
+mismo momento la UI baja la lista de subtítulos del siguiente y el de OpenSubtitles del idioma de
+Settings (`apps/web/src/lib/subcache.ts`), así aparece apenas arranca; los internos no se pueden
+adelantar (están repartidos por todo el archivo y el server los extrae a medida que baja). El
 server:
 
 1. **Nunca perjudica al episodio actual.** No agrega ni baja nada hasta que el actual tiene ≥ 5 min

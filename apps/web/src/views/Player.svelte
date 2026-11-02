@@ -66,6 +66,7 @@
   import { toast } from "../lib/toast.svelte";
   import type { ClientCaps, Episode, MediaStatus, MediaType, Meta, PlayInfo, Progress, Stream } from "../lib/types";
   import { loadDelays, saveDelays } from "../lib/subdelay";
+  import { externalSub, prefetchSubs } from "../lib/subcache";
   import { cuesAt, parseVtt, type Cue } from "../lib/vtt";
 
   let { params, query }: { params: string[]; query: URLSearchParams } = $props();
@@ -133,6 +134,11 @@
   type Sub = { id: string; label: string; lang: string; url: string; ext: boolean; group: string; version: number };
   let extSubs = $state<Sub[]>([]);
   let subSel = $state("");
+  // Lo que se avisa abajo, al lado de "siguiente episodio" (sin toast): buscando la lista, bajando
+  // la pista elegida, o una interna que el server todavia esta extrayendo (vino parcial).
+  let subListLoading = $state(true);
+  let subLoading = $state("");
+  let subPartial = $state(false);
   let cues: Cue[] = [];
   let subHtml = $state("");
   let audioSel = $state<number | null>(null);
@@ -239,7 +245,8 @@
         });
         autoSub();
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => (subListLoading = false));
 
     const progP = api.progress(id).catch(() => null);
     let list: Stream[];
@@ -351,6 +358,8 @@
       cues = [];
       subHtml = "";
       subAuto = false;
+      subLoading = "";
+      subPartial = false;
       const same = oldInt && intSubs.find((x) => x.lang === oldInt.lang && !/forced/i.test(x.label));
       if (same) {
         subAuto = true;
@@ -1245,21 +1254,34 @@
     subSel = sid;
     cues = [];
     subHtml = "";
+    subPartial = false;
+    subLoading = "";
     if (!sid) return;
     const s = subs.find((x) => x.id === sid);
     if (!s) return;
+    subLoading = sid;
     try {
-      const r = await fetch(mediaUrl(s.url));
-      if (!r.ok) throw new Error(String(r.status));
-      const text = await r.text();
+      let text: string;
+      let partial = false;
+      // Los de OpenSubtitles pueden estar ya bajados (precarga del episodio anterior).
+      if (s.ext) text = await externalSub(s.url);
+      else {
+        const r = await fetch(mediaUrl(s.url));
+        if (!r.ok) throw new Error(String(r.status));
+        text = await r.text();
+        partial = r.headers.get("X-Mythos-Partial") === "true";
+      }
       if (subSel !== sid) return;
+      subLoading = "";
       cues = parseVtt(text);
       renderSub();
       // El server todavia esta extrayendo la pista: se vuelve a pedir y se reemplaza.
-      if (r.headers.get("X-Mythos-Partial") === "true") laterRefresh(sid);
+      subPartial = partial;
+      if (partial) laterRefresh(sid);
     } catch {
       if (subSel === sid) {
         subSel = "";
+        subLoading = "";
         // Elegidos a mano: se avisa. Los automaticos fallan en silencio y se prueba el siguiente.
         if (manual) toast("Couldn't load those subtitles", true);
         else {
@@ -1286,7 +1308,8 @@
       if (subSel !== sid) return;
       cues = parseVtt(text);
       renderSub();
-      if (r.headers.get("X-Mythos-Partial") === "true") laterRefresh(sid);
+      subPartial = r.headers.get("X-Mythos-Partial") === "true";
+      if (subPartial) laterRefresh(sid);
     } catch {
       laterRefresh(sid);
     }
@@ -1493,6 +1516,8 @@
     const ep = nextEp;
     const sid = info?.session_id;
     if (!ep || !sid) return;
+    // Los subtitulos tambien: la lista y el del idioma de Settings quedan bajados.
+    prefetchSubs("series", ep.id).catch(() => {});
     const cur = stream;
     api
       .streams("series", ep.id)
@@ -1815,6 +1840,16 @@
     }
   }
 
+  /** El aviso de subtitulos de abajo (vacio = nada que avisar). */
+  const subNote = $derived(
+    subLoading
+      ? "Loading subtitles…"
+      : subPartial
+        ? "Subtitles still loading"
+        : subListLoading && !!prefs.subLang && !subSel
+          ? "Finding subtitles…"
+          : "",
+  );
   const VolIcon = $derived(prefs.muted || prefs.volume === 0 ? VolumeX : prefs.volume < 0.5 ? Volume1 : Volume2);
   const subSize = $derived(`calc(clamp(18px, 2.4vw, 40px) * ${prefs.subSize / 100})`);
   const subPreview = $derived(stylePeek && !!subSel);
@@ -2064,8 +2099,13 @@
             </div>
           </div>
         </div>
-        <span class="time">{clock(t)} <span class="dim">/ {clock(duration)}</span></span>
+        <span class="time" class:noted={!!subNote}>{clock(t)} <span class="dim">/ {clock(duration)}</span></span>
         <div class="grow"></div>
+        {#if subNote}
+          <span class="sub-note" role="status" title={subPartial ? "The server is still extracting them from the file: they cover up to what's downloaded and fill in as it downloads" : subNote} transition:fadeQuick>
+            <LoaderCircle size={14} class="spin" /><span class="sn-text">{subNote}</span><span class="sn-short">Subs</span>
+          </span>
+        {/if}
         {#if nextEp}
           <button class="pbtn" onclick={playNext} title="Next episode (N)"><SkipForward size={21} /></button>
         {/if}
@@ -2773,6 +2813,51 @@
   }
   @media (hover: none) {
     .vol-pop {
+      display: none;
+    }
+  }
+
+  .sub-note {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    margin-right: 4px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--on-media);
+    background: var(--media-scrim);
+    border: 1px solid var(--media-line);
+    white-space: nowrap;
+  }
+  .sn-short {
+    display: none;
+  }
+  /* Celular: la barra no da para todo. Con el aviso se esconde la duracion total (queda el tiempo
+     actual) y en los mas angostos (360 px) va siempre escondida y el aviso es solo el icono. */
+  @media (max-width: 520px) {
+    .sn-text {
+      display: none;
+    }
+    .sn-short {
+      display: inline;
+    }
+    .sub-note {
+      gap: 4px;
+      padding: 0 7px;
+      margin-right: 0;
+      font-size: 11.5px;
+    }
+    .time.noted .dim {
+      display: none;
+    }
+  }
+  @media (max-width: 380px) {
+    .time .dim,
+    .sn-short {
       display: none;
     }
   }

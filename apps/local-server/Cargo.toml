@@ -3,7 +3,7 @@
 # que elige el usuario (Auto / Solo server / Solo local) y le dice a la interfaz dónde está.
 [package]
 name = "tauri-plugin-mythos-local"
-version = "0.14.0"
+version = "0.14.1"
 description = "Mythos: el server embebido del modo local (desktop y Android)"
 edition = "2021"
 links = "tauri-plugin-mythos-local"
