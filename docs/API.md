@@ -336,7 +336,7 @@ Rutas montadas desde el crate de media, con auth (Bearer o `?t=`):
 | GET | `/api/media/{session}/file` | el archivo, con `Range` (206). Prioriza las piezas pedidas |
 | GET | `/api/media/{session}/hls/index.m3u8` | `?start=<s>&audio=<idx>`: playlist HLS que arranca en `start` (para buscar en modo transcode la UI recarga con otro `start` y suma el offset) |
 | GET | `/api/media/{session}/hls/{segment}` | segmentos `.ts` o `.m4s` |
-| GET | `/api/media/{session}/subs/{index}.vtt` | subtítulo interno en WebVTT. Si la extracción no terminó en ~20 s devuelve lo que hay (VTT válido desde el principio) con el header `X-Mythos-Partial: true`; la UI puede volver a pedirlo más tarde para completarlo |
+| GET | `/api/media/{session}/subs/{index}.vtt` | subtítulo interno en WebVTT. Si la extracción no terminó en ~20 s (o antes, si el archivo está a medio bajar y ffmpeg lleva ~3 s esperando piezas) devuelve lo que hay (VTT válido desde el principio) con el header `X-Mythos-Partial: true`; la UI vuelve a pedirlo cada 5 s para completarlo. Se guarda como completo solo si terminó con el archivo entero bajado y la sesión abierta |
 | GET | `/api/media/{session}/status` | `MediaStatus` |
 | DELETE | `/api/media/{session}` | 204 (para ffmpeg; el torrent queda en caché) |
 | GET | `/api/media/subs/external` | `?u=<url de OpenSubtitles>` → VTT (gz/srt → vtt) — lo hace el server |

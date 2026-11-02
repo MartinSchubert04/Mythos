@@ -6,15 +6,21 @@
 //!
 //! - Resultado cacheado en disco: `data_dir/subs/{hash}_{archivo}_{pista}.vtt` para torrents (sirve
 //!   para siempre) o en la carpeta temporal de la sesión para links directos.
-//! - Si la extracción no terminó en ~20 s se devuelve lo que haya hasta ahora (VTT válido, cubre
-//!   desde el principio hasta donde está bajado) con `X-Mythos-Partial: true`; la UI puede volver
-//!   a pedirlo más tarde para completar.
+//! - Si la extracción no terminó se devuelve lo que haya hasta ahora (VTT válido, cubre desde el
+//!   principio hasta donde está bajado) con `X-Mythos-Partial: true`; la UI vuelve a pedirlo más
+//!   tarde para completar. Con el archivo a medio bajar no se espera los 20 s enteros: apenas ffmpeg
+//!   se queda esperando piezas (no escribe nada en ~3 s) se devuelve lo que hay, así el comienzo
+//!   del episodio ya tiene subtítulos.
+//! - Solo se guarda como completo si ffmpeg terminó con el archivo entero en disco y la sesión
+//!   abierta: al cerrarse la sesión el lector pasivo corta el flujo y ffmpeg lo toma como fin de
+//!   archivo (sale bien), y antes eso quedaba en la cache como si fuera todo el subtítulo.
 
 use crate::engine::Engine;
 use crate::session::PlaySession;
 use crate::stream::{json_error, Role};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+use librqbit::Api;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,11 +29,23 @@ use std::time::{Duration, Instant};
 
 const TEXT_CODECS: &[&str] = &["subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"];
 const WAIT_FULL: Duration = Duration::from_secs(20);
+/// Sin salida nueva durante este tiempo (y el archivo incompleto) = ffmpeg espera piezas.
+const STALL: Duration = Duration::from_secs(3);
 
 struct Job {
     part: PathBuf,
     done: AtomicBool,
+    /// ffmpeg terminó sin llegar al final (sesión cerrada, error de lectura): el `.part` queda
+    /// con lo que alcanzó y el próximo pedido lo vuelve a empezar.
+    stopped: AtomicBool,
     error: Mutex<Option<String>>,
+}
+
+/// Todas las piezas del archivo están en disco (los links directos se leen enteros siempre).
+fn file_complete(api: &Api, s: &PlaySession) -> bool {
+    let Some(t) = s.torrent() else { return true };
+    let Some(h) = crate::window::haves(api, t.handle.info_hash()) else { return false };
+    (t.geom.piece_at(0)..=t.geom.last_piece()).all(|p| h.get(p).copied().unwrap_or(false))
 }
 
 #[derive(Default)]
@@ -68,7 +86,7 @@ pub async fn serve(e: &Engine, s: Arc<PlaySession>, idx: usize) -> Response {
     let job = {
         let mut jobs = s.subs.jobs.lock().unwrap();
         match jobs.get(&idx) {
-            Some(j) if j.error.lock().unwrap().is_none() => j.clone(),
+            Some(j) if j.error.lock().unwrap().is_none() && !j.stopped.load(Ordering::Relaxed) => j.clone(),
             _ => match spawn(e, &s, idx, &out) {
                 Ok(j) => {
                     jobs.insert(idx, j.clone());
@@ -79,8 +97,15 @@ pub async fn serve(e: &Engine, s: Arc<PlaySession>, idx: usize) -> Response {
         }
     };
     let t0 = Instant::now();
-    while !job.done.load(Ordering::Relaxed) && t0.elapsed() < WAIT_FULL {
+    let (mut last_len, mut last_change) = (0u64, Instant::now());
+    while !job.done.load(Ordering::Relaxed) && !job.stopped.load(Ordering::Relaxed) && t0.elapsed() < WAIT_FULL {
         tokio::time::sleep(Duration::from_millis(250)).await;
+        let len = tokio::fs::metadata(&job.part).await.map(|m| m.len()).unwrap_or(0);
+        if len != last_len {
+            (last_len, last_change) = (len, Instant::now());
+        } else if last_change.elapsed() >= STALL && !file_complete(&e.api, &s) {
+            break;
+        }
     }
     if let Some(err) = job.error.lock().unwrap().clone() {
         return json_error(StatusCode::INTERNAL_SERVER_ERROR, err);
@@ -121,10 +146,11 @@ fn spawn(e: &Engine, s: &Arc<PlaySession>, idx: usize, out: &Path) -> anyhow::Re
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()?;
-    let job = Arc::new(Job { part: part.clone(), done: AtomicBool::new(false), error: Mutex::new(None) });
+    let job = Arc::new(Job { part: part.clone(), done: AtomicBool::new(false), stopped: AtomicBool::new(false), error: Mutex::new(None) });
     let j = job.clone();
     let out = out.to_path_buf();
     let sess = s.clone();
+    let api = e.api.clone();
     let stderr = child.stderr.take();
     tokio::spawn(async move {
         let last_err = Arc::new(Mutex::new(String::new()));
@@ -151,9 +177,17 @@ fn spawn(e: &Engine, s: &Arc<PlaySession>, idx: usize, out: &Path) -> anyhow::Re
             }
         };
         match status {
-            Ok(st) if st.success() => {
+            // Salir bien no alcanza: con el flujo cortado (sesión cerrada) ffmpeg también sale
+            // bien, con el subtítulo hasta donde había bajado.
+            Ok(st) if st.success() && !sess.is_closed() && file_complete(&api, &sess) => {
                 let _ = tokio::fs::rename(&part, &out).await;
                 j.done.store(true, Ordering::Relaxed);
+            }
+            Ok(st) if st.success() => {
+                j.stopped.store(true, Ordering::Relaxed);
+                if sess.is_closed() {
+                    let _ = tokio::fs::remove_file(&part).await;
+                }
             }
             Ok(_) => {
                 let msg = last_err.lock().unwrap().clone();
