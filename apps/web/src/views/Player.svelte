@@ -87,6 +87,10 @@
   const SLOW_BPS = 1.5e6; // "poca velocidad" (1,5 MB/s)
   const START_GIVEUP_MS = 45_000; // sin primer cuadro en 45 s: ofrecer otro aunque baje rapido
   const BUFFER_GOAL_S = 8; // lo que se muestra como 100 % al esperar
+  // Trabado aunque los datos ya estan (en el server o en el buffer del video): la conexion del
+  // <video> quedo colgada. Se reconecta en la misma posicion, como salir y volver a entrar.
+  const STALL_RECOVER_MS = 7_000;
+  const MAX_STALL_FIXES = 3; // en 2 minutos; si sigue, se avisa y se ofrece otro stream
 
   // ---- estado
   let root = $state<HTMLDivElement>();
@@ -614,11 +618,49 @@
     }
     const now = Date.now();
     const slow = (status?.down_bps ?? 0) < SLOW_BPS;
-    if (!started && now - loadSince > (slow ? STUCK_MS + 5000 : START_GIVEUP_MS)) {
+    // Quieto desde el tick anterior (si avanza, "waiting" quedo viejo y no hay nada que arreglar).
+    const pos = video?.currentTime ?? -1;
+    const frozen = pos === lastWatchPos;
+    lastWatchPos = pos;
+    if (started && waiting && video && !video.paused && frozen && now - waitSince > STALL_RECOVER_MS && dataReady()) {
+      recoverStall();
+    } else if (!started && now - loadSince > (slow ? STUCK_MS + 5000 : START_GIVEUP_MS)) {
       stuck = "slow";
-    } else if (started && waiting && now - waitSince > STUCK_MS && slow) {
+    } else if (started && waiting && now - waitSince > STUCK_MS && slow && !dataReady()) {
       stuck = "slow";
     }
+  }
+
+  /** Segundos que el video tiene cargados por delante de la posicion. */
+  function localAhead(): number {
+    if (!video || video.readyState === 0) return 0;
+    const b = video.buffered;
+    const c = video.currentTime;
+    for (let i = 0; i < b.length; i++) if (b.start(i) <= c + 0.5 && b.end(i) > c) return b.end(i) - c;
+    return 0;
+  }
+
+  /** Lo que hace falta para seguir ya esta: en el video, o en el server (archivo completo o
+   *  colchon listo). Si igual esta esperando, no es la descarga: es la conexion del video. */
+  function dataReady(): boolean {
+    if (localAhead() >= 2) return true;
+    if (!status) return false;
+    if (status.total_bytes > 0 && status.progress >= 0.999) return true;
+    return status.state === "ready" && (status.buffered_ahead_s ?? 0) >= 3;
+  }
+
+  let lastWatchPos = -1;
+  let stallFixes: number[] = [];
+  function recoverStall() {
+    const now = Date.now();
+    stallFixes = stallFixes.filter((x) => now - x < 120_000);
+    if (stallFixes.length >= MAX_STALL_FIXES) {
+      stuck = "error";
+      stuckMsg = "Playback keeps stalling even though the video is downloaded.";
+      return;
+    }
+    stallFixes.push(now);
+    attach(t);
   }
 
   function keepWaiting() {
@@ -699,12 +741,7 @@
    *  server que hay listo despues de la posicion, y si nada de eso se sabe, lo descargado. */
   function bufPct(): number | null {
     const goal = status?.buffer_target_s || BUFFER_GOAL_S;
-    let ahead = 0;
-    if (video && video.readyState > 0) {
-      const b = video.buffered;
-      const c = video.currentTime;
-      for (let i = 0; i < b.length; i++) if (b.start(i) <= c + 0.5 && b.end(i) > c) ahead = b.end(i) - c;
-    }
+    const ahead = localAhead();
     const server = status?.buffered_ahead_s ?? 0;
     const pct = (Math.max(ahead, server) / goal) * 100;
     if (pct > 0) return Math.min(99, pct);
@@ -1889,7 +1926,11 @@
     onpause={() => ((paused = true), saveProgress())}
     ontimeupdate={onTime}
     onprogress={readBuffered}
-    onseeking={() => (waiting = true)}
+    onseeking={() => {
+      // La espera se cuenta desde el salto, no desde una espera vieja.
+      if (!waiting) waitSince = Date.now();
+      waiting = true;
+    }}
     onseeked={() => !video?.paused && video!.readyState >= 3 && onPlaying()}
     onended={onEnded}
     onerror={onError}

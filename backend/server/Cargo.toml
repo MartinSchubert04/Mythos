@@ -4,7 +4,7 @@
 # rustls que ya trae el crate de media, y nada de chrono (las fechas las arma SQLite).
 [package]
 name = "mythos"
-version = "0.14.2"
+version = "0.14.3"
 edition = "2021"
 
 [dependencies]
