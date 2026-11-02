@@ -29,6 +29,7 @@ pub fn routes() -> Router<AppState> {
         .route("/me/settings", get(get_settings).put(put_settings))
         .route("/progress", get(series_progress).put(put_progress))
         .route("/progress/continue", get(continue_watching))
+        .route("/progress/recent", get(recent))
         .route("/progress/{meta_id}", get(get_progress).delete(delete_progress))
         .route("/library", get(library))
         .route("/library/{type}/{id}", put(library_add).delete(library_remove))
@@ -289,6 +290,29 @@ async fn continue_watching(State(st): State<AppState>, u: AuthUser) -> ApiResult
         .into_iter()
         .filter(|p| seen.insert(p.series_id.clone().unwrap_or_else(|| p.meta_id.clone())))
         .take(20)
+        .collect();
+    Ok(Json(out))
+}
+
+/// "Visto hace poco" (la Library): los últimos 30, terminados incluidos, uno solo por serie (el
+/// episodio más reciente).
+async fn recent(State(st): State<AppState>, u: AuthUser) -> ApiResult<Json<Vec<Progress>>> {
+    let uid = u.user.id;
+    let rows = st
+        .db
+        .call(move |c| {
+            let mut stmt = c.prepare_cached(&format!(
+                "SELECT {PROGRESS_COLS} FROM progress WHERE user_id = ?1 AND deleted = 0 ORDER BY updated_at DESC LIMIT 400"
+            ))?;
+            let rows = stmt.query_map([uid], progress_from_row)?.collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await?;
+    let mut seen = std::collections::HashSet::new();
+    let out = rows
+        .into_iter()
+        .filter(|p| seen.insert(p.series_id.clone().unwrap_or_else(|| p.meta_id.clone())))
+        .take(30)
         .collect();
     Ok(Json(out))
 }

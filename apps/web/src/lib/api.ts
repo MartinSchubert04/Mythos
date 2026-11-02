@@ -336,6 +336,8 @@ export const api = {
   },
 
   continueWatching: () => req<Progress[]>("GET", "/api/progress/continue"),
+  /** Lo ultimo visto, terminado o no (uno por serie). Un server viejo no la tiene: /continue. */
+  recentlyWatched: () => req<Progress[]>("GET", "/api/progress/recent").catch(() => req<Progress[]>("GET", "/api/progress/continue")),
   progress: (metaId: string) => req<Progress>("GET", `/api/progress/${enc(metaId)}`).catch((e) => {
     if (e instanceof ApiError && e.status === 404) return null;
     throw e;

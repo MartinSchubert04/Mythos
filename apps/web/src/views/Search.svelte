@@ -1,8 +1,10 @@
 <script lang="ts">
   // Busqueda en vivo (con debounce): peliculas y series por separado. "/" o Ctrl K vienen aca.
-  // Arriba, al lado del buscador, un filtro All / Movies / Series (queda en ?type=).
+  // Arriba, al lado del buscador, un filtro All / Movies / Series (queda en ?type=). Con "All" son
+  // dos filas horizontales (las series quedan a la vista sin bajar); con un tipo, la grilla.
   import { LoaderCircle, Search, SearchX, Trophy, X } from "@lucide/svelte";
   import PosterCard from "../components/PosterCard.svelte";
+  import Row from "../components/Row.svelte";
   import Seg from "../components/Seg.svelte";
   import { api, errText } from "../lib/api";
   import { uniq } from "../lib/format";
@@ -161,6 +163,16 @@
       <h3>No {kind === "movie" ? "movies" : "series"} for "{q.trim()}"</h3>
       <button class="btn sm" onclick={() => setKind("all")}>Show all results</button>
     </div>
+  {:else if kind === "all"}
+    <div class="rows" in:rise>
+      {#each groups as g (g.t)}
+        {#if g.l.length}
+          <Row title="{g.t} · {g.l.length}" items={g.l}>
+            {#snippet card(m, i)}<PosterCard item={m} {i} />{/snippet}
+          </Row>
+        {/if}
+      {/each}
+    </div>
   {:else}
     {#each groups as g (g.t)}
       {#if g.l.length}
@@ -228,6 +240,10 @@
     flex-wrap: wrap;
     gap: 8px;
     margin: 12px 0 4px;
+  }
+  /* Las filas van de borde a borde (ponen su propio margen lateral). */
+  .rows {
+    margin: 6px calc(-1 * var(--gutter)) 0;
   }
   .ph {
     aspect-ratio: 2 / 3;

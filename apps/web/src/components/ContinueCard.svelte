@@ -1,6 +1,7 @@
 <script lang="ts">
-  // Tarjeta de "Continue watching": el fondo del titulo, la barra de progreso y el episodio.
-  // Clic: vuelve al reproductor (con el mismo stream); la X lo saca de la fila.
+  // Tarjeta de "Continue watching" (y "Recently watched" en la Library): el fondo del titulo, la
+  // barra de progreso y el episodio. Clic: vuelve al reproductor (con el mismo stream); si ya lo
+  // termino, a la ficha (ahi el boton grande ofrece el siguiente episodio). La X lo saca de la fila.
   import { Play, X } from "@lucide/svelte";
   import { api } from "../lib/api";
   import { clock, sized } from "../lib/format";
@@ -9,7 +10,12 @@
   import type { Progress } from "../lib/types";
   import Img from "./Img.svelte";
 
-  let { p, i = 0, onremove }: { p: Progress; i?: number; onremove?: (p: Progress) => void } = $props();
+  let {
+    p,
+    i = 0,
+    onremove,
+    removeLabel = "Remove from Continue watching",
+  }: { p: Progress; i?: number; onremove?: (p: Progress) => void; removeLabel?: string } = $props();
 
   // Si el progreso se guardo sin imagenes, se toman del catalogo (queda en cache).
   let fromMeta = $state<string | null | undefined>(null);
@@ -24,19 +30,24 @@
 
   const pct = $derived(p.duration_s ? Math.min(100, (p.position_s / p.duration_s) * 100) : 0);
   const left = $derived(Math.max(0, p.duration_s - p.position_s));
+  const done = $derived(pct > 92);
   // Desde aca se sigue sin preguntar, con el mismo stream.
-  const href = $derived(`/watch/${p.type}/${p.meta_id}?resume=1${p.stream_key ? `&s=${encodeURIComponent(p.stream_key)}` : ""}`);
+  const href = $derived(
+    done
+      ? `/title/${p.type}/${p.series_id ?? p.meta_id}`
+      : `/watch/${p.type}/${p.meta_id}?resume=1${p.stream_key ? `&s=${encodeURIComponent(p.stream_key)}` : ""}`,
+  );
 </script>
 
 <a
   class="cw"
   href="#{href}"
   style="--i: {i}"
-  onpointerenter={() => loadView("player").catch(() => {})}
+  onpointerenter={() => !done && loadView("player").catch(() => {})}
   onclick={(e) => {
     if (e.ctrlKey || e.metaKey) return;
     e.preventDefault();
-    go(href);
+    go(href, done ? { vt: true } : undefined);
   }}
 >
   <div class="frame">
@@ -46,7 +57,7 @@
     {#if onremove}
       <button
         class="rm"
-        title="Remove from Continue watching"
+        title={removeLabel}
         onclick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -56,7 +67,7 @@
     {/if}
     <div class="info">
       <span class="name ellipsis">{p.name}</span>
-      <span class="sub ellipsis">{p.episode_label ? `${p.episode_label} · ` : ""}{clock(left)} left</span>
+      <span class="sub ellipsis">{p.episode_label ? `${p.episode_label} · ` : ""}{done ? "Watched" : `${clock(left)} left`}</span>
       <div class="progress"><div class="progress-fill" style="width: {pct}%"></div></div>
     </div>
   </div>

@@ -413,3 +413,32 @@ async fn admin_sees_and_revokes_tv_sessions() {
     remote.shutdown().await.unwrap();
     let _ = std::fs::remove_dir_all(&rdir);
 }
+
+/// "Visto hace poco": terminados incluidos (a diferencia de /continue) y una sola entrada por serie.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn recent_includes_finished_one_per_series() {
+    let rdir = tmp("recent");
+    let remote = remote_server(&rdir).await;
+    let r = Api::new(&remote);
+    let tok = r.call("POST", "/api/auth/login", None, Some(json!({"username": "ana", "password": "secret123"}))).await.1["token"].as_str().unwrap().to_string();
+    let put = |meta_id: &str, series: Option<&str>, pos: f64| {
+        json!({
+            "meta_id": meta_id, "type": if series.is_some() { "series" } else { "movie" }, "series_id": series,
+            "name": "X", "position_s": pos, "duration_s": 100.0
+        })
+    };
+    for p in [put("tt0000001", None, 99.0), put("tt0000002:1:1", Some("tt0000002"), 99.0), put("tt0000002:1:2", Some("tt0000002"), 10.0)] {
+        assert_eq!(r.call("PUT", "/api/progress", Some(&tok), Some(p)).await.0, 204);
+    }
+    let (st, l) = r.call("GET", "/api/progress/recent", Some(&tok), None).await;
+    assert_eq!(st, 200, "{l}");
+    let ids: Vec<&str> = l.as_array().unwrap().iter().map(|p| p["meta_id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["tt0000002:1:2", "tt0000001"]);
+    // /continue no trae la pelicula terminada.
+    let c = r.call("GET", "/api/progress/continue", Some(&tok), None).await.1;
+    assert_eq!(c.as_array().unwrap().len(), 1);
+    assert_eq!(r.call("GET", "/api/progress/recent", None, None).await.0, 401);
+
+    remote.shutdown().await.unwrap();
+    let _ = std::fs::remove_dir_all(&rdir);
+}

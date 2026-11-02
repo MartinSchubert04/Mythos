@@ -175,8 +175,10 @@
   {/if}
 </div>
 
-<!-- Lo mismo como tabla, para lectores de pantalla -->
-<table class="sr">
+<!-- Lo mismo como tabla, para lectores de pantalla. Va dentro de un div de 1 px: una tabla no
+     respeta width: 1px y, aunque recortada, ensanchaba la pagina (en el celular se iba de costado). -->
+<div class="sr">
+<table>
   <caption>{label}</caption>
   <thead><tr><th>Time</th><th>Requests</th><th>Server errors</th><th>Data sent</th><th>p95</th></tr></thead>
   <tbody>
@@ -187,6 +189,7 @@
     {/each}
   </tbody>
 </table>
+</div>
 
 <style>
   .chart {
@@ -286,10 +289,12 @@
   }
   .sr {
     position: absolute;
+    left: 0;
+    top: 0;
     width: 1px;
     height: 1px;
     overflow: hidden;
-    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
     white-space: nowrap;
   }
 </style>

@@ -217,6 +217,7 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 | POST | `/api/prefetch` | `{info_hash?, file_idx?, url?, stream_key?, session_id?}` (alcanza con `stream_key` de un listado reciente) | 202. Sin `session_id`: arranca el torrent y baja principio y final del archivo sin abrir sesión (la UI lo llama al abrir la lista de streams, para el primero). Con `session_id` (la sesión de media que se está viendo; mandarlo al server de esa sesión): **precarga del próximo episodio** atada a esa sesión, con las reglas de abajo; 404 si la sesión no existe |
 | POST | `/api/play` | `{stream_key, info_hash?, file_idx?, url?, caps: ClientCaps, meta_id?}` (si `stream_key` salió de `/api/streams` en las últimas 6 h, el resto es opcional; así el server usa los trackers que trajo Torrentio). Tarda unos segundos (metadata + ffprobe) | `PlayInfo`; 502 con mensaje si no se pudo abrir |
 | GET | `/api/progress/continue` | | `Progress[]` (últimos 20, sin terminados > 92 %) |
+| GET | `/api/progress/recent` | | `Progress[]` (últimos 30, terminados incluidos, uno por serie: "Recently watched" en la Library; si falta, la UI usa `/continue`) |
 | GET | `/api/progress` | `?series_id=tt…` | `Progress[]` de todos los episodios de esa serie, terminados incluidos (la UI marca vistos y el progreso de cada episodio; si falta, usa `/continue`) |
 | GET | `/api/progress/{meta_id}` | | `Progress` o 404 |
 | PUT | `/api/progress` | `Progress` sin `updated_at` | 204 |

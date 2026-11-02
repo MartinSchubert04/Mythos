@@ -231,7 +231,7 @@
 
   <h2 class="section-title">Torrents <span class="live"><span class="dot"></span>live</span></h2>
   <div class="card table-card">
-    <table class="list">
+    <table class="list torrents">
       <thead><tr><th>Name</th><th>Progress</th><th>Down</th><th>Up</th><th>Peers</th><th>Last used</th><th></th></tr></thead>
       <tbody>
         {#if !torrents}
@@ -247,10 +247,10 @@
                 <div class="progress"><div class="progress-fill" style="width: {pct}%"></div></div>
                 <span class="faint small">{pct.toFixed(0)}%</span>
               </td>
-              <td class="num" class:active={t.down_bps > 0}>{speed(t.down_bps)}</td>
-              <td class="num faint">{speed(t.up_bps)}</td>
-              <td class="num">{t.peers}</td>
-              <td class="faint">{relTime(t.last_used_at)}</td>
+              <td class="num down" class:active={t.down_bps > 0}>{speed(t.down_bps)}</td>
+              <td class="num faint up">{speed(t.up_bps)}</td>
+              <td class="num peers">{t.peers}</td>
+              <td class="faint last">{relTime(t.last_used_at)}</td>
               <td class="acts"><button class="icon-btn del" title="Remove torrent and files" onclick={() => dropTorrent(t)}><Trash2 size={15} /></button></td>
             </tr>
           {/each}
@@ -263,7 +263,7 @@
     <div class="empty"><h3>Couldn't load users</h3><span>{error}</span></div>
   {:else}
     <div class="card table-card">
-      <table class="list">
+      <table class="list users">
         <thead><tr><th>User</th><th>Role</th><th>Created</th><th>Enabled</th><th></th></tr></thead>
         <tbody>
           {#if !users}
@@ -272,16 +272,16 @@
             {#each users as u, i (u.id)}
               {@const me = u.id === session.user?.id}
               <tr class="stagger" style="--i: {i}" class:off={u.disabled}>
-                <td>
+                <td class="u-who">
                   <span class="who"><Avatar name={u.username} id={u.avatar_id} size={26} />{u.username}{#if me}<span class="chip">you</span>{/if}</span>
                 </td>
-                <td>
+                <td class="u-role">
                   <button class="chip role" class:accent={u.is_admin} disabled={me} title={me ? "" : "Click to change"} onclick={() => patch(u, { is_admin: !u.is_admin }, u.is_admin ? "No longer admin" : "Now admin")}>
                     {u.is_admin ? "Admin" : "User"}
                   </button>
                 </td>
-                <td class="faint">{relTime(u.created_at)}</td>
-                <td><Switch checked={!u.disabled} disabled={me} onchange={(v) => patch(u, { disabled: !v }, v ? "Enabled" : "Disabled. Their sessions were closed.")} /></td>
+                <td class="faint u-created">{relTime(u.created_at)}</td>
+                <td class="u-on"><Switch checked={!u.disabled} disabled={me} onchange={(v) => patch(u, { disabled: !v }, v ? "Enabled" : "Disabled. Their sessions were closed.")} /></td>
                 <td class="acts">
                   <button class="icon-btn" title="Signed-in devices" onclick={() => (devicesOf = u)}><MonitorSmartphone size={15} /></button>
                   <button class="icon-btn" title="Rename" onclick={() => rename(u)}><PencilLine size={15} /></button>
@@ -478,7 +478,111 @@
       transform: scale(0.8);
     }
   }
+  /* Celular: las tablas pasan a tarjetas (una por fila), sin scroll de costado. */
   @media (max-width: 700px) {
+    .table-card {
+      overflow-x: visible;
+    }
+    .list thead {
+      display: none;
+    }
+    .list,
+    .list tbody {
+      display: block;
+      width: 100%;
+    }
+    .list tr {
+      display: grid;
+      align-items: center;
+      gap: 6px 12px;
+      padding: 12px 10px;
+      border-bottom: var(--border) solid var(--line);
+    }
+    .list tr:last-child {
+      border-bottom: 0;
+    }
+    .list td {
+      display: block;
+      padding: 0;
+      border: 0;
+      min-width: 0;
+    }
+    .list td[colspan] {
+      grid-column: 1 / -1;
+    }
+    .torrents tr {
+      grid-template-columns: auto auto auto 1fr auto;
+      grid-template-areas:
+        "name name name name acts"
+        "prog prog prog prog prog"
+        "down up peers last last";
+    }
+    .tname {
+      grid-area: name;
+      max-width: none;
+    }
+    .list td.tprog {
+      grid-area: prog;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .tprog .progress {
+      flex: 1;
+      margin: 0;
+    }
+    .torrents .acts {
+      grid-area: acts;
+      align-self: start;
+    }
+    .down {
+      grid-area: down;
+    }
+    .up {
+      grid-area: up;
+    }
+    .peers {
+      grid-area: peers;
+    }
+    .last {
+      grid-area: last;
+      text-align: right;
+      font-size: 12px;
+    }
+    .down::before {
+      content: "↓ ";
+    }
+    .up::before {
+      content: "↑ ";
+    }
+    .peers::after {
+      content: " peers";
+    }
+    .users tr {
+      grid-template-columns: auto 1fr auto;
+      grid-template-areas:
+        "who who on"
+        "role created acts";
+    }
+    .u-who {
+      grid-area: who;
+      min-width: 0;
+    }
+    .u-role {
+      grid-area: role;
+    }
+    .u-created {
+      grid-area: created;
+      font-size: 12px;
+    }
+    .u-on {
+      grid-area: on;
+      justify-self: end;
+    }
+    .users .acts {
+      grid-area: acts;
+    }
     .tabs > :global(*) {
       flex: 1;
     }

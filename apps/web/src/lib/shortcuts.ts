@@ -23,6 +23,7 @@ export const PLAYER_KEYS: Shortcut[] = [
   ["G  ·  H", "This subtitle 0.5 s earlier or later (Shift: 0.1 s; remembered per subtitle)"],
   ["-  ·  =", "Subtitles smaller or larger"],
   ["N", "Next episode"],
+  ["E", "Episodes and seasons (series)"],
   ["D", "Playback stats"],
   ["?", "Show these shortcuts"],
   ["Enter", "Resume (when the player asks)"],
@@ -34,6 +35,7 @@ export const PLAYER_TOUCH: Shortcut[] = [
   ["Double tap a side", "Back or forward 10 seconds (keep tapping for more)"],
   ["Touch and hold", "Play at 2× while held"],
   ["Pinch", "Out: crop to fill the screen · in: fit"],
+  ["Swipe up or down on the right", "Volume"],
 ];
 
 /** Para Settings: todo junto; las flechas del reproductor aclaran donde (en la grilla son otra cosa). */

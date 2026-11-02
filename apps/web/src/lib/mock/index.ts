@@ -453,6 +453,15 @@ async function route(req: Request): Promise<Response> {
     sessions.delete(r[1]);
     return none();
   }
+  if (path === "/api/progress/recent") {
+    const seen = new Set<string>();
+    return json(
+      [...db.progress]
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+        .filter((p) => !seen.has(p.series_id ?? p.meta_id) && seen.add(p.series_id ?? p.meta_id))
+        .slice(0, 30),
+    );
+  }
   if (path === "/api/progress/continue")
     return json(
       [...db.progress]

@@ -1,14 +1,17 @@
 <script lang="ts">
-  // Favoritos en grilla, con filtro por tipo.
+  // Arriba lo ultimo visto (fila horizontal, terminados incluidos) y abajo los favoritos en
+  // grilla. El filtro por tipo vale para las dos.
   import { Heart } from "@lucide/svelte";
+  import ContinueCard from "../components/ContinueCard.svelte";
   import PosterCard from "../components/PosterCard.svelte";
+  import Row from "../components/Row.svelte";
   import Seg from "../components/Seg.svelte";
   import { api, errText } from "../lib/api";
   import { rise } from "../lib/motion";
   import { uniq } from "../lib/format";
   import { go } from "../lib/router.svelte";
   import { keepScroll } from "../lib/scroll";
-  import type { MetaPreview } from "../lib/types";
+  import type { MetaPreview, Progress } from "../lib/types";
 
   let items = $state<MetaPreview[] | null>(null);
   let error = $state("");
@@ -19,7 +22,14 @@
     .then((l) => (items = uniq(l)))
     .catch((e) => ((error = errText(e)), (items = [])));
 
+  let recent = $state<Progress[] | null>(null);
+  api
+    .recentlyWatched()
+    .then((l) => (recent = l))
+    .catch(() => (recent = []));
+
   const shown = $derived(items?.filter((m) => kind === "all" || m.type === kind) ?? null);
+  const recentShown = $derived(recent?.filter((p) => kind === "all" || p.type === kind) ?? null);
 </script>
 
 <div class="page" use:keepScroll={"library"}>
@@ -27,7 +37,7 @@
     <h1>Library</h1>
     {#if items?.length}<span class="sub">{items.length} saved</span>{/if}
     <div class="grow"></div>
-    {#if items?.length}
+    {#if items?.length || recent?.length}
       <Seg
         bind:value={kind}
         options={[
@@ -38,6 +48,15 @@
       />
     {/if}
   </div>
+
+  {#if recentShown === null || recentShown.length}
+    <div class="recent">
+      <Row title="Recently watched" items={recentShown ?? undefined} wide>
+        {#snippet card(p, i)}<ContinueCard {p} {i} />{/snippet}
+      </Row>
+    </div>
+    <h2 class="section-title">Saved</h2>
+  {/if}
 
   {#if !shown}
     <div class="poster-grid">
@@ -62,6 +81,10 @@
 <style>
   .page {
     padding: 26px var(--gutter) 40px;
+  }
+  /* La fila va de borde a borde (pone su propio margen lateral, como en el inicio). */
+  .recent {
+    margin: 0 calc(-1 * var(--gutter));
   }
   .ph {
     aspect-ratio: 2 / 3;

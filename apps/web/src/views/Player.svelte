@@ -34,6 +34,7 @@
     Plus,
     RotateCcw,
     RotateCw,
+    Rows3,
     Scan,
     SkipForward,
     TriangleAlert,
@@ -44,12 +45,14 @@
   } from "@lucide/svelte";
   import type HlsType from "hls.js";
   import { onDestroy, onMount, tick, untrack } from "svelte";
+  import Img from "../components/Img.svelte";
   import PlayerLoading from "../components/PlayerLoading.svelte";
   import SeekBar from "../components/SeekBar.svelte";
   import StreamList from "../components/StreamList.svelte";
   import WindowControls from "../components/WindowControls.svelte";
   import { api, dropCache, errText, mediaUrl, movedAway, withToken } from "../lib/api";
   import { degrade, detectCaps } from "../lib/caps";
+  import { fit } from "../lib/images";
   import { bytes, clock, epCode, sized, speed } from "../lib/format";
   import { fadeQuick, pop, rise, step } from "../lib/motion";
   import { isDesktop, isFullscreen, setFullscreen } from "../lib/platform";
@@ -115,7 +118,7 @@
 
   type FlashIcon = "play" | "pause" | "fwd" | "back" | "vol" | "subs" | "speed" | "scale";
   let ui = $state(true); // controles visibles
-  let menu = $state<"" | "subs" | "audio" | "speed" | "streams">("");
+  let menu = $state<"" | "subs" | "audio" | "speed" | "streams" | "vol" | "eps">("");
   let dragging = $state(false);
   let flash = $state<{ k: number; icon: FlashIcon; text?: string } | null>(null);
 
@@ -922,7 +925,7 @@
   // hacia afuera = Crop y hacia adentro = Fit. El mouse sigue igual (clic pausa, doble clic F).
 
   const pts = new Map<number, { x: number; y: number }>();
-  let gest = { x0: 0, y0: 0, at: 0, moved: false, multi: false, pinch0: 0, pinched: false, uiAtDown: true, long: false };
+  let gest = { x0: 0, y0: 0, at: 0, moved: false, multi: false, pinch0: 0, pinched: false, uiAtDown: true, long: false, vol: false, v0: 0 };
   let longTimer = 0;
   let tapTimer = 0;
   let lastTap = { at: 0, zone: 0 };
@@ -941,7 +944,7 @@
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pts.size === 1) {
       // `ui` antes de que el pointerdown del reproductor muestre los controles.
-      gest = { x0: e.clientX, y0: e.clientY, at: Date.now(), moved: false, multi: false, pinch0: 0, pinched: false, uiAtDown: ui, long: false };
+      gest = { x0: e.clientX, y0: e.clientY, at: Date.now(), moved: false, multi: false, pinch0: 0, pinched: false, uiAtDown: ui, long: false, vol: false, v0: 0 };
       clearTimeout(longTimer);
       longTimer = window.setTimeout(() => {
         if (gest.moved || gest.multi) return;
@@ -964,10 +967,33 @@
         gest.pinched = true;
         setScale(r > 1 ? "crop" : "fit");
       }
-    } else if (Math.hypot(e.clientX - gest.x0, e.clientY - gest.y0) > 12) {
+    } else if (gest.vol) {
+      // Arrastrar de abajo arriba ~60 % del alto = de 0 a 100 %.
+      const h = root?.clientHeight || window.innerHeight;
+      setVolume(gest.v0 + (gest.y0 - e.clientY) / (h * 0.6));
+      showVolHud();
+    } else if (!gest.moved && !gest.long && Math.hypot(e.clientX - gest.x0, e.clientY - gest.y0) > 12) {
       gest.moved = true;
       clearTimeout(longTimer);
+      // Deslizar vertical en la mitad derecha: el volumen (como en los reproductores del celular).
+      const dx = Math.abs(e.clientX - gest.x0);
+      const dy = Math.abs(e.clientY - gest.y0);
+      const w = root?.clientWidth || window.innerWidth;
+      if (started && dy > dx * 1.5 && gest.x0 > w / 2) {
+        gest.vol = true;
+        gest.v0 = prefs.muted ? 0 : prefs.volume;
+        gest.y0 = e.clientY;
+        showVolHud();
+      }
     }
+  }
+  /** El indicador del volumen al deslizar (queda un momento despues de soltar). */
+  let volHud = $state(false);
+  let volHudTimer = 0;
+  function showVolHud() {
+    volHud = true;
+    clearTimeout(volHudTimer);
+    volHudTimer = window.setTimeout(() => (volHud = false), 900);
   }
   function onVUp(e: PointerEvent) {
     if (e.pointerType !== "touch" || !pts.delete(e.pointerId) || pts.size) return;
@@ -1076,6 +1102,43 @@
     prefs.volume = Math.max(0, Math.min(1, v));
     prefs.muted = prefs.volume === 0;
     savePrefs(false);
+  }
+  const volPct = $derived(Math.round((prefs.muted ? 0 : prefs.volume) * 100));
+  /** El parlante: con el mouse silencia (la barra aparece al pasar por encima); con el dedo no hay
+   *  hover, asi que abre la barra vertical grande. */
+  function volButton(e: MouseEvent) {
+    const touch = (e as PointerEvent).pointerType === "touch" || (lastPointer === "touch" && !tv.on);
+    if (touch) menu = menu === "vol" ? "" : "vol";
+    else toggleMute();
+  }
+  // Barra vertical (dedo): se arrastra en cualquier parte de la pastilla, no solo la punta.
+  let vTrack = $state<HTMLDivElement>();
+  function vSet(e: PointerEvent) {
+    if (!vTrack) return;
+    const r = vTrack.getBoundingClientRect();
+    setVolume(1 - (e.clientY - r.top) / r.height);
+    activity();
+  }
+  function vDown(e: PointerEvent) {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    vSet(e);
+  }
+  function vMove(e: PointerEvent) {
+    if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) vSet(e);
+  }
+  function vKey(e: KeyboardEvent) {
+    const up = e.key === "ArrowUp" || e.key === "ArrowRight";
+    const down = e.key === "ArrowDown" || e.key === "ArrowLeft";
+    if (!up && !down) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setVolume((prefs.muted ? 0 : prefs.volume) + (up ? 0.05 : -0.05));
+  }
+  function volWheel(e: WheelEvent) {
+    if (!e.deltaY) return;
+    e.preventDefault();
+    setVolume((prefs.muted ? 0 : prefs.volume) + (e.deltaY < 0 ? 0.05 : -0.05));
+    activity();
   }
   function toggleMute() {
     prefs.muted = !prefs.muted;
@@ -1469,6 +1532,47 @@
     go(`/watch/series/${nextEp.id}${s ? `?s=${encodeURIComponent(s)}` : ""}`, { replace: true });
   }
 
+  // ---- panel de episodios (E o el boton de arriba): temporadas y episodios de la serie, con lo
+  // visto marcado. Elegir uno lo abre aca mismo (con el mismo pack si lo tiene).
+  const epSeasons = $derived(
+    [...new Set((meta?.videos ?? []).map((v) => v.season))].sort((a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b)),
+  );
+  let epSeason = $state(1);
+  const epSeasonEps = $derived((meta?.videos ?? []).filter((v) => v.season === epSeason));
+  let epProg = $state<Record<string, Progress>>({});
+  let switchingEp = $state(false);
+  function toggleEps() {
+    if (menu === "eps") return void (menu = "");
+    epSeason = ep?.season ?? epSeasons.find((s) => s > 0) ?? 1;
+    menu = "eps";
+    api
+      .seriesProgress(seriesId)
+      .then((l) => (epProg = Object.fromEntries(l.map((p) => [p.meta_id, p]))))
+      .catch(() => {});
+    // El episodio actual a la vista. A mano y solo vertical: scrollIntoView, con el panel todavia
+    // entrando de costado, corria todo el reproductor hacia la izquierda.
+    tick().then(() => {
+      const el = root?.querySelector<HTMLElement>(".epi.now");
+      const box = el?.closest<HTMLElement>(".side-body");
+      if (el && box) box.scrollTop = el.offsetTop - box.offsetTop - box.clientHeight / 2 + el.offsetHeight / 2;
+    });
+  }
+  async function pickEpisode(e: Episode) {
+    if (e.id === id) return void (menu = "");
+    switchingEp = true;
+    cancelCountdown();
+    saveProgress();
+    // Mismo pack de temporada si lo hay (como el siguiente episodio); sin esperar demasiado.
+    let s: string | undefined;
+    const cur = stream;
+    if (cur?.info_hash) {
+      const l = await Promise.race([api.streams("series", e.id).catch(() => []), new Promise<Stream[]>((r) => setTimeout(() => r([]), 2500))]);
+      s = l.find((x) => x.info_hash === cur.info_hash)?.key;
+    }
+    if (destroyed) return;
+    go(`/watch/series/${e.id}${s ? `?s=${encodeURIComponent(s)}` : ""}`, { replace: true });
+  }
+
   // ---- progreso
 
   function saveProgress(keepalive = false) {
@@ -1506,7 +1610,7 @@
     clearTimeout(hideTimer);
     clearTimeout(waitTimer);
     clearTimeout(peekTimer);
-    for (const tm of [holdTimer, longTimer, tapTimer, comboTimer, flashTimer, seekTimer]) clearTimeout(tm);
+    for (const tm of [holdTimer, longTimer, tapTimer, comboTimer, flashTimer, seekTimer, volHudTimer]) clearTimeout(tm);
     cancelAnimationFrame(raf);
     pollCtl?.abort();
     saveProgress(keepalive);
@@ -1604,7 +1708,7 @@
     if (k === "MediaFastForward" || k === "MediaRewind") return tvSeek(k === "MediaFastForward" ? 1 : -1, e.repeat), "done";
     if (k === "Escape" || (!d && k !== "Enter")) return "pass";
     // El panel de streams: las flechas adentro de el.
-    const side = menu === "streams" ? root?.querySelector<HTMLElement>(".side") : null;
+    const side = menu === "streams" || menu === "eps" ? root?.querySelector<HTMLElement>(".side") : null;
     if (side) {
       if (!d) return "native";
       if (!el || !side.contains(el)) {
@@ -1649,7 +1753,12 @@
   // ---- teclado
 
   function onKey(e: KeyboardEvent) {
-    if ((e.target as HTMLElement).closest("input, textarea")) return;
+    const tgt = e.target as HTMLElement;
+    // En la barra de volumen las flechas son de ella; el resto de los atajos sigue andando (antes,
+    // despues de tocarla con el mouse, Space o F no hacian nada hasta hacer clic en el video).
+    if (tgt.matches?.('input[type="range"]')) {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(e.key)) return;
+    } else if (tgt.closest("input, textarea")) return;
     // AltGr (Ctrl+Alt en Windows) escribe [ ] en algunos teclados: esa si pasa.
     if ((e.ctrlKey || e.metaKey || e.altKey) && !e.getModifierState?.("AltGraph")) return;
     const panel = (e.target as HTMLElement).closest<HTMLElement>(".pmenu");
@@ -1683,6 +1792,7 @@
     else if (k === "-" || k === "_") stepSize(-1, true);
     else if (k === "=" || k === "+") stepSize(1, true);
     else if (k === "n") nextEp && playNext();
+    else if (k === "e") ep && toggleEps();
     else if (k === "[") stepRate(-1);
     else if (k === "]") stepRate(1);
     else if (k === "v") cycleScale();
@@ -1790,6 +1900,15 @@
     {/key}
   {/if}
 
+  <!-- Deslizar en la mitad derecha: el volumen. -->
+  {#if volHud}
+    <div class="vol-hud" transition:fadeQuick aria-live="polite">
+      <VolIcon size={18} />
+      <div class="vh-bar"><div style="height: {volPct}%"></div></div>
+      <span>{volPct}%</span>
+    </div>
+  {/if}
+
   <!-- Mantener apretado: 2× mientras dura. -->
   {#if holding}
     <div class="hold-pill" transition:fadeQuick><FastForward size={15} fill="currentColor" />{rate}×</div>
@@ -1881,6 +2000,12 @@
         <ListVideo size={16} /><span class="lbl">Streams</span>
       </button>
     {/if}
+    <!-- Serie: los episodios y temporadas en un panel a la derecha, sin salir del reproductor. -->
+    {#if ep}
+      <button class="load-streams" data-menu="eps" onclick={toggleEps} title="Episodes (E)" aria-expanded={menu === "eps"}>
+        <Rows3 size={16} /><span class="lbl">Episodes</span>
+      </button>
+    {/if}
     {#if stream}
       <span class="badge" title={stream.title}>{stream.quality}{info?.hdr ? " · HDR" : ""}{stream.cached ? " · Instant" : ""}</span>
     {/if}
@@ -1896,18 +2021,48 @@
         </button>
         <button class="pbtn narrow-hide" onclick={() => skip(-10)} title="Back 10 s (J)"><RotateCcw size={21} /></button>
         <button class="pbtn narrow-hide" onclick={() => skip(10)} title="Forward 10 s (L)"><RotateCw size={21} /></button>
-        <div class="vol">
-          <button class="pbtn" onclick={toggleMute} title="Mute (M)"><VolIcon size={22} /></button>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={prefs.muted ? 0 : prefs.volume}
-            oninput={(e) => setVolume(Number(e.currentTarget.value))}
-            aria-label="Volume"
-            style="--v: {(prefs.muted ? 0 : prefs.volume) * 100}%"
-          />
+        <!-- La rueda del mouse sobre el parlante o la barra tambien cambia el volumen. -->
+        <div class="vol" onwheel={volWheel}>
+          <button class="pbtn" onclick={volButton} title="Mute (M)" aria-expanded={menu === "vol"}><VolIcon size={22} /></button>
+          {#if menu === "vol"}
+            <div class="vol-menu" transition:pop={{ start: 0.94 }} role="dialog" aria-label="Volume">
+              <span class="vm-n">{volPct}%</span>
+              <div
+                class="vm-track"
+                bind:this={vTrack}
+                role="slider"
+                tabindex="0"
+                aria-label="Volume"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={volPct}
+                onpointerdown={vDown}
+                onpointermove={vMove}
+                onkeydown={vKey}
+              >
+                <div class="vm-fill" style="height: {volPct}%"></div>
+              </div>
+              <button class="vm-mute" class:on={prefs.muted} onclick={toggleMute} aria-label={prefs.muted ? "Unmute" : "Mute"}>
+                <VolIcon size={20} />
+              </button>
+            </div>
+          {/if}
+          <div class="vol-pop">
+            <div class="vol-pill">
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={prefs.muted ? 0 : prefs.volume}
+                oninput={(e) => setVolume(Number(e.currentTarget.value))}
+                aria-label="Volume"
+                aria-valuetext="{volPct}%"
+                style="--v: {volPct}%"
+              />
+              <span class="vol-n" aria-hidden="true">{volPct}%</span>
+            </div>
+          </div>
         </div>
         <span class="time">{clock(t)} <span class="dim">/ {clock(duration)}</span></span>
         <div class="grow"></div>
@@ -2059,6 +2214,56 @@
       </div>
       <div class="side-body">
         <StreamList {streams} current={stream?.key} onpick={switchTo} onmedia linkFor={(s) => streamLink(s, stream && info ? { key: stream.key, info } : null)} />
+      </div>
+    </div>
+  {/if}
+
+  {#if menu === "eps"}
+    <div class="side eps" transition:fadeQuick role="dialog" aria-label="Episodes">
+      <div class="side-head">
+        <button class="side-close" onclick={() => (menu = "")} title="Close" aria-label="Close episodes"><X size={18} /></button>
+        <h3 class="ellipsis">{meta?.name ?? "Episodes"}</h3>
+        <span class="faint">{epSeasonEps.length} {epSeasonEps.length === 1 ? "episode" : "episodes"}</span>
+        {#if epSeasons.length > 1}
+          <div class="season-chips" role="tablist" aria-label="Season">
+            {#each epSeasons as sn (sn)}
+              <button class="schip" class:sel={sn === epSeason} role="tab" aria-selected={sn === epSeason} onclick={() => (epSeason = sn)}>
+                {sn === 0 ? "Specials" : `Season ${sn}`}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <div class="side-body">
+        {#key epSeason}
+          <div class="eps-list" in:rise={{ y: 6 }}>
+            {#each epSeasonEps as e (e.id)}
+              {@const p = epProg[e.id]}
+              {@const pct = p && p.duration_s ? Math.min(100, (p.position_s / p.duration_s) * 100) : 0}
+              {@const soon = !!e.released && new Date(e.released).getTime() > Date.now()}
+              <button class="epi" class:now={e.id === id} aria-current={e.id === id} disabled={soon || switchingEp} onclick={() => pickEpisode(e)}>
+                <span class="epi-thumb">
+                  <Img src={fit(e.thumbnail, 140)} alt="" fallback={epCode(e.season, e.episode)} />
+                  {#if prefs.hideSpoilers && !p && e.id !== id}<span class="epi-veil"></span>{/if}
+                  {#if e.id === id}<span class="epi-badge">Playing</span>{/if}
+                  {#if pct > 0}<span class="epi-prog"><span style="width: {pct}%"></span></span>{/if}
+                  {#if pct > 92}<span class="epi-seen" title="Watched"><Check size={11} /></span>{/if}
+                </span>
+                <span class="epi-text">
+                  <span class="epi-title ellipsis"><span class="num">{e.episode}.</span> {e.name ?? `Episode ${e.episode}`}</span>
+                  <span class="epi-sub">
+                    {#if soon}Coming {new Date(e.released!).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" })}
+                    {:else if pct > 92}Watched
+                    {:else if p && pct > 0}{clock(Math.max(0, p.duration_s - p.position_s))} left
+                    {:else}{epCode(e.season, e.episode)}{/if}
+                  </span>
+                </span>
+              </button>
+            {:else}
+              <div class="faint epi-none">No episodes in this season.</div>
+            {/each}
+          </div>
+        {/key}
       </div>
     </div>
   {/if}
@@ -2295,6 +2500,14 @@
   .load-streams[aria-expanded="true"] {
     background: var(--media-line);
   }
+  @media (max-width: 520px) {
+    .load-streams .lbl {
+      display: none;
+    }
+    .load-streams {
+      padding: 0 9px;
+    }
+  }
   .badge {
     flex: none;
     padding: 3px 8px;
@@ -2366,56 +2579,202 @@
     color: var(--on-media-2);
   }
   /* La barra de volumen aparece al lado del parlante, flotando sobre el tiempo: solo opacidad y
-     transform (no empuja nada). */
+     transform (no empuja nada). La zona que la mantiene abierta (.vol-pop) es bastante mas grande
+     que la pastilla, y al salir tarda un poco en irse: no hace falta apuntar con precision. */
   .vol {
     position: relative;
     display: flex;
     align-items: center;
   }
-  .vol input {
+  .vol-pop {
     position: absolute;
-    left: 40px;
+    left: 30px;
     top: 50%;
     z-index: 2;
-    width: 112px;
-    height: 32px;
-    padding: 0 12px;
-    margin: 0;
+    padding: 18px 18px 18px 10px;
+    transform: translateY(-50%);
+    /* Escondida no tapa nada; al salir sigue "visible" mientras se desvanece, asi volver con el
+       mouse a tiempo la mantiene abierta. */
+    visibility: hidden;
+    transition: visibility 0s 0.55s;
+  }
+  .vol-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 40px;
+    padding: 0 12px 0 14px;
     border: 1px solid var(--media-line);
     border-radius: 999px;
     background: color-mix(in srgb, var(--media-bg) 80%, transparent);
     backdrop-filter: blur(10px);
-    appearance: none;
     opacity: 0;
-    pointer-events: none;
-    transform: translateY(-50%) scaleX(0.6);
+    transform: scaleX(0.6);
     transform-origin: left center;
     transition:
-      opacity 0.18s,
-      transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+      opacity 0.18s 0.35s,
+      transform 0.22s 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .vol:hover .vol-pop,
+  .vol:focus-within .vol-pop {
+    visibility: visible;
+    transition-delay: 0s;
+  }
+  .vol:hover .vol-pill,
+  .vol:focus-within .vol-pill {
+    opacity: 1;
+    transform: none;
+    transition-delay: 0s;
+  }
+  .vol input {
+    width: 130px;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    outline: none;
+    box-shadow: none;
+    background: none;
+    appearance: none;
     cursor: pointer;
   }
-  .vol:hover input,
-  .vol input:focus-visible {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(-50%);
-  }
   .vol input::-webkit-slider-runnable-track {
-    height: 4px;
-    border-radius: 2px;
+    height: 5px;
+    border-radius: 3px;
     background: linear-gradient(90deg, var(--on-media) var(--v), var(--media-line) var(--v));
   }
   .vol input::-webkit-slider-thumb {
     appearance: none;
-    width: 12px;
-    height: 12px;
-    margin-top: -4px;
+    width: 15px;
+    height: 15px;
+    margin-top: -5px;
+    border-radius: 50%;
+    background: var(--on-media);
+    transition: transform 0.12s;
+  }
+  .vol input:active::-webkit-slider-thumb {
+    transform: scale(1.2);
+  }
+  .vol input::-moz-range-track {
+    height: 5px;
+    border-radius: 3px;
+    background: var(--media-line);
+  }
+  .vol input::-moz-range-progress {
+    height: 5px;
+    border-radius: 3px;
+    background: var(--on-media);
+  }
+  .vol input::-moz-range-thumb {
+    width: 15px;
+    height: 15px;
+    border: 0;
     border-radius: 50%;
     background: var(--on-media);
   }
   .vol input:focus-visible {
     box-shadow: none;
+  }
+  .vol-n {
+    min-width: 4ch;
+    text-align: right;
+    font: 600 12.5px var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--on-media);
+  }
+
+  /* Con el dedo: barra vertical grande arriba del parlante (sin hover no hay la de costado). */
+  .vol-menu {
+    position: absolute;
+    left: -6px;
+    bottom: 54px;
+    z-index: 9;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    width: 64px;
+    padding: 12px 0 8px;
+    border: 1px solid var(--media-line);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--media-bg) 86%, transparent);
+    backdrop-filter: blur(14px);
+    transform-origin: bottom center;
+  }
+  .vm-n {
+    font: 650 13px var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .vm-track {
+    position: relative;
+    width: 40px;
+    height: min(180px, 42vh);
+    border-radius: 12px;
+    background: var(--media-line);
+    overflow: hidden;
+    touch-action: none;
+    cursor: pointer;
+  }
+  .vm-track:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .vm-fill {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--on-media);
+  }
+  .vm-mute {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    color: var(--on-media);
+  }
+  .vm-mute.on {
+    color: var(--accent);
+  }
+  .vol-hud {
+    position: absolute;
+    right: max(28px, 6vw);
+    top: 50%;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 10px;
+    border-radius: 16px;
+    background: var(--media-scrim);
+    backdrop-filter: blur(8px);
+    transform: translateY(-50%);
+    pointer-events: none;
+    font: 650 12.5px var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .vh-bar {
+    position: relative;
+    width: 6px;
+    height: 120px;
+    border-radius: 3px;
+    background: var(--media-line);
+    overflow: hidden;
+  }
+  .vh-bar div {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--on-media);
+  }
+  @media (hover: none) {
+    .vol-pop {
+      display: none;
+    }
   }
 
   /* ---- menus ---- */
@@ -2719,6 +3078,153 @@
     flex: 1;
     overflow: auto;
     padding: 4px 14px 20px;
+  }
+
+  /* ---- panel de episodios ---- */
+  .side-head h3.ellipsis {
+    padding-right: 40px;
+  }
+  .season-chips {
+    display: flex;
+    gap: 6px;
+    margin: 12px -18px 0;
+    padding: 2px 18px 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+  .season-chips::-webkit-scrollbar {
+    display: none;
+  }
+  .schip {
+    flex: none;
+    height: 32px;
+    padding: 0 13px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--on-media-2);
+    border: 1px solid var(--media-line);
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+  .schip:hover {
+    color: var(--on-media);
+    background: var(--media-line);
+  }
+  .schip.sel {
+    color: var(--accent-ink);
+    background: var(--primary-bg);
+    border-color: transparent;
+  }
+  .eps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .epi {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 6px;
+    border-radius: 10px;
+    text-align: left;
+    color: var(--on-media);
+    transition: background 0.12s;
+  }
+  .epi:focus-visible {
+    background: var(--media-line);
+  }
+  @media (hover: hover) {
+    .epi:hover:not(:disabled) {
+      background: var(--media-line);
+    }
+  }
+  .epi.now {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .epi:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .epi-thumb {
+    position: relative;
+    flex: none;
+    width: 128px;
+    aspect-ratio: 16 / 9;
+    border-radius: 7px;
+    overflow: hidden;
+    background: var(--media-line);
+  }
+  .epi-veil {
+    position: absolute;
+    inset: 0;
+    backdrop-filter: blur(10px);
+    background: var(--media-scrim);
+  }
+  .epi-badge {
+    position: absolute;
+    left: 5px;
+    top: 5px;
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--accent-ink);
+    background: var(--primary-bg);
+  }
+  .epi-prog {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: var(--media-line);
+  }
+  .epi-prog span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+  }
+  .epi-seen {
+    position: absolute;
+    right: 5px;
+    top: 5px;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: var(--accent-ink);
+    background: var(--primary-bg);
+  }
+  .epi-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+  .epi-title {
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .epi-title .num {
+    color: var(--on-media-2);
+  }
+  .epi-sub {
+    font-size: 12px;
+    color: var(--on-media-2);
+  }
+  .epi-none {
+    padding: 20px 6px;
+    color: var(--on-media-2);
+  }
+  @media (max-width: 700px) {
+    .epi-thumb {
+      width: 104px;
+    }
   }
 
   /* ---- avisos al centro ---- */
@@ -3144,7 +3650,7 @@
     clip: rect(0 0 0 0);
   }
   @media (max-width: 700px) {
-    .vol input,
+    .vol-pop,
     .badge,
     .narrow-hide {
       display: none;
