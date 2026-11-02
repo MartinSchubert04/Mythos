@@ -8,6 +8,8 @@ import { allPalettes, applyRemoteTheme, currentTheme } from "./themes";
 export type UiPrefs = {
   /** Idioma de subtitulos preferido (ISO 639-2, "eng", "spa"...). Vacio = sin subtitulos. */
   subLang: string;
+  /** Poner esos subtitulos tambien cuando el audio ya esta en ese idioma. */
+  subAlways: boolean;
   /** Tamaño de los subtitulos en % (100 = normal). */
   subSize: number;
   /** Opacidad del fondo detras de cada linea, en % (0 = sin fondo, solo sombra). */
@@ -32,6 +34,7 @@ export type UiPrefs = {
 const KEY = "mythos.prefs";
 const defaults = (): UiPrefs => ({
   subLang: "eng",
+  subAlways: false,
   subSize: 100,
   subBg: 35,
   subPos: 8,
@@ -48,7 +51,7 @@ const defaults = (): UiPrefs => ({
 export const prefs = $state<UiPrefs>(readJson(KEY, defaults()));
 
 /** Las que viajan al server. */
-const SYNCED = ["subLang", "subSize", "subBg", "subPos", "autoplayNext", "audioLang", "hideSpoilers", "reduceMotion"] as const;
+const SYNCED = ["subLang", "subAlways", "subSize", "subBg", "subPos", "autoplayNext", "audioLang", "hideSpoilers", "reduceMotion"] as const;
 
 function applyMotion() {
   document.documentElement.toggleAttribute("data-reduce-motion", prefs.reduceMotion);
@@ -105,7 +108,7 @@ export const LANGS: { value: string; label: string }[] = [
 ];
 
 const ALIAS: Record<string, string> = {
-  en: "eng", es: "spa", esp: "spa", spl: "spa", ea: "spa", pt: "por", pob: "por", pb: "por", ptbr: "por",
+  en: "eng", es: "spa", esp: "spa", spl: "spa", spn: "spa", ea: "spa", pt: "por", pob: "por", pb: "por", ptbr: "por",
   fr: "fre", fra: "fre", de: "ger", deu: "ger", it: "ita", nl: "dut", nld: "dut", pl: "pol", ru: "rus",
   tr: "tur", ar: "ara", ja: "jpn", ko: "kor", zh: "chi", zho: "chi", ze: "chi",
 };

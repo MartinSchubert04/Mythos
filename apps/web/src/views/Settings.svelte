@@ -267,13 +267,14 @@
         <div class="field">
           Preferred language
           <Select bind:value={prefs.subLang} options={LANGS} onchange={() => savePrefs()} />
-          <span class="hint">Chosen by itself when a movie has it. Not shown when the audio is already in that language.</span>
+          <span class="hint">Turned on by itself whenever a movie or episode has them{prefs.subAlways ? "" : ", unless the audio is already in that language"}.</span>
         </div>
         <div class="field">
           Size
           <Seg bind:value={prefs.subSize} options={SIZES} onchange={(v) => ((prefs.subSize = v), savePrefs())} />
         </div>
       </div>
+      <Switch bind:checked={prefs.subAlways} onchange={() => savePrefs()} disabled={!prefs.subLang}>Also when the audio is already in that language</Switch>
       <div class="sub-preview">
         <span style="font-size: calc(clamp(18px, 2.4vw, 40px) * {prefs.subSize / 100} * 0.7)">This is how subtitles will look.</span>
       </div>

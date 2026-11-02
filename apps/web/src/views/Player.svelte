@@ -9,6 +9,7 @@
   //   /api/play con menos capacidades: el server pasa a remux o transcode. Misma posicion.
   // - Mientras espera: pantalla de carga con /status (peers, MB/s, % de buffer). Si se traba mas
   //   de ~15 s con poca velocidad, ofrece otro stream ahi mismo, sin salir y en la misma posicion.
+  //   Tambien se puede elegir otro a mano mientras carga ("Streams" arriba).
   // - Al 85 % de un episodio precarga el siguiente; al terminar, cuenta regresiva de 10 s.
   // - Progreso cada 10 s y al salir; al volver ofrece retomar.
   import {
@@ -180,7 +181,7 @@
     if (status?.state === "error") return status.error ?? "The server couldn't read this file";
     if (status?.state === "metadata") return "Connecting to peers…";
     if (status?.state === "probing") return "Reading the file…";
-    const p = bufPct();
+    const p = ringPct();
     return p !== null ? `Buffering ${Math.round(p)}%…` : started ? "Buffering…" : "Starting…";
   });
 
@@ -257,7 +258,7 @@
     const chosen = list.find((s) => s.key === key) ?? list[0];
 
     // Retomar: se pregunta mientras el server ya va preparando el archivo.
-    let startAt = Promise.resolve(0);
+    startAt = Promise.resolve(0);
     if (prog && prog.position_s > 30 && prog.duration_s && prog.position_s < prog.duration_s * 0.92) {
       if (resumeMode === "1") startAt = Promise.resolve(Math.max(0, prog.position_s - 3));
       else if (resumeMode !== "0") {
@@ -267,19 +268,29 @@
     }
     await open(chosen, startAt);
   }
+  /** Donde arranca el primer cuadro (la respuesta a "Resume"): otro stream elegido mientras carga
+   *  arranca en el mismo lugar, aunque todavia no se haya contestado. */
+  let startAt: Promise<number> = Promise.resolve(0);
 
   /** Sin streams o sin respuesta: pedir todo de nuevo (sin la cache de streams). */
   function retryAll() {
     fatal = "";
     started = false;
+    ringPeak = null;
     loadSince = Date.now();
     dropCache(`streams:${type}/${id}`);
     init();
   }
 
-  /** Pide la sesion al server y la conecta al <video> en `at`. */
+  /** Pide la sesion al server y la conecta al <video> en `at`. Si mientras espera se abre otro
+   *  (un stream elegido durante la carga), este se descarta al volver. */
+  let openGen = 0;
   async function open(s: Stream, at: number | Promise<number>, newCaps?: ClientCaps) {
+    const gen = ++openGen;
     const prev = info;
+    // Subtitulos internos: son del archivo de esta sesion (ver mas abajo).
+    const intSel = subSel.startsWith("i");
+    const oldInt = intSel ? intSubs.find((x) => x.id === subSel) : undefined;
     // La sesion vieja deja de usarse ya: el server la cierra cuando se abre otra del mismo
     // titulo (y daria 404). El video se suelta y queda el velo de espera hasta la nueva.
     if (prev) {
@@ -307,13 +318,13 @@
       const p = api.play({ stream_key: s.key, info_hash: s.info_hash, file_idx: s.file_idx, url: s.url, caps, meta_id: id });
       next = await p;
     } catch (e) {
-      if (destroyed) return;
+      if (destroyed || gen !== openGen) return;
       stuck = "error";
       stuckMsg = errText(e);
       return;
     }
-    if (destroyed) {
-      api.closeSession(next.session_id);
+    if (destroyed || gen !== openGen) {
+      if (next.session_id !== info?.session_id) api.closeSession(next.session_id);
       return;
     }
     if (prev && prev.session_id !== next.session_id) api.closeSession(prev.session_id);
@@ -330,9 +341,22 @@
     }
     info = next;
     pickPreferredAudio(next);
+    // Los internos del archivo anterior no sirven en el nuevo: el mismo idioma si lo tiene, si no
+    // se vuelve a elegir solo (el idioma de Settings).
+    if (intSel && (!prev || prev.session_id !== next.session_id)) {
+      subSel = "";
+      cues = [];
+      subHtml = "";
+      subAuto = false;
+      const same = oldInt && intSubs.find((x) => x.lang === oldInt.lang && !/forced/i.test(x.label));
+      if (same) {
+        subAuto = true;
+        pickSub(same.id, false);
+      }
+    }
     autoSub();
     const pos = await at;
-    if (destroyed) return;
+    if (destroyed || gen !== openGen) return;
     attach(pos);
   }
 
@@ -593,9 +617,13 @@
 
   async function switchTo(s: Stream) {
     menu = "";
+    // El mismo que ya esta cargando: nada que hacer (trabado si: es reintentarlo).
+    if (!started && !stuck && s.key === stream?.key) return;
     stuck = "";
-    const at = started ? t : 0;
+    // Antes del primer cuadro: donde se iba a arrancar (o lo que se conteste en "Resume").
+    const at = started ? t : startAt;
     started = false;
+    ringPeak = null;
     attempts = { net: 0, media: 0, fallback: 0 };
     setQuery({ s: s.key });
     api.prefetch(s);
@@ -626,6 +654,7 @@
   function onPlaying() {
     waiting = false;
     waitShown = false;
+    ringPeak = null;
     clearTimeout(waitTimer);
     paused = false;
     if (!started) {
@@ -669,6 +698,17 @@
     if (pct > 0) return Math.min(99, pct);
     if (status && status.total_bytes > 0 && status.state !== "metadata") return Math.min(99, status.progress * 100);
     return null;
+  }
+
+  /** Lo que muestra el anillo de carga: nunca baja mientras dura una espera. El buffer del server
+   *  se cuenta desde la ultima posicion pedida, asi que al saltar a donde se habia quedado (o al
+   *  pasar a remux) vuelve a 0 y el anillo parecia reiniciarse. Vuelve a cero al reproducir, al
+   *  elegir otro stream o al reintentar. Sin `$state`: se lee al dibujar, no dispara nada. */
+  let ringPeak: number | null = null;
+  function ringPct(): number | null {
+    const p = started || info ? bufPct() : null;
+    if (p !== null && (ringPeak === null || p > ringPeak)) ringPeak = p;
+    return ringPeak;
   }
 
   function onEnded() {
@@ -1112,20 +1152,24 @@
     return !c || c === "und" ? "Unknown" : nativeLangName(c);
   }
 
+  // El idioma de Settings se pone solo: primero las internas, despues las de OpenSubtitles en
+  // orden. Si una no carga se prueba la siguiente.
   let subAuto = false;
+  const autoFailed = new Set<string>();
   function autoSub() {
     if (subAuto || subSel || !info) return;
     const want = prefs.subLang;
     if (!want) return;
-    // Si el audio ya esta en ese idioma, no hacen falta (salvo los "forced").
+    // Si el audio ya esta en ese idioma, no hacen falta (salvo los "forced"), a menos que en
+    // Settings se pidan siempre.
     const audioLang = normLang(info.audio_tracks.find((a) => a.index === audioSel)?.lang);
-    const forced = intSubs.find((s) => s.lang === want && /forced/i.test(s.label));
-    if (audioLang === want) {
+    const forced = intSubs.find((s) => s.lang === want && /forced/i.test(s.label) && !autoFailed.has(s.id));
+    if (audioLang === want && !prefs.subAlways) {
       if (forced) pickSub(forced.id, false);
       subAuto = true;
       return;
     }
-    const s = intSubs.find((x) => x.lang === want && !/forced/i.test(x.label)) ?? extSubs.find((x) => x.lang === want && x.version === 1);
+    const s = [...intSubs.filter((x) => !/forced/i.test(x.label)), ...extSubs].find((x) => x.lang === want && !autoFailed.has(x.id));
     if (s) {
       subAuto = true;
       pickSub(s.id, false);
@@ -1153,8 +1197,13 @@
     } catch {
       if (subSel === sid) {
         subSel = "";
-        // Elegidos a mano: se avisa. Los automaticos fallan en silencio.
+        // Elegidos a mano: se avisa. Los automaticos fallan en silencio y se prueba el siguiente.
         if (manual) toast("Couldn't load those subtitles", true);
+        else {
+          autoFailed.add(sid);
+          subAuto = false;
+          autoSub();
+        }
       }
     }
   }
@@ -1791,7 +1840,7 @@
       title={meta?.name ?? ""}
       subtitle={epLabel}
       text={fatal || loadText}
-      pct={fatal ? 0 : started || info ? bufPct() : null}
+      pct={fatal ? 0 : ringPct()}
       {status}
       mode={info?.mode}
       children={askResume ? resumeCard : undefined}
@@ -1826,6 +1875,12 @@
       {#if epLabel}<span class="ellipsis ep">{epLabel}</span>{/if}
     </div>
     <div class="grow" data-tauri-drag-region></div>
+    <!-- Mientras carga no estan los controles de abajo: otro stream se elige desde aca. -->
+    {#if !started && !fatal && streams.length > 1}
+      <button class="load-streams" onclick={() => (menu = menu === "streams" ? "" : "streams")} title="Choose another stream" aria-expanded={menu === "streams"}>
+        <ListVideo size={16} /><span class="lbl">Streams</span>
+      </button>
+    {/if}
     {#if stream}
       <span class="badge" title={stream.title}>{stream.quality}{info?.hdr ? " · HDR" : ""}{stream.cached ? " · Instant" : ""}</span>
     {/if}
@@ -1994,6 +2049,7 @@
   {#if menu === "streams"}
     <div class="side" transition:fadeQuick>
       <div class="side-head">
+        <button class="side-close" onclick={() => (menu = "")} title="Close" aria-label="Close streams"><X size={18} /></button>
         <h3>Streams</h3>
         <span class="faint">{streams.length} found · switching keeps your position</span>
         <!-- La entrada a las estadisticas en pantallas tactiles (en el teclado es la D). -->
@@ -2219,6 +2275,25 @@
   .ttl .ep {
     font-size: 12.5px;
     color: var(--on-media-2);
+  }
+  .load-streams {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--on-media);
+    background: var(--media-scrim);
+    border: 1px solid var(--media-line);
+    transition: background 0.15s;
+  }
+  .load-streams:hover,
+  .load-streams[aria-expanded="true"] {
+    background: var(--media-line);
   }
   .badge {
     flex: none;
@@ -2614,7 +2689,23 @@
     }
   }
   .side-head {
+    position: relative;
     padding: 70px 18px 12px;
+  }
+  .side-close {
+    position: absolute;
+    top: 62px;
+    right: 12px;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    color: var(--on-media-2);
+  }
+  .side-close:hover {
+    color: var(--on-media);
+    background: var(--media-line);
   }
   .side-head h3 {
     margin: 0 0 4px;

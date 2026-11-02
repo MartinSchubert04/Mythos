@@ -1,7 +1,9 @@
 <script lang="ts">
   // Busqueda en vivo (con debounce): peliculas y series por separado. "/" o Ctrl K vienen aca.
+  // Arriba, al lado del buscador, un filtro All / Movies / Series (queda en ?type=).
   import { LoaderCircle, Search, SearchX, Trophy, X } from "@lucide/svelte";
   import PosterCard from "../components/PosterCard.svelte";
+  import Seg from "../components/Seg.svelte";
   import { api, errText } from "../lib/api";
   import { uniq } from "../lib/format";
   import { rise } from "../lib/motion";
@@ -12,6 +14,25 @@
 
   const initial = route.query.get("q") ?? "";
   let q = $state(initial);
+  type Kind = "all" | "movie" | "series";
+  const t0 = route.query.get("type");
+  let kind = $state<Kind>(t0 === "movie" || t0 === "series" ? t0 : "all");
+  const kindOpts: { value: Kind; label: string }[] = [
+    { value: "all", label: "All" },
+    { value: "movie", label: "Movies" },
+    { value: "series", label: "Series" },
+  ];
+  /** La URL lleva lo escrito y el filtro (volver atras deja todo como estaba). */
+  function syncQuery() {
+    const p: Record<string, string> = {};
+    if (q) p.q = q;
+    if (kind !== "all") p.type = kind;
+    setQuery(p);
+  }
+  function setKind(k: Kind) {
+    kind = k;
+    syncQuery();
+  }
   let res = $state<{ movies: MetaPreview[]; series: MetaPreview[] } | null>(null);
   let busy = $state(false);
   let error = $state("");
@@ -59,7 +80,7 @@
 
   function onInput() {
     clearTimeout(timer);
-    setQuery(q ? { q } : {});
+    syncQuery();
     timer = window.setTimeout(() => run(q), 260);
   }
 
@@ -72,6 +93,17 @@
     .catch(() => {});
 
   const empty = $derived(res && !res.movies.length && !res.series.length);
+  const groups = $derived(
+    res
+      ? [
+          { t: "Movies", k: "movie", l: res.movies },
+          { t: "Series", k: "series", l: res.series },
+        ].filter((g) => kind === "all" || g.k === kind)
+      : [],
+  );
+  /** Hay resultados, pero ninguno del tipo elegido. */
+  const emptyKind = $derived(!empty && groups.every((g) => !g.l.length));
+  const shownPopular = $derived(kind === "all" ? popular : popular.filter((x) => x.type === kind));
 </script>
 
 <div class="page" use:keepScroll={"search"}>
@@ -92,6 +124,9 @@
         <button class="icon-btn" aria-label="Clear" onclick={() => ((q = ""), onInput(), input?.focus())}><X size={16} /></button>
       {/if}
     </div>
+    <div class="kind" role="group" aria-label="Show">
+      <Seg value={kind} options={kindOpts} onchange={setKind} />
+    </div>
   </div>
 
   {#if error}
@@ -107,10 +142,10 @@
         <button class="btn sm" onclick={() => go("/top")}><Trophy size={14} />Top rated movies</button>
         <button class="btn sm" onclick={() => go("/top?type=series")}><Trophy size={14} />Top rated series</button>
       </div>
-      {#if popular.length}
+      {#if shownPopular.length}
         <h2 class="section-title">Popular right now</h2>
         <div class="poster-grid">
-          {#each popular as m, i (m.type + m.id)}<PosterCard item={m} {i} />{/each}
+          {#each shownPopular as m, i (m.type + m.id)}<PosterCard item={m} {i} />{/each}
         </div>
       {/if}
     {/if}
@@ -120,8 +155,14 @@
       <h3>Nothing found for "{q.trim()}"</h3>
       <span>Try another title, the original title, or check the spelling.</span>
     </div>
+  {:else if emptyKind}
+    <div class="empty" in:rise>
+      <SearchX size={34} />
+      <h3>No {kind === "movie" ? "movies" : "series"} for "{q.trim()}"</h3>
+      <button class="btn sm" onclick={() => setKind("all")}>Show all results</button>
+    </div>
   {:else}
-    {#each [{ t: "Movies", l: res.movies }, { t: "Series", l: res.series }] as g (g.t)}
+    {#each groups as g (g.t)}
       {#if g.l.length}
         <h2 class="section-title">{g.t} <span class="n">{g.l.length}</span></h2>
         <div class="poster-grid">
@@ -143,6 +184,16 @@
     margin: -26px calc(-1 * var(--gutter)) 8px;
     padding: 26px var(--gutter) 14px;
     background: linear-gradient(180deg, var(--bg) 70%, transparent);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 12px;
+  }
+  .head .inbox.big {
+    flex: 1 1 320px;
+  }
+  .kind {
+    flex: none;
   }
   :global([data-theme="warp"]) .head,
   :global([data-theme="haze"]) .head,

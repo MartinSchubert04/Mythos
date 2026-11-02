@@ -76,12 +76,15 @@
       .catch(() => {});
   }
 
+  // Hasta que llega el progreso no se sabe en que temporada va (ver `season` mas abajo).
+  let progressReady = $state(type !== "series");
   if (type === "series") {
     api
       .seriesProgress(id)
       .catch(() => api.continueWatching().then((l) => l.filter((p) => p.series_id === id)))
       .then((l) => (progress = Object.fromEntries(l.map((p) => [p.meta_id, p]))))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => (progressReady = true));
   }
 
   /** El episodio para el boton grande: el ultimo que se estaba viendo, o el primero. */
@@ -100,14 +103,20 @@
     return vids.find((v) => v.season > 0) ?? vids[0];
   });
 
-  // La temporada que se muestra arranca en la del episodio actual.
+  // La temporada que se muestra arranca en la del episodio actual. Se espera al progreso: la
+  // ficha suele llegar antes y, sin progreso, el actual es siempre el 1x1. Si mientras tanto se
+  // elige otra temporada a mano, queda esa.
   let seasonSet = false;
   $effect(() => {
-    if (!seasonSet && current) {
+    if (!seasonSet && current && progressReady) {
       season = current.season;
       seasonSet = true;
     }
   });
+  function pickSeason(s: number) {
+    season = s;
+    seasonSet = true;
+  }
 
   const playTarget = $derived(type === "movie" ? id : current?.id);
   const resume = $derived(playTarget ? progress[playTarget] : undefined);
@@ -428,10 +437,10 @@
         {/if}
         <div class="grow"></div>
         {#if seasons.length > 1 && seasons.length <= 6}
-          <Seg bind:value={season} options={seasonOpts} />
+          <Seg value={season} options={seasonOpts} onchange={pickSeason} />
         {:else if seasons.length > 6}
           <div class="season-select">
-            <Select bind:value={season} options={seasonOpts} />
+            <Select bind:value={() => season, pickSeason} options={seasonOpts} />
           </div>
         {/if}
       </div>
