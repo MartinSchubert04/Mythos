@@ -161,10 +161,30 @@ fn unsatisfiable(size: u64) -> Response {
     r
 }
 
+/// Tope de cada respuesta al reproductor. Un `<video>` pide `bytes=X-` (hasta el final) y deja esa
+/// conexión abierta todo el episodio, frenada cuando tiene bastante (backpressure) o en pausa. Por
+/// `tailscale serve` (proxy HTTPS/HTTP2 por el túnel) una conexión así se degradaba hasta casi no
+/// pasar datos (medido: 147 KB/s con un video de 330 KB/s, el server con 3,9 MB listos y
+/// `tailscaled` sin reenviarlos) mientras una nueva iba a 725 KB/s. Con respuestas de a 32 MB el
+/// navegador pide el tramo siguiente solo (206 con un `Content-Range` más corto que lo pedido es
+/// válido y Chromium lo sigue sin cortar) y ninguna conexión dura más de un par de minutos.
+pub const PLAYER_MAX_RESPONSE: u64 = 32 << 20;
+
+/// Recorta un pedido abierto o largo del reproductor a `max` bytes.
+pub fn cap_range(req: RangeReq, max: u64) -> RangeReq {
+    match req {
+        RangeReq::Partial(r) if r.len() > max => RangeReq::Partial(ByteRange { start: r.start, end: r.start + max - 1 }),
+        other => other,
+    }
+}
+
 /// `GET .../file` para cualquier sesión.
 pub async fn serve_file(api: &Api, http: &reqwest::Client, sess: Arc<PlaySession>, range: Option<&str>, role: Role) -> Response {
     let size = sess.size;
-    let req = util::parse_range(range, size);
+    let mut req = util::parse_range(range, size);
+    if role == Role::Player {
+        req = cap_range(req, PLAYER_MAX_RESPONSE);
+    }
     let r = match &req {
         RangeReq::Unsatisfiable => return unsatisfiable(size),
         RangeReq::Full => ByteRange { start: 0, end: size.saturating_sub(1) },
@@ -417,6 +437,17 @@ pub fn filename_from_url(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn player_responses_are_capped() {
+        const MB: u64 = 1 << 20;
+        let open = RangeReq::Partial(ByteRange { start: 10 * MB, end: 700 * MB - 1 });
+        assert!(matches!(cap_range(open, 32 * MB), RangeReq::Partial(r) if r.start == 10 * MB && r.end == 42 * MB - 1));
+        // Lo que ya es chico (o el final del archivo) queda igual.
+        let small = RangeReq::Partial(ByteRange { start: 0, end: MB - 1 });
+        assert!(matches!(cap_range(small, 32 * MB), RangeReq::Partial(r) if r.end == MB - 1));
+        assert!(matches!(cap_range(RangeReq::Full, 32 * MB), RangeReq::Full));
+    }
 
     #[test]
     fn names() {

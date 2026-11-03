@@ -80,7 +80,11 @@ const GRACE = 700;
  *  demas siguen llenando `ping` aunque ya se haya elegido. */
 function race(): Promise<string | null> {
   const urls = servers.list.map((a) => a.url);
-  const pref = servers.preferred && urls.includes(servers.preferred) ? servers.preferred : null;
+  // Sin preferida marcada, la de la red de casa: si contesta, gana aunque otra llegue antes. El
+  // video por Tailscale pasa por el proxy de `tailscale serve`, que en las pruebas trababa
+  // reproducciones largas (docs/local-mode.md); por la red de casa va directo.
+  const pref =
+    servers.preferred && urls.includes(servers.preferred) ? servers.preferred : (urls.find((u) => addrLabel(u) === "Home network") ?? null);
   const known = knownId();
   servers.probing = true;
   return new Promise((resolve) => {

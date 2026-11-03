@@ -115,6 +115,10 @@ del APK guardan una **lista de direcciones del mismo server** (`lib/servers.svel
   cuenta y queda solo esa). Como es la misma base, **el mismo token sirve en todas**.
 - **Cuál se usa**: se prueban todas en paralelo (`/api/health`, 2,5 s). Gana la preferida si
   contesta (se la espera hasta 0,7 s más si otra contestó antes); si no, la que contesta primero.
+  Sin preferida marcada, la de la red de casa cuenta como preferida: en casa siempre se usa esa.
+  Por Tailscale el video pasa por el proxy de `tailscale serve` (HTTP/2 por el túnel), y en las
+  pruebas una reproducción larga con pausas quedaba con la conexión casi frenada en ese proxy (el
+  server con datos listos y `tailscaled` sin reenviarlos); por la red de casa nunca pasó.
   Se elige al arrancar (con una sola dirección no se prueba nada de más), al volver de segundo
   plano (más de 15 s), cuando cambia la red (`online`, `navigator.connection`), cuando un pedido no
   llega (antes de pasar al local se prueban las demás) y, mientras no conteste ninguna, cada pocos

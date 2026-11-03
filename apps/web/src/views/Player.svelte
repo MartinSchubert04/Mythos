@@ -89,8 +89,10 @@
   const BUFFER_GOAL_S = 8; // lo que se muestra como 100 % al esperar
   // Trabado aunque los datos ya estan (en el server o en el buffer del video): la conexion del
   // <video> quedo colgada. Se reconecta en la misma posicion, como salir y volver a entrar.
-  const STALL_RECOVER_MS = 7_000;
-  const MAX_STALL_FIXES = 3; // en 2 minutos; si sigue, se avisa y se ofrece otro stream
+  // Medido por Tailscale: la conexion vieja no se recupera sola y la nueva anda al toque; el primer
+  // reintento a veces tampoco contesta (va por la misma conexion HTTP/2 que la trabada), el segundo si.
+  const STALL_RECOVER_MS = 4_000;
+  const MAX_STALL_FIXES = 4; // en 2 minutos; si sigue, se avisa y se ofrece otro stream
 
   // ---- estado
   let root = $state<HTMLDivElement>();
