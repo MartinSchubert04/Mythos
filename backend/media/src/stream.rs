@@ -67,6 +67,38 @@ struct Tracked<R> {
     track: bool,
     pending_since: Option<std::time::Instant>,
     logged: bool,
+    start: u64,
+    opened: std::time::Instant,
+    last_data: std::time::Instant,
+}
+
+impl<R> Tracked<R> {
+    fn new(inner: R, sess: Arc<PlaySession>, gen: u64, pos: u64, track: bool) -> Self {
+        let now = std::time::Instant::now();
+        Tracked { inner, sess, gen, pos, track, pending_since: None, logged: false, start: pos, opened: now, last_data: now }
+    }
+}
+
+/// Diagnóstico de trabas: si la conexión se cierra después de un rato sin pasar datos, dice si el
+/// server esperaba una pieza (`waiting_piece`) o si del otro lado (navegador o proxy) no leían
+/// (`waiting_piece=false`: el server tenía los datos y nadie los pedía).
+impl<R> Drop for Tracked<R> {
+    fn drop(&mut self) {
+        let idle = self.last_data.elapsed().as_secs();
+        if self.track && idle >= 15 {
+            tracing::info!(
+                session = %self.sess.id,
+                from = self.start,
+                pos = self.pos,
+                sent_mb = (self.pos - self.start) >> 20,
+                open_s = self.opened.elapsed().as_secs(),
+                idle_s = idle,
+                waiting_piece = self.pending_since.is_some(),
+                have = self.sess.have_at(self.pos),
+                "player stream closed after being idle"
+            );
+        }
+    }
 }
 
 impl<R: AsyncRead + Unpin> AsyncRead for Tracked<R> {
@@ -80,6 +112,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for Tracked<R> {
             let n = (buf.filled().len() - before) as u64;
             if n > 0 {
                 self.pos += n;
+                self.last_data = std::time::Instant::now();
                 if self.track {
                     self.sess.advance(self.gen, self.pos);
                 }
@@ -177,7 +210,7 @@ async fn torrent_body(t: &TorrentFile, sess: Arc<PlaySession>, r: ByteRange, rol
     fs.seek(SeekFrom::Start(r.start)).await?;
     let track = matches!(role, Role::Player | Role::Hls);
     let gen = if track { sess.new_reader(r.start) } else { 0 };
-    let reader = Tracked { inner: fs, sess, gen, pos: r.start, track, pending_since: None, logged: false }.take(r.len());
+    let reader = Tracked::new(fs, sess, gen, r.start, track).take(r.len());
     Ok(Body::from_stream(tokio_util::io::ReaderStream::with_capacity(reader, CHUNK)))
 }
 

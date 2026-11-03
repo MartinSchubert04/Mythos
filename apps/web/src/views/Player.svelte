@@ -391,7 +391,9 @@
     }
   }
 
-  async function attach(at: number) {
+  /** `fresh`: URL distinta (Chromium reusa el cargador de la misma URL, y si ese quedo colgado
+   *  la reconexion no serviria; al salir y volver a entrar anda porque la sesion es otra). */
+  async function attach(at: number, fresh = false) {
     if (!info || !video) return;
     const gen = ++attachGen;
     const wasPaused = started && paused;
@@ -410,7 +412,7 @@
     if (!useHls) {
       offset = 0;
       pendingSeek = at > 0 ? at : null;
-      video.src = mediaUrl(info.direct_url);
+      video.src = mediaUrl(info.direct_url, fresh ? { r: Date.now() } : undefined);
       video.load();
     } else {
       const start = at > 1 ? Math.floor(at) : undefined;
@@ -666,7 +668,7 @@
       return;
     }
     stallFixes.push(now);
-    attach(t);
+    attach(t, true);
   }
 
   function keepWaiting() {
