@@ -218,6 +218,10 @@ pub struct MediaStatus {
     /// pasar a `ready`, para que la UI pueda mostrar una barra de "cargando".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub buffer_target_s: Option<f64>,
+    /// Tramos del archivo ya bajados en el server, como fracciones `[desde, hasta]` de 0 a 1 (a lo
+    /// sumo 64). Solo torrents: la barra del reproductor los muestra debajo de lo que tiene el video.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub have_ranges: Option<Vec<(f64, f64)>>,
 }
 
 /// Parámetros finos del motor. Los valores por defecto son los medidos como mejores (ver la

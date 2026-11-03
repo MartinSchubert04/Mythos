@@ -182,6 +182,10 @@
     });
   });
   const subs = $derived([...intSubs, ...extSubs]);
+  // Lo bajado en el server, en segundos (bytes → tiempo en proporcion, como hace el navegador).
+  const downloaded = $derived<[number, number][]>(
+    duration > 0 ? (status?.have_ranges ?? []).map(([a, b]) => [a * duration, b * duration]) : [],
+  );
   const remaining = $derived(duration ? duration - t : 0);
   const showNextPill = $derived(!!nextEp && started && duration > 120 && remaining > 0 && remaining < 40 && countdown === null);
   const loadingFull = $derived(!started && !fatal);
@@ -590,7 +594,9 @@
   async function poll() {
     if (destroyed) return;
     const need = !started || waiting || !!stuck;
-    if (need && info) {
+    // Con los controles a la vista, tambien para dibujar lo bajado en el server (hasta que este todo).
+    const forBar = ui && !(status && status.progress >= 0.999);
+    if ((need || forBar) && info) {
       pollCtl?.abort();
       pollCtl = new AbortController();
       try {
@@ -2090,7 +2096,7 @@
 
   {#if started}
     <div class="bottom" class:open={!!menu}>
-      <SeekBar time={seekTarget ?? t} {duration} {buffered} onseek={seek} ondrag={(d) => (dragging = d)} />
+      <SeekBar time={seekTarget ?? t} {duration} {buffered} {downloaded} onseek={seek} ondrag={(d) => (dragging = d)} />
       <div class="ctrls">
         <button class="pbtn big" onclick={toggle} title={paused ? "Play (K)" : "Pause (K)"}>
           {#if paused}<Play size={26} fill="currentColor" />{:else}<Pause size={26} fill="currentColor" />{/if}

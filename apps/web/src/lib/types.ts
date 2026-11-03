@@ -118,6 +118,8 @@ export type MediaStatus = {
   buffered_ahead_s?: number | null;
   /** Cuanto quiere tener listo el server antes de arrancar (segundos). */
   buffer_target_s?: number | null;
+  /** Tramos del archivo ya bajados en el server, fracciones [desde, hasta] de 0 a 1 (torrents). */
+  have_ranges?: [number, number][] | null;
 };
 
 export type Progress = {

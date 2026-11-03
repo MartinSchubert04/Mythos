@@ -153,6 +153,33 @@ pub fn missing_in(g: &FileGeom, have: &dyn Fn(usize) -> bool, from: u64, len: u6
     (g.piece_at(from)..=g.piece_at(end - 1)).filter(|&p| !have(p)).count()
 }
 
+/// Tramos del archivo ya bajados, como fracciones `[desde, hasta)` de 0 a 1 (para dibujarlos en la
+/// barra). Si quedan más de `max`, se juntan los separados por los huecos más chicos.
+pub fn have_ranges(g: &FileGeom, have: &dyn Fn(usize) -> bool, max: usize) -> Vec<(f64, f64)> {
+    if g.len == 0 {
+        return Vec::new();
+    }
+    let mut out: Vec<(u64, u64)> = Vec::new();
+    for p in g.piece_at(0)..=g.last_piece() {
+        if !have(p) {
+            continue;
+        }
+        let (a, b) = (g.piece_start(p), g.piece_end(p));
+        match out.last_mut() {
+            Some(last) if last.1 >= a => last.1 = b,
+            _ => out.push((a, b)),
+        }
+    }
+    while out.len() > max.max(1) {
+        // Junta el par con el hueco más chico.
+        let i = (1..out.len()).min_by_key(|&i| out[i].0 - out[i - 1].1).unwrap_or(1);
+        out[i - 1].1 = out[i].1;
+        out.remove(i);
+    }
+    let f = |x: u64| (x as f64 / g.len as f64 * 10_000.0).round() / 10_000.0;
+    out.into_iter().map(|(a, b)| (f(a), f(b))).collect()
+}
+
 /// Posiciones (relativas al archivo) de los fantasmas de ventana desde la frontera.
 /// Se suma una ventana más solo si hay más peers que piezas faltantes en las anteriores.
 pub fn plan_windows(g: &FileGeom, have: &dyn Fn(usize) -> bool, frontier: u64, peers: u32, max: usize) -> Vec<u64> {
@@ -447,6 +474,17 @@ mod tests {
         let all = |_: usize| true;
         assert_eq!(first_missing_from(&g, &all, 0), None);
         assert_eq!(contiguous_ahead(&g, &all, 99 * MB), MB);
+    }
+
+    #[test]
+    fn downloaded_ranges() {
+        let g = FileGeom { offset: 0, len: 100 * MB, piece_len: 10 * MB };
+        let have = |p: usize| p < 3 || p == 5 || p == 6 || p >= 8;
+        assert_eq!(have_ranges(&g, &have, 64), vec![(0.0, 0.3), (0.5, 0.7), (0.8, 1.0)]);
+        // Tope de 2: se junta el hueco más chico (0.7–0.8).
+        assert_eq!(have_ranges(&g, &have, 2), vec![(0.0, 0.3), (0.5, 1.0)]);
+        assert_eq!(have_ranges(&g, &|_| true, 64), vec![(0.0, 1.0)]);
+        assert!(have_ranges(&g, &|_| false, 64).is_empty());
     }
 
     #[test]

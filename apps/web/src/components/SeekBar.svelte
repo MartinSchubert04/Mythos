@@ -8,13 +8,17 @@
     time,
     duration,
     buffered,
+    downloaded = [],
     onseek,
     ondrag,
   }: {
     time: number;
     duration: number;
-    /** Tramos bufferizados en segundos reales. */
+    /** Tramos que tiene el video en memoria, en segundos reales. */
     buffered: [number, number][];
+    /** Tramos ya bajados en el server (mas tenues, debajo): el navegador puede tirar partes de
+     *  su memoria y dejar huecos, pero eso ya esta y se pide al instante. */
+    downloaded?: [number, number][];
     onseek: (t: number) => void;
     ondrag?: (dragging: boolean) => void;
   } = $props();
@@ -82,6 +86,9 @@
   onkeydown={key}
 >
   <div class="rail">
+    {#each downloaded as [a, b], i (i)}
+      <div class="buf dl" style="transform: translateX({pct(a)}%) scaleX({(pct(b) - pct(a)) / 100})"></div>
+    {/each}
     {#each buffered as [a, b], i (i)}
       <div class="buf" style="transform: translateX({pct(a)}%) scaleX({(pct(b) - pct(a)) / 100})"></div>
     {/each}
@@ -132,6 +139,9 @@
     width: 100%;
     transform-origin: left center;
     background: color-mix(in srgb, var(--on-media) 32%, transparent);
+  }
+  .dl {
+    background: color-mix(in srgb, var(--on-media) 16%, transparent);
   }
   .hov {
     background: color-mix(in srgb, var(--on-media) 22%, transparent);

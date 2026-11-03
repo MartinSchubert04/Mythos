@@ -149,6 +149,9 @@ type MediaStatus = {
   buffered_ahead_s?: number;   // segundos listos después de la posición actual, si se sabe
   buffer_target_s?: number;    // segundos de buffer que espera antes de pasar a "ready" (para
                                // dibujar la barra de "cargando": buffered_ahead_s / buffer_target_s)
+  have_ranges?: [number, number][]; // tramos del archivo ya bajados en el server, fracciones 0..1
+                               // (≤ 64, se juntan los huecos más chicos; solo torrents). La barra
+                               // del reproductor los dibuja más tenues debajo de lo que tiene el video
 };
 
 type Progress = {

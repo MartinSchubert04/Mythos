@@ -210,6 +210,7 @@ function status(s: Sess): MediaStatus {
     total_bytes: s.total,
     progress: done / s.total,
     buffered_ahead_s: state === "ready" ? 120 : state === "buffering" ? (t - 2) * 6 : 0,
+    have_ranges: [[0, done / s.total]],
   };
 }
 

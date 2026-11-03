@@ -331,6 +331,10 @@ impl PlaySession {
                     .live()
                     .map(|l| (l.up_speed_estimator().bps(), l.stats_snapshot().peer_stats.live))
                     .unwrap_or((0, 0));
+                let have_ranges = {
+                    let hv = self.haves.lock().unwrap().clone();
+                    (!hv.is_empty()).then(|| window::have_ranges(&t.geom, &|p| hv.get(p).copied().unwrap_or(false), 64))
+                };
                 MediaStatus {
                     state,
                     error,
@@ -342,6 +346,7 @@ impl PlaySession {
                     progress: if self.size > 0 { downloaded as f64 / self.size as f64 } else { 0.0 },
                     buffered_ahead_s,
                     buffer_target_s: target,
+                    have_ranges,
                 }
             }
             Backing::Url(_) => {
@@ -357,6 +362,7 @@ impl PlaySession {
                     progress: if self.size > 0 { pos as f64 / self.size as f64 } else { 0.0 },
                     buffered_ahead_s,
                     buffer_target_s: None,
+                    have_ranges: None,
                 }
             }
         }
