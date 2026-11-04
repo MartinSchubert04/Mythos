@@ -80,6 +80,9 @@ jobs:
         with:
           workspaces: apps/mobile/src-tauri
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          # La clave no cambia con las versiones (rust-cache ignora el numero de version) y con una
+          # clave que ya existe no guarda de nuevo: el prefijo nuevo descarta la cache vieja de debug.
+          prefix-key: v1-rust
 
       - name: npm ci
         run: |
