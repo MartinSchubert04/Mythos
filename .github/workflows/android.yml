@@ -2,7 +2,9 @@ name: android
 
 # App de Android (apps/mobile), igual que en Haze:
 # - En cada push a main y PR que toque algo de Android o de la interfaz: tests del plugin y un
-#   APK de debug para celulares (solo arm64, para que sea rapido), que queda como artefacto.
+#   APK de release (arm64 + armv7, firmado con la clave de debug), que queda como artefacto. Se
+#   compila igual que en los tags a proposito: la cache de Rust que guarda main es la que usa el
+#   tag (un tag no ve la cache de otro tag), y con otro perfil u otras arquitecturas no serviria.
 # - Al etiquetar vX.Y.Z: compila el APK de release firmado y lo suma al Release de esa version
 #   con latest-android.json, que es lo que consultan las apps instaladas para actualizarse. El
 #   mismo tag dispara desktop.yml, que sube el instalador de Windows.
@@ -68,6 +70,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
+          cache: gradle
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -96,16 +99,17 @@ jobs:
         working-directory: apps/mobile/src-tauri
         run: cargo test -p tauri-plugin-mythos
 
-      - name: APK de debug
+      # Mismo build que el del tag (ver arriba), pero sin keystore: sale firmado con la clave de debug.
+      - name: APK de prueba
         if: env.RELEASE != 'true'
         working-directory: apps/mobile
         # El runner trae el SDK y el NDK de Android instalados.
-        run: NDK_HOME="$ANDROID_NDK_LATEST_HOME" npx tauri android build --debug --target aarch64 --apk
+        run: NDK_HOME="$ANDROID_NDK_LATEST_HOME" npx tauri android build --target aarch64 armv7 --apk
 
       - uses: actions/upload-artifact@v4
         if: env.RELEASE != 'true'
         with:
-          name: mythos-android-debug
+          name: mythos-android-test
           path: apps/mobile/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           retention-days: 7
 

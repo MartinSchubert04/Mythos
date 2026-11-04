@@ -7,15 +7,30 @@
 # El instalador es generico: no lleva la direccion del server (el repo y los Releases son
 # publicos). La app la pide la primera vez en el login y la guarda. Por eso VITE_DEFAULT_SERVER
 # va vacio a proposito.
+#
+# Cache: un tag no ve la cache de otro tag, solo la de main. Por eso en cada push a main que toque
+# la app se compila tambien (sin armar el instalador) y la cache de Rust se guarda solo ahi; el
+# tag la usa y no arranca de cero. Los filtros de carpetas no aplican a los tags.
 name: desktop
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+    paths:
+      - "apps/desktop/**"
+      - "apps/web/**"
+      - "apps/local-server/**"
+      - "backend/**"
+      - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows:
@@ -23,6 +38,8 @@ jobs:
     runs-on: windows-latest
     env:
       VITE_DEFAULT_SERVER: ""
+      # Push a main: solo compilar para dejar la cache lista (sin instalador, firma ni Release).
+      WARM: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +56,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: npm ci
         shell: bash
@@ -64,9 +82,14 @@ jobs:
             V="${GITHUB_REF_NAME#v}"
             CONF="{\"version\":\"$V\",\"bundle\":{\"createUpdaterArtifacts\":$FIRMA}}"
           fi
-          npx tauri build --config "$CONF"
+          if [ "$WARM" = "true" ]; then
+            npx tauri build --no-bundle
+          else
+            npx tauri build --config "$CONF"
+          fi
 
       - name: Upload to release
+        if: env.WARM != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -102,6 +125,7 @@ jobs:
           bash .github/scripts/release.sh "$V" "${ARCHIVOS[@]}"
 
       - name: Artifact
+        if: env.WARM != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: mythos-windows-installer
