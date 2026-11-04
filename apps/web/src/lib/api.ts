@@ -307,9 +307,16 @@ export const api = {
   search: (query: string, signal?: AbortSignal) =>
     req<{ movies: MetaPreview[]; series: MetaPreview[] }>("GET", `/api/search${q({ q: query })}`, undefined, { signal }),
   meta: (type: MediaType, id: string) => cached(`meta:${type}/${id}`, 15 * MIN, () => req<Meta>("GET", `/api/meta/${type}/${enc(id)}`)),
-  /** Con ?caps= el server pone primero lo que este navegador reproduce directo. */
+  /** Con ?caps= el server pone primero lo que este navegador reproduce directo. Sin `key`
+   *  repetidas (un server viejo las deja pasar si Torrentio repite un torrent): las listas usan la
+   *  key como clave y con dos iguales Svelte no las dibuja. */
   streams: (type: MediaType, id: string) =>
-    cached(`streams:${type}/${id}`, 3 * MIN, () => req<Stream[]>("GET", `/api/streams/${type}/${enc(id)}${q({ caps: capsList() })}`)),
+    cached(`streams:${type}/${id}`, 3 * MIN, () =>
+      req<Stream[]>("GET", `/api/streams/${type}/${enc(id)}${q({ caps: capsList() })}`).then((l) => {
+        const seen = new Set<string>();
+        return l.filter((s) => !seen.has(s.key) && !!seen.add(s.key));
+      }),
+    ),
   subtitles: (type: MediaType, id: string) =>
     cached(`subs:${type}/${id}`, 10 * MIN, () => req<ExternalSub[]>("GET", `/api/subtitles/${type}/${enc(id)}`)),
   prefetch: (s: Pick<Stream, "info_hash" | "file_idx" | "url">) =>

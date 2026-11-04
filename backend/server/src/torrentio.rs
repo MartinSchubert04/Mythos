@@ -204,7 +204,9 @@ pub fn parse_response(v: &Value, rd_key: Option<&str>) -> Parsed {
             debrid_error = Some(raw["title"].as_str().unwrap_or("Real-Debrid error").replace('\n', " "));
             continue;
         }
-        if let Some(s) = parse_stream(raw, rd_key) {
+        // Torrentio a veces repite el mismo torrent (mismo hash y archivo): la UI usa la key como
+        // clave de la lista y con dos iguales no la puede dibujar. Queda el primero.
+        if let Some(s) = parse_stream(raw, rd_key).filter(|s| !streams.iter().any(|x: &Stream| x.key == s.key)) {
             streams.push(s);
         }
     }
@@ -491,6 +493,20 @@ mod tests {
 
     fn tag(s: &Stream, t: &str) -> bool {
         s.tags.iter().any(|x| x == t)
+    }
+
+    #[test]
+    fn repeated_torrent_kept_once() {
+        // Así llegó "Demon Slayer: Infinity Castle" (tt32820897): el mismo torrent dos veces.
+        let raw = r#"{"streams":[
+          {"name":"Torrentio\n1080p","title":"[Cytox] Infinity Castle 2025 REPACK 1080p\n👤 40 💾 3 GB ⚙️ NyaaSi","infoHash":"9ede7c67f9ab4860aed64aa64f288fe20d10d151","fileIdx":0},
+          {"name":"Torrentio\n1080p","title":"[Cytox] Infinity Castle 2025 REPACK 1080p\n👤 12 💾 3 GB ⚙️ TorrentGalaxy","infoHash":"9EDE7C67F9AB4860AED64AA64F288FE20D10D151","fileIdx":0},
+          {"name":"Torrentio\n1080p","title":"Otro\n👤 5 💾 2 GB","infoHash":"9ede7c67f9ab4860aed64aa64f288fe20d10d151","fileIdx":1}
+        ]}"#;
+        let p = parse_response(&serde_json::from_str(raw).unwrap(), None);
+        let keys: Vec<&str> = p.streams.iter().map(|s| s.key.as_str()).collect();
+        assert_eq!(keys, ["9ede7c67f9ab4860aed64aa64f288fe20d10d151:0", "9ede7c67f9ab4860aed64aa64f288fe20d10d151:1"]);
+        assert_eq!(p.streams[0].seeders, Some(40));
     }
 
     #[test]
