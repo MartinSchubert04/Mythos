@@ -16,6 +16,11 @@
 //! - Orden por pasadas (una cada 16, después cada 8, ...): enseguida hay una vista gruesa de toda
 //!   la parte bajada y después se completa.
 //!
+//! HDR (PQ o HLG): sin tone-mapping las miniaturas salen lavadas (grises, sin contraste). Se achica
+//! primero (en 10 bits) y recién a 240 px se pasa a SDR con el mismo filtro que el HLS (zscale +
+//! hable): medido con un HEVC 4K 10-bit, ~170 ms por miniatura con y sin tone-mapping (lo que
+//! cuesta es decodificar el cuadro clave). Si a ese ffmpeg le falta zimg, se sigue sin.
+//!
 //! Cache en disco: `data_dir/thumbs/{hash}_{archivo}_{ancho}x{alto}_{intervalo}/{i}.jpg` para
 //! torrents (sirve para siempre; se borra con el torrent) o en la carpeta temporal de la sesión
 //! para links directos.
@@ -71,6 +76,30 @@ pub fn time_of(i: usize, interval: f64, duration: f64) -> f64 {
 }
 
 /// Alto para `WIDTH` de ancho con esa relación de aspecto (par, para el escalado); 16:9 si no se sabe.
+/// La curva de un video HDR (la misma regla que el HLS: si no la declara, PQ); `None` si es SDR.
+fn hdr_transfer(v: &crate::probe::VideoInfo) -> Option<String> {
+    v.hdr.then(|| v.transfer.clone().filter(|t| t == "smpte2084" || t == "arib-std-b67").unwrap_or_else(|| "smpte2084".into()))
+}
+
+/// El `-vf` de una miniatura: achicar y pasar a JPEG de rango completo; con HDR, tone-mapping
+/// después de achicar (a 240 px es casi gratis).
+fn filter(width: u32, height: u32, tonemap: Option<&str>) -> String {
+    match tonemap {
+        None => format!("scale={width}:{height}:flags=fast_bilinear:out_range=full,format=yuvj420p"),
+        Some(trc) => format!(
+            concat!(
+                "scale={width}:{height}:flags=fast_bilinear,",
+                "setparams=color_primaries=bt2020:color_trc={trc}:colorspace=bt2020nc,",
+                "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,",
+                "zscale=t=bt709:m=bt709:r=full,format=yuvj420p"
+            ),
+            width = width,
+            height = height,
+            trc = trc
+        ),
+    }
+}
+
 pub fn height_for(w: Option<u32>, h: Option<u32>) -> u32 {
     let (w, h) = match (w, h) {
         (Some(w), Some(h)) if w > 0 && h > 0 => (w as f64, h as f64),
@@ -115,6 +144,8 @@ struct Job {
     ready: Mutex<Vec<bool>>,
     /// No queda nada por hacer (todas listas, o el archivo no se deja).
     done: AtomicBool,
+    /// Video HDR: la curva de entrada para el tone-mapping (`None` = SDR, o ffmpeg sin zscale).
+    tonemap: Mutex<Option<String>>,
 }
 
 #[derive(Default)]
@@ -157,11 +188,21 @@ fn job(e: &Arc<Engine>, s: &Arc<PlaySession>) -> Option<Arc<Job>> {
     };
     let (interval, count) = plan(duration);
     let height = height_for(w, h);
+    let tonemap = s.probe.lock().unwrap().as_ref().and_then(|p| p.video.as_ref()).and_then(hdr_transfer);
     let dir = dir_for(e, s, WIDTH, height, interval);
     let _ = std::fs::create_dir_all(&dir);
     let ready: Vec<bool> = (0..count).map(|i| dir.join(format!("{i}.jpg")).is_file()).collect();
     let all = ready.iter().all(|r| *r);
-    let j = Arc::new(Job { dir, interval, count, width: WIDTH, height, ready: Mutex::new(ready), done: AtomicBool::new(all) });
+    let j = Arc::new(Job {
+        dir,
+        interval,
+        count,
+        width: WIDTH,
+        height,
+        ready: Mutex::new(ready),
+        done: AtomicBool::new(all),
+        tonemap: Mutex::new(tonemap),
+    });
     *slot = Some(j.clone());
     if !all {
         tokio::spawn(run(e.clone(), s.clone(), j.clone(), duration));
@@ -306,13 +347,14 @@ async fn extract(e: &Engine, s: &PlaySession, j: &Job, i: usize, t: f64) -> Resu
     let tmp = j.dir.join(format!("tmp_{i}.jpg"));
     let out = j.dir.join(format!("{i}.jpg"));
     let input = e.internal_url(&s.id, Role::Passive);
+    let tonemap = j.tonemap.lock().unwrap().clone();
     let mut cmd = crate::util::tool_command(&e.cfg.ffmpeg);
     cmd.args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-threads", "1", "-skip_frame", "nokey", "-noaccurate_seek", "-ss"])
         .arg(format!("{t:.3}"))
         .args(["-i", &input, "-map", "0:v:0", "-an", "-sn", "-dn", "-frames:v", "1", "-vf"])
         // Rango completo para JPEG: con el de video (limitado) el codificador de ffmpeg se niega en
         // algunos cuadros.
-        .arg(format!("scale={}:{}:flags=fast_bilinear:out_range=full,format=yuvj420p", j.width, j.height))
+        .arg(filter(j.width, j.height, tonemap.as_deref()))
         .args(["-q:v", "6", "-f", "image2"])
         .arg(&tmp)
         .stdin(std::process::Stdio::null())
@@ -329,7 +371,16 @@ async fn extract(e: &Engine, s: &PlaySession, j: &Job, i: usize, t: f64) -> Resu
         return Err(match res {
             Err(_) => Fail::Wait,
             Ok(Err(err)) => Fail::Error(err.into()),
-            Ok(Ok(o)) => Fail::Error(anyhow::anyhow!("ffmpeg: {}", String::from_utf8_lossy(&o.stderr).trim())),
+            Ok(Ok(o)) => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                // ffmpeg sin zimg: lavadas, pero miniaturas igual (no cuenta como fallo).
+                if tonemap.is_some() && (err.contains("zscale") || err.contains("No such filter")) {
+                    tracing::info!(session = %s.id, "seek thumbnails without tone-mapping: {}", err.trim());
+                    *j.tonemap.lock().unwrap() = None;
+                    return Err(Fail::Wait);
+                }
+                Fail::Error(anyhow::anyhow!("ffmpeg: {}", err.trim()))
+            }
         });
     }
     tokio::fs::rename(&tmp, &out).await.map_err(|e| Fail::Error(e.into()))?;
@@ -390,6 +441,20 @@ mod tests {
         let (iv, n) = plan(1203.0);
         assert_eq!(time_of(0, iv, 1203.0), 2.5);
         assert!(time_of(n - 1, iv, 1203.0) <= 1201.0);
+    }
+
+    #[test]
+    fn hdr_thumbnails_are_tonemapped_after_scaling() {
+        let sdr = filter(240, 136, None);
+        assert!(!sdr.contains("tonemap") && sdr.ends_with("format=yuvj420p"));
+        let hdr = filter(240, 136, Some("smpte2084"));
+        assert!(hdr.starts_with("scale=240:136:"), "achicar antes que nada: {hdr}");
+        assert!(hdr.contains("color_trc=smpte2084") && hdr.contains("tonemap=tonemap=hable"));
+        assert!(!hdr.contains(' '), "un solo argumento sin espacios: {hdr}");
+        let v = |hdr, transfer: Option<&str>| crate::probe::VideoInfo { hdr, transfer: transfer.map(Into::into), ..Default::default() };
+        assert_eq!(hdr_transfer(&v(false, None)), None);
+        assert_eq!(hdr_transfer(&v(true, Some("arib-std-b67"))).as_deref(), Some("arib-std-b67"));
+        assert_eq!(hdr_transfer(&v(true, None)).as_deref(), Some("smpte2084"), "sin curva declarada: PQ");
     }
 
     #[test]

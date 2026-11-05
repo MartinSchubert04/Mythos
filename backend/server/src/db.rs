@@ -191,6 +191,12 @@ CREATE TABLE plays (
 );
 CREATE INDEX plays_user ON plays(user_id, ts_ms DESC);
 CREATE INDEX plays_meta ON plays(user_id, meta_id, ts_ms DESC);
+"#, r#"
+-- Desde dónde se empezó a ver en esa reproducción (el primer progreso; baja si se vuelve atrás):
+-- `watched_s` pasa a ser lo visto en ESA reproducción y no la posición. Probado en la PC: al seguir
+-- un episodio por la mitad y cambiar de stream al minuto, con la posición no contaba como
+-- "switched" (ya pasaba los 5 min).
+ALTER TABLE plays ADD COLUMN start_s REAL;
 "#];
 
 #[derive(Clone)]

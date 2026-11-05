@@ -750,6 +750,9 @@
       started = true;
       attempts.net = 0;
     }
+    // "Anda lento" ya no corre si arranco o siguio (probado en la PC: el cartel quedaba tapando el
+    // video que ya se veia, a 9 MB/s, hasta tocar "Seguir esperando").
+    if (stuck === "slow") stuck = "";
     checkDecode();
   }
 

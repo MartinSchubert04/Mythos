@@ -396,18 +396,22 @@ Rutas montadas desde el crate de media, con auth (Bearer o `?t=`):
 guarda el grupo del release (`[Grupo] ...` o `...-GRUPO`, y el `bingeGroup` de Torrentio), calidad,
 tamaño, audio dual, los idiomas de audio y subtítulos reales del archivo (ffprobe), si se eligió a
 mano (`manual`) y cuál ofrecía la app (`top_key`). Cómo salió se completa solo: `finished` (el
-progreso pasó el 90 %), `switched` (antes de 15 min y con menos de 5 vistos se abrió otro stream
-del mismo episodio) o `stalled` (`after_stall`). Se guardan las últimas 600 por usuario.
+progreso pasó el 90 %), `switched` (antes de 15 min y con menos de 5 vistos en esa reproducción
+—desde donde arrancó, no la posición: `start_s`— se abrió otro stream del mismo episodio) o
+`stalled` (`after_stall`). Se guardan las últimas 600 por usuario.
 
 En `/api/streams` se infiere (de las últimas 300): el grupo de la última reproducción buena de esa
-serie (confianza 0,6 / 0,8 / 1 con 1 / 2 / 3+ que lo confirman; el que se trabó o se cambió
+serie (confianza 0,6 / 0,8 / 1 con 1 / 2 / 3+ que lo confirman, y 1 si alguna de esas se eligió a
+mano; el que se trabó o se cambió
 enseguida no se prefiere y resta), los grupos que se repiten en otras series, los idiomas de
 subtítulos buscados (el `subLang` de Settings, o el que tienen de verdad al menos dos elecciones a
 mano buenas, sin contar inglés) y el audio dual (dos elecciones a mano). Los subtítulos de un stream
-que no se abrió se adivinan por su nombre y por los que tuvo su grupo. El score suma: mismo grupo
-de la serie +60 × confianza, grupo que repite +15, grupo malo −40, subtítulos buscados +50, audio
+que no se abrió se adivinan por su nombre, por las banderas de Torrentio cuando dice "Multi Subs"
+sin doblaje ni audio dual (ahí las banderas son los subtítulos) y por los que tuvo su grupo. El score suma: mismo grupo
+de la serie +90 × confianza, grupo que repite +15, grupo malo −40, subtítulos buscados +50, audio
 dual +25, en total entre −60 y +110: la salud del torrent sigue mandando (un preferido con 2
-seeders no le gana a uno sano). Sin historial no cambia nada.
+seeders no le gana a uno sano; uno de 15 elegido a mano sí le gana a un pack de 129, uno de 7 no).
+Sin historial no cambia nada.
 
 **Vista previa al adelantar (`/api/media/{session}/thumbs`)**, `media/src/thumbs.rs`:
 

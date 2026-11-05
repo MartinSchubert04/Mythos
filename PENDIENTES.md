@@ -35,18 +35,6 @@ acá (y si algo falla, vuelve arriba como pendiente).
       - Que no trabe la reproducción: mirar CPU del server (ffmpeg de miniaturas con prioridad
         mínima, uno a la vez) y que el video no se corte mientras se generan.
       - Un HDR o 4K HEVC: que salgan (sin tone-mapping se verán lavadas; decidir si importa).
-- [ ] **Streams que aprenden el release preferido** (`server/src/taste.rs`, tabla `plays` en la
-      migración nueva de `db.rs`, bonus 9. en `score.rs`, docs/API.md "Preferencias aprendidas",
-      motivo en `StreamList.svelte`). Cómo probar (en la PC o la tele):
-      - Que la migración aplique sobre la base real sin perder nada (hacer copia de `mythos.db`).
-      - En una serie (p. ej. Demon Slayer): elegir a mano en "Choose stream" un release de otro grupo
-        (Erai-raws), verlo un rato o terminarlo; en el episodio siguiente ese grupo tiene que venir
-        primero y "Elegir stream" decir "Mismo grupo que la última vez" (y "Subtítulos en español"
-        si los trae; en inglés "Same group as last time" · "Spanish subs").
-      - Cambiar de stream a los pocos minutos: ese grupo no se prefiere. Elegir uno desde el cartel
-        de "trabado": el anterior queda como trabado.
-      - Un preferido con pocos seeders no tiene que ganarle a uno sano.
-      - `subLang` de Settings en español: suben los releases que traen subtítulos en español.
 - [ ] **Reproductor en TV: foco después de elegir velocidad o audio** (`closeMenu` en
       `Player.svelte`): elegir 1.5× con el control → el foco vuelve al botón de velocidad.
 - [ ] **Paneles de streams y episodios en TV**: al abrirlos el foco entra en el actual (no en la X)

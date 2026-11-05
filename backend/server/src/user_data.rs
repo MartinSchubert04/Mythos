@@ -281,7 +281,7 @@ async fn continue_watching(State(st): State<AppState>, u: AuthUser) -> ApiResult
             let mut stmt = c.prepare_cached(&format!(
                 "SELECT {PROGRESS_COLS} FROM progress
                  WHERE user_id = ?1 AND deleted = 0 AND (duration_s <= 0 OR position_s / duration_s <= 0.92)
-                 ORDER BY updated_at DESC LIMIT 200"
+                 ORDER BY updated_at DESC, seq DESC LIMIT 200"
             ))?;
             let rows = stmt.query_map([uid], progress_from_row)?.collect::<Result<Vec<_>, _>>()?;
             Ok(rows)
@@ -304,7 +304,7 @@ async fn recent(State(st): State<AppState>, u: AuthUser) -> ApiResult<Json<Vec<P
         .db
         .call(move |c| {
             let mut stmt = c.prepare_cached(&format!(
-                "SELECT {PROGRESS_COLS} FROM progress WHERE user_id = ?1 AND deleted = 0 ORDER BY updated_at DESC LIMIT 400"
+                "SELECT {PROGRESS_COLS} FROM progress WHERE user_id = ?1 AND deleted = 0 ORDER BY updated_at DESC, seq DESC LIMIT 400"
             ))?;
             let rows = stmt.query_map([uid], progress_from_row)?.collect::<Result<Vec<_>, _>>()?;
             Ok(rows)
@@ -334,7 +334,7 @@ async fn series_progress(State(st): State<AppState>, u: AuthUser, Query(q): Quer
         .db
         .call(move |c| {
             let mut stmt = c.prepare_cached(&format!(
-                "SELECT {PROGRESS_COLS} FROM progress WHERE user_id = ?1 AND series_id = ?2 AND deleted = 0 ORDER BY updated_at DESC"
+                "SELECT {PROGRESS_COLS} FROM progress WHERE user_id = ?1 AND series_id = ?2 AND deleted = 0 ORDER BY updated_at DESC, seq DESC"
             ))?;
             let rows = stmt.query_map(params![uid, series_id], progress_from_row)?.collect::<Result<Vec<_>, _>>()?;
             Ok(rows)

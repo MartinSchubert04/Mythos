@@ -541,6 +541,52 @@ mod tests {
         assert!(b <= taste::MAX_BONUS);
     }
 
+    /// Probado en la PC (Demon Slayer, seeders reales): una sola elección a mano terminada alcanza
+    /// para que el grupo venga primero contra un pack mucho más sano, pero no si casi no tiene
+    /// seeders; terminado sin elegirlo a mano pesa menos.
+    #[test]
+    fn one_manual_pick_is_enough() {
+        use crate::taste::{infer, PlayRow};
+        let e1 = |manual: bool| PlayRow {
+            series_id: "tt9335498".into(),
+            group: Some("erai-raws".into()),
+            sub_langs: vec!["eng".into(), "spa".into()],
+            manual,
+            outcome: Some("finished".into()),
+            watched_s: 1420.0,
+            ..Default::default()
+        };
+        let p = |manual: bool| Prefs { duration_s: 1440.0, personal: Some(infer(&[e1(manual)], "tt9335498", None)), ..Prefs::default() };
+        let pack = anime("[Tenrai-Sensei] Demon Slayer: Kimetsu no Yaiba S1+S2+S3 [BD][1080p]", 129);
+        let list = [pack.clone(), anime("[Erai-raws] Kimetsu no Yaiba - 01 ~ 26 [1080p][HEVC][BATCH]", 15)];
+        let v = ranked(&list, &p(true));
+        assert_eq!(v[0].group.as_deref(), Some("erai-raws"), "{v:?}");
+        assert_eq!(v[0].reasons, ["same_group"]);
+        assert_eq!(ranked(&list, &p(false))[0].group.as_deref(), Some("tenrai-sensei"), "sin elegirlo a mano, menos confianza");
+        // El episodio siguiente arrancó solo con el mismo grupo (sin elegirlo): sigue con confianza completa.
+        let e2 = PlayRow { manual: false, outcome: None, watched_s: 300.0, ..e1(true) };
+        let me = infer(&[e2, e1(true)], "tt9335498", None);
+        assert_eq!(me.series_group, Some(("erai-raws".to_string(), 1.0)));
+        let weak = [pack, anime("[Erai-raws] Kimetsu no Yaiba - 01 ~ 26 [1080p][Multiple Subtitle]", 7)];
+        assert_eq!(ranked(&weak, &p(true))[0].group.as_deref(), Some("tenrai-sensei"), "con 7 seeders no le gana a 129");
+    }
+
+    /// Las banderas de Torrentio con "Multi Subs" son los subtítulos (caso real: Erai-raws en
+    /// Demon Slayer, `[ENG][POR-BR][SPA-LA]...`).
+    #[test]
+    fn flags_with_multi_subs_are_subtitles() {
+        use crate::taste::flag_subs;
+        let with = |langs: &[&str]| Stream { languages: langs.iter().map(|x| x.to_string()).collect(), ..st(Quality::P1080, 20, 0.5, &[]) };
+        assert_eq!(flag_subs(&with(&["multi-subs", "🇬🇧", "🇷🇺", "🇧🇷", "🇪🇸", "🇲🇽"])), ["eng", "rus", "por", "spa"]);
+        assert!(flag_subs(&with(&["Dubbed", "multi-subs", "dual", "🇪🇸"])).is_empty(), "con doblaje pueden ser audio");
+        assert!(flag_subs(&with(&["🇪🇸"])).is_empty(), "sin Multi Subs es el audio");
+        // Con subLang en español, sube aunque nunca se haya abierto ese grupo.
+        let me = crate::taste::infer(&[], "tt1", Some("spa"));
+        let (b, why) = crate::taste::bonus(&with(&["multi-subs", "🇬🇧", "🇲🇽"]), &me);
+        assert!(b > 0.0);
+        assert_eq!(why, ["subs:spa"]);
+    }
+
     #[test]
     fn rank_sorts_desc_and_marks_cached() {
         let mut v = vec![st(Quality::P1080, 3, 2.0, &[]), st(Quality::P1080, 300, 2.0, &[]), st(Quality::P720, 50, 1.0, &[])];

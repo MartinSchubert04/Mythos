@@ -28,8 +28,11 @@ use crate::torrentio::Stream;
 /// Lo que la reproducción de un stream suma o resta, como mucho.
 pub const MAX_BONUS: f64 = 110.0;
 pub const MIN_BONUS: f64 = -60.0;
-/// Mismo grupo que lo que se vio de esta serie (con confianza completa).
-const SAME_GROUP: f64 = 60.0;
+/// Mismo grupo que lo que se vio de esta serie (con confianza completa). Probado con Demon Slayer
+/// en la PC: con 60, un Erai-raws de 15 seeders elegido a mano y terminado quedaba sexto detrás de
+/// un pack de 129; con 90 queda primero, y uno de menos de ~10 seeders (o con menos de 5, que
+/// además resta 180) sigue perdiendo contra uno sano.
+const SAME_GROUP: f64 = 90.0;
 /// Un grupo que el usuario repite en otras series.
 const LIKED_GROUP: f64 = 15.0;
 /// El grupo de esta serie que se trabó o se cambió enseguida.
@@ -189,8 +192,12 @@ pub fn infer(rows: &[PlayRow], series_id: &str, ui_sub_lang: Option<&str>) -> Pe
             continue;
         }
         if r.good() && p.series_group.is_none() && !p.bad_groups.contains(&id) {
-            let n = mine.iter().filter(|x| x.good() && ident(&x.group, &x.binge).as_deref() == Some(id.as_str())).count();
-            let conf = match n {
+            let same: Vec<&&PlayRow> = mine.iter().filter(|x| x.good() && ident(&x.group, &x.binge).as_deref() == Some(id.as_str())).collect();
+            // Elegido a mano (en contra de lo que ofrecía la app) y visto: lo dijo el usuario, no
+            // hace falta que se repita (y los episodios que siguieron solos con ese grupo no le
+            // bajan la confianza).
+            let conf = match same.len() {
+                _ if same.iter().any(|x| x.manual) => 1.0,
                 0 | 1 => 0.6,
                 2 => 0.8,
                 _ => 1.0,
@@ -255,9 +262,37 @@ pub fn dual_audio(s: &Stream) -> bool {
     }
 }
 
-/// Subtítulos que probablemente trae un stream: los del nombre y los que tuvo de verdad su grupo.
+/// Con "Multi Subs" y sin doblaje ni audio dual, las banderas de Torrentio son los subtítulos
+/// (Erai-raws: `[ENG][POR-BR][SPA-LA]...` → 🇬🇧 🇧🇷 🇲🇽 ...). Con doblaje no se sabe si son audio.
+pub fn flag_subs(s: &Stream) -> Vec<String> {
+    let l = &s.languages;
+    if !l.iter().any(|x| x == "multi-subs") || l.iter().any(|x| matches!(x.as_str(), "multi" | "dual" | "Dubbed")) {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    for f in l {
+        let lang = match f.as_str() {
+            "🇪🇸" | "🇲🇽" => "spa",
+            "🇬🇧" | "🇺🇸" => "eng",
+            "🇧🇷" | "🇵🇹" => "por",
+            "🇫🇷" => "fre",
+            "🇩🇪" => "ger",
+            "🇮🇹" => "ita",
+            "🇷🇺" => "rus",
+            _ => continue,
+        };
+        if !out.iter().any(|x| x == lang) {
+            out.push(lang.to_string());
+        }
+    }
+    out
+}
+
+/// Subtítulos que probablemente trae un stream: los del nombre, los de las banderas (con "Multi
+/// Subs") y los que tuvo de verdad su grupo.
 fn likely_subs(s: &Stream, p: &Personal) -> HashSet<String> {
     let (mut named, _) = name_sub_langs(&format!("{} {}", s.title, s.file_name.as_deref().unwrap_or("")));
+    named.extend(flag_subs(s));
     if let Some(g) = &s.group {
         if let Some(seen) = p.group_subs.get(g) {
             named.extend(seen.iter().cloned());
@@ -382,11 +417,13 @@ pub fn record(c: &Connection, p: &NewPlay, now_ms: i64) -> rusqlite::Result<()> 
     Ok(())
 }
 
-/// Al guardar el progreso: cuánto se vio y si se terminó (> 90 %).
+/// Al guardar el progreso: cuánto se vio en esta reproducción (desde donde arrancó: el primer
+/// progreso, o más atrás si se volvió) y si se terminó (> 90 % del episodio).
 pub fn progress(c: &Connection, user_id: i64, meta_id: &str, position_s: f64, duration_s: f64) -> rusqlite::Result<()> {
     let finished = duration_s > 60.0 && position_s >= duration_s * 0.9;
     c.execute(
-        "UPDATE plays SET watched_s = MAX(watched_s, ?3),
+        "UPDATE plays SET start_s = MIN(COALESCE(start_s, ?3), ?3),
+                          watched_s = MAX(watched_s, ?3 - MIN(COALESCE(start_s, ?3), ?3)),
                           outcome = CASE WHEN ?4 AND outcome IS NULL THEN 'finished' ELSE outcome END
          WHERE id = (SELECT id FROM plays WHERE user_id = ?1 AND meta_id = ?2 ORDER BY ts_ms DESC LIMIT 1)",
         params![user_id, meta_id, position_s, finished],
@@ -474,6 +511,21 @@ mod tests {
         record(&c, &play("d", "judas", true, true), 9_060_000).unwrap();
         let rows = recent(&c, 1).unwrap();
         assert_eq!(rows[1].outcome.as_deref(), Some("stalled"));
+        // Lo visto es desde donde arrancó esa reproducción, no la posición: sigue el episodio por
+        // los 20 min y al minuto lo cambia → "switched".
+        let ep3 = |key: &str, group: &str| NewPlay { meta_id: "tt1:1:3".into(), ..play(key, group, false, false) };
+        record(&c, &ep3("e", "dekinai"), 20_000_000).unwrap();
+        progress(&c, 1, "tt1:1:3", 1200.0, 1420.0).unwrap();
+        progress(&c, 1, "tt1:1:3", 1260.0, 1420.0).unwrap();
+        let w: f64 = c.query_row("SELECT watched_s FROM plays WHERE stream_key = 'e'", [], |r| r.get(0)).unwrap();
+        assert_eq!(w, 60.0);
+        record(&c, &NewPlay { manual: true, ..ep3("f", "erai-raws") }, 20_070_000).unwrap();
+        let rows = recent(&c, 1).unwrap();
+        assert_eq!(rows[1].outcome.as_deref(), Some("switched"), "{rows:?}");
+        // Volver atrás baja el inicio (empezar de nuevo cuenta desde ahí).
+        progress(&c, 1, "tt1:1:3", 0.0, 1420.0).unwrap();
+        progress(&c, 1, "tt1:1:3", 400.0, 1420.0).unwrap();
+        assert_eq!(recent(&c, 1).unwrap()[0].watched_s, 400.0);
         let p = infer(&rows, "tt1", None);
         assert!(p.bad_groups.contains("cytox"));
         assert!(p.bad_groups.contains("subsplease"));
