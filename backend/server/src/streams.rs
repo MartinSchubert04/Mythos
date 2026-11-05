@@ -181,7 +181,9 @@ async fn streams(
     let mut list = (*list?).clone();
     // Lo aprendido de sus reproducciones (sin historial, nada cambia). Un error de la base no
     // deja sin streams.
-    let sub_lang = prefs.ui.get("subLang").and_then(|v| v.as_str()).map(str::to_string);
+    // Si nunca lo tocó en Settings, español (el mismo default que la interfaz, lib/prefs.svelte.ts);
+    // "" es "sin subtítulos".
+    let sub_lang = Some(prefs.ui.get("subLang").and_then(|v| v.as_str()).unwrap_or("spa").to_string()).filter(|s| !s.is_empty());
     let personal = history
         .ok()
         .map(|rows| taste::infer(&rows, series_of(&id), sub_lang.as_deref()))

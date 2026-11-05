@@ -35,7 +35,7 @@ export type UiPrefs = {
 
 const KEY = "mythos.prefs";
 const defaults = (): UiPrefs => ({
-  subLang: "eng",
+  subLang: "spa", // español por defecto, como la interfaz
   subAlways: false,
   subSize: 100,
   subBg: 35,

@@ -404,7 +404,7 @@ En `/api/streams` se infiere (de las últimas 300): el grupo de la última repro
 serie (confianza 0,6 / 0,8 / 1 con 1 / 2 / 3+ que lo confirman, y 1 si alguna de esas se eligió a
 mano; el que se trabó o se cambió
 enseguida no se prefiere y resta), los grupos que se repiten en otras series, los idiomas de
-subtítulos buscados (el `subLang` de Settings, o el que tienen de verdad al menos dos elecciones a
+subtítulos buscados (el `subLang` de Settings, español si nunca se eligió, o el que tienen de verdad al menos dos elecciones a
 mano buenas, sin contar inglés) y el audio dual (dos elecciones a mano). Los subtítulos de un stream
 que no se abrió se adivinan por su nombre, por las banderas de Torrentio cuando dice "Multi Subs"
 sin doblaje ni audio dual (ahí las banderas son los subtítulos) y por los que tuvo su grupo. El score suma: mismo grupo
