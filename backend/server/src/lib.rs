@@ -151,6 +151,12 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
     let db = Db::open(&cfg.data_dir.join("mythos.db"))?;
     if cfg.mode == Mode::Server {
         bootstrap_users(&db, &cfg).await?;
+        // La galería de avatares arranca con los de fábrica (una vez; si falla, sigue sin ellos).
+        match avatars::seed_defaults(&db, cfg.data_dir.join("avatars")).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!("galería de avatares: {n} de fábrica agregados"),
+            Err(e) => tracing::warn!("no se pudieron agregar los avatares de fábrica: {}", e.message),
+        }
     }
 
     let tuning = mythos_media::Tuning { peer_limit: cfg.peer_limit.max(1), ..Default::default() };

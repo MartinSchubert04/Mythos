@@ -1,13 +1,16 @@
 <script lang="ts">
   // Admin → Avatars: la galeria de avatares que cada usuario elige en Settings → Account (y en la
-  // TV al sumar un perfil). Se suben varias de una (PNG, JPEG, WebP o GIF, hasta 2 MB cada una; el
-  // server mira el contenido, no el nombre) y se borran de a una: quien la tenia vuelve a la inicial.
+  // TV al sumar un perfil). El server trae unos de fabrica. Se suben varias de una (PNG, JPEG, WebP
+  // o GIF, hasta 2 MB cada una; el server mira el contenido, no el nombre): cada una pasa por el
+  // recorte (AvatarCropper: centrar y zoom) antes de subirse. Se borran de a una: quien la tenia
+  // vuelve a la inicial.
   import { ImagePlus, LoaderCircle, Trash2 } from "@lucide/svelte";
   import { api, avatarUrl, errText } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
   import { session } from "../lib/session.svelte";
   import { toast } from "../lib/toast.svelte";
   import type { Avatar } from "../lib/types";
+  import AvatarCropper from "./AvatarCropper.svelte";
 
   const MAX = 2 * 1024 * 1024;
 
@@ -15,6 +18,8 @@
   let error = $state("");
   let uploading = $state(0);
   let input = $state<HTMLInputElement>();
+  /** La imagen que se esta recortando y las que siguen. */
+  let crop = $state<{ files: File[]; i: number; ok: number } | null>(null);
 
   function load() {
     api
@@ -24,25 +29,34 @@
   }
   load();
 
-  async function upload(files: FileList | null) {
-    if (!files?.length) return;
-    const all = [...files];
-    uploading = all.length;
-    let ok = 0;
-    for (const f of all) {
+  function pick(files: FileList | null) {
+    if (files?.length) crop = { files: [...files], i: 0, ok: 0 };
+    if (input) input.value = "";
+  }
+
+  /** Lo que devolvio el recorte de la imagen actual: se sube y se pasa a la siguiente. */
+  async function cropped(r: { blob: Blob; name: string } | null) {
+    if (!crop || uploading) return;
+    const c = crop;
+    const f = c.files[c.i];
+    if (r) {
+      uploading++;
       try {
-        if (f.size > MAX) throw new Error("Images can be up to 2 MB");
-        const a = await api.uploadAvatar(f, f.name.replace(/\.[^.]+$/, ""));
+        if (r.blob.size > MAX) throw new Error("Images can be up to 2 MB");
+        const a = await api.uploadAvatar(r.blob, r.name);
         list = [...(list ?? []), a];
-        ok++;
+        c.ok++;
       } catch (e) {
         toast(`${f.name}: ${errText(e)}`, true);
       } finally {
         uploading--;
       }
     }
-    if (ok) toast(ok === 1 ? "Avatar added" : `${ok} avatars added`);
-    if (input) input.value = "";
+    if (c.i + 1 < c.files.length) crop = { ...c, i: c.i + 1 };
+    else {
+      crop = null;
+      if (c.ok) toast(c.ok === 1 ? "Avatar added" : `${c.ok} avatars added`);
+    }
   }
 
   async function remove(a: Avatar) {
@@ -64,13 +78,19 @@
 </script>
 
 <div class="head">
-  <span class="faint">Everyone picks theirs in Settings → Account. PNG, JPEG, WebP or GIF, up to 2 MB each; square images look best.</span>
+  <span class="faint">Everyone picks theirs in Settings → Account. PNG, JPEG, WebP or GIF, up to 2 MB each; you can center and zoom each one before it's added.</span>
   <div class="grow"></div>
-  <label class="btn primary" class:busy={uploading > 0}>
-    {#if uploading}<LoaderCircle size={15} class="spin" />Uploading {uploading}…{:else}<ImagePlus size={15} />Add images{/if}
-    <input bind:this={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple disabled={uploading > 0} onchange={(e) => upload(e.currentTarget.files)} />
+  <label class="btn primary" class:busy={uploading > 0 || !!crop}>
+    {#if uploading}<LoaderCircle size={15} class="spin" />Uploading…{:else}<ImagePlus size={15} />Add images{/if}
+    <input bind:this={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple disabled={uploading > 0 || !!crop} onchange={(e) => pick(e.currentTarget.files)} />
   </label>
 </div>
+
+{#if crop}
+  {#key crop.i}
+    <AvatarCropper file={crop.files[crop.i]} index={crop.i + 1} total={crop.files.length} ondone={cropped} />
+  {/key}
+{/if}
 
 {#if error && !list}
   <div class="empty"><h3>Couldn't load the avatars</h3><span>{error}</span></div>

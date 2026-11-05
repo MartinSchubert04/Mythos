@@ -26,6 +26,7 @@ RUN mkdir -p server/src media/src \
  && cargo build --release --locked -p mythos \
  && rm -rf server/src media/src
 COPY backend/server/src server/src
+COPY backend/server/assets server/assets
 COPY backend/media/src media/src
 # `touch` + borrar las huellas de los crates propios: COPY conserva fechas viejas y cargo podría
 # creer que el binario vacío de arriba sigue vigente.

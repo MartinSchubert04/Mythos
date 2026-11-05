@@ -201,7 +201,7 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 | POST | `/api/auth/logout` | | 204 (revoca la sesión) |
 | GET | `/api/me` | | `User` |
 | PATCH | `/api/me` | `{avatar_id?: number \| null}` (`null` saca el avatar; sin el campo no cambia) | `User`; 404 si el avatar no existe. También en modo local (el embebido no tiene galería: solo `null`) |
-| GET | `/api/avatars` | | `Avatar[]` (la galería; vacía en modo local) |
+| GET | `/api/avatars` | | `Avatar[]` (la galería; vacía en modo local). El server trae 12 de fábrica (`backend/server/assets/avatars`, dibujos propios): se suman a la galería una sola vez por base (marca `default_avatars` en `server_meta`), así que si el admin borra alguno no vuelve |
 | GET | `/api/media/avatars/{id}` | Bearer o `?t=` (para `<img>`) | la imagen, con su `Content-Type`, `nosniff` y `Cache-Control: private, max-age=31536000, immutable` (los ids no se reusan) |
 | PUT | `/api/me/password` | `{current, new}` | 204 (cierra las demás sesiones). En modo local: 403 (se cambia en el server) |
 | PUT | `/api/me/username` | `{username}` (mismas reglas que al crear: 1-32, letras, números, `_ - .`) | `User`; 409 si otro ya lo tiene (sin distinguir mayúsculas; cambiar solo mayúsculas del propio vale). Las sesiones siguen (van por id). Auditoría `user_renamed` ("viejo → nuevo"). En modo local: 403 (se cambia en el server y el dispositivo lo toma al sincronizar) |
@@ -235,7 +235,7 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 | DELETE | `/api/admin/users/{id}` | | 204 (no se puede borrar a uno mismo ni al último admin) |
 | GET | `/api/admin/users/{id}/sessions` | | `SessionInfo[]` de ese usuario (las de TV que no vencen incluidas; `current`: la del admin); 404 si no existe |
 | DELETE | `/api/admin/users/{id}/sessions/{sid}` | | 204 (cierra esa sesión, p. ej. una TV que ya no se usa; auditoría `session_revoked` "usuario: session N"); 404 si no es de ese usuario |
-| POST | `/api/admin/avatars` | `multipart/form-data` con `file` (la imagen) y opcional `name`; o la imagen tal cual en el cuerpo con `?name=` (una por pedido) | 201 `Avatar`. Solo PNG, JPEG, WebP o GIF reconocidos por el contenido (nunca SVG) → si no, 415; más de 2 MB → 413; más de 200 en la galería → 409. Se guarda en `<data_dir>/avatars/<id>.<ext>` (el nombre del archivo es el id) |
+| POST | `/api/admin/avatars` | `multipart/form-data` con `file` (la imagen) y opcional `name`; o la imagen tal cual en el cuerpo con `?name=` (una por pedido). La interfaz recorta antes de subir (centrar y zoom, sale un WebP cuadrado de 512 px; "Upload original" sube el archivo tal cual) | 201 `Avatar`. Solo PNG, JPEG, WebP o GIF reconocidos por el contenido (nunca SVG) → si no, 415; más de 2 MB → 413; más de 200 en la galería → 409. Se guarda en `<data_dir>/avatars/<id>.<ext>` (el nombre del archivo es el id) |
 | DELETE | `/api/admin/avatars/{id}` | | 204 (borra el archivo; quien lo tenía queda sin avatar) |
 | GET | `/api/admin/torrents` | | `TorrentStat[]` |
 | DELETE | `/api/admin/torrents/{info_hash}` | `?files=true` | 204 |

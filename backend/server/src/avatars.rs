@@ -72,6 +72,48 @@ pub fn sniff(b: &[u8]) -> Option<(&'static str, &'static str)> {
     }
 }
 
+/// Los avatares que trae el server de fábrica (dibujos propios: `assets/avatars/make.py`).
+const DEFAULTS: &[(&str, &[u8])] = &[
+    ("Smile", include_bytes!("../assets/avatars/01-smile.png")),
+    ("Wink", include_bytes!("../assets/avatars/02-wink.png")),
+    ("Cat", include_bytes!("../assets/avatars/03-cat.png")),
+    ("Robot", include_bytes!("../assets/avatars/04-robot.png")),
+    ("Ghost", include_bytes!("../assets/avatars/05-ghost.png")),
+    ("Alien", include_bytes!("../assets/avatars/06-alien.png")),
+    ("Bear", include_bytes!("../assets/avatars/07-bear.png")),
+    ("Shades", include_bytes!("../assets/avatars/08-shades.png")),
+    ("Sleepy", include_bytes!("../assets/avatars/09-sleepy.png")),
+    ("Monster", include_bytes!("../assets/avatars/10-monster.png")),
+    ("Panda", include_bytes!("../assets/avatars/11-panda.png")),
+    ("Star", include_bytes!("../assets/avatars/12-star.png")),
+];
+
+/// Suma los avatares de fábrica a la galería una sola vez por base (marca `default_avatars` en
+/// `server_meta`): si el admin borra alguno, no vuelve. Se agregan después de los que ya hubiera.
+pub async fn seed_defaults(db: &Db, dir: PathBuf) -> ApiResult<usize> {
+    db.call(move |c| {
+        let done = c.query_row("SELECT 1 FROM server_meta WHERE key = 'default_avatars'", [], |_| Ok(())).optional()?.is_some();
+        if done {
+            return Ok(0);
+        }
+        std::fs::create_dir_all(&dir).map_err(ApiError::internal)?;
+        let tx = c.transaction()?;
+        let now = now_unix();
+        for (name, bytes) in DEFAULTS {
+            let (mime, ext) = sniff(bytes).ok_or_else(|| ApiError::internal("avatar de fábrica inválido"))?;
+            tx.execute("INSERT INTO avatars (name, mime, ext, created_at) VALUES (?1, ?2, ?3, ?4)", params![name, mime, ext, now])?;
+            let id = tx.last_insert_rowid();
+            let tmp = dir.join(format!("{id}.{ext}.tmp"));
+            std::fs::write(&tmp, bytes).map_err(ApiError::internal)?;
+            std::fs::rename(&tmp, dir.join(format!("{id}.{ext}"))).map_err(ApiError::internal)?;
+        }
+        tx.execute("INSERT INTO server_meta (key, value) VALUES ('default_avatars', ?1)", [now.to_string()])?;
+        tx.commit()?;
+        Ok(DEFAULTS.len())
+    })
+    .await
+}
+
 /// Nombre para mostrar: recortado, sin caracteres de control.
 fn clean_name(s: &str) -> String {
     let s: String = s.trim().chars().filter(|c| !c.is_control()).take(60).collect();
@@ -319,6 +361,24 @@ mod tests {
         let status = res.status();
         let ct = res.headers().get(header::CONTENT_TYPE).map(|v| v.to_str().unwrap().to_string());
         (status, axum::body::to_bytes(res.into_body(), 4 << 20).await.unwrap().to_vec(), ct)
+    }
+
+    #[tokio::test]
+    async fn defaults_seeded_once() {
+        let db = Db::open_in_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("mythos-avatars-seed-{}", crate::db::now_ms()));
+        assert_eq!(seed_defaults(&db, dir.clone()).await.unwrap(), DEFAULTS.len());
+        let count = |db: &Db| {
+            let db = db.clone();
+            async move { db.call(|c| Ok(c.query_row("SELECT COUNT(*) FROM avatars", [], |r| r.get::<_, i64>(0))?)).await.unwrap() }
+        };
+        assert_eq!(count(&db).await, DEFAULTS.len() as i64);
+        assert!(dir.join("1.png").exists(), "cada avatar queda como <id>.png");
+        // Si el admin borra uno, no vuelve: la galería se siembra una sola vez.
+        db.call(|c| Ok(c.execute("DELETE FROM avatars WHERE id = 1", [])?)).await.unwrap();
+        assert_eq!(seed_defaults(&db, dir.clone()).await.unwrap(), 0);
+        assert_eq!(count(&db).await, DEFAULTS.len() as i64 - 1);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     async fn login(app: &Router, user: &str, pass: &str) -> String {

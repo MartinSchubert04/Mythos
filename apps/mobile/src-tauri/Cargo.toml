@@ -1,6 +1,6 @@
 [package]
 name = "mythos-mobile"
-version = "0.15.3"
+version = "0.16.0"
 description = "Mythos para Android: el shell de Tauri que abre la interfaz del server"
 edition = "2021"
 
