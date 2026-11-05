@@ -5,6 +5,7 @@
   import { Play, X } from "@lucide/svelte";
   import { api } from "../lib/api";
   import { clock, sized } from "../lib/format";
+  import { t } from "../lib/i18n.svelte";
   import { fit } from "../lib/images";
   import { go, loadView } from "../lib/router.svelte";
   import type { Progress } from "../lib/types";
@@ -14,7 +15,7 @@
     p,
     i = 0,
     onremove,
-    removeLabel = "Remove from Continue watching",
+    removeLabel,
   }: { p: Progress; i?: number; onremove?: (p: Progress) => void; removeLabel?: string } = $props();
 
   // Si el progreso se guardo sin imagenes, se toman del catalogo (queda en cache).
@@ -57,7 +58,7 @@
     {#if onremove}
       <button
         class="rm"
-        title={removeLabel}
+        title={removeLabel ?? t("browse.cw.remove")}
         onclick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -67,7 +68,7 @@
     {/if}
     <div class="info">
       <span class="name ellipsis">{p.name}</span>
-      <span class="sub ellipsis">{p.episode_label ? `${p.episode_label} · ` : ""}{done ? "Watched" : `${clock(left)} left`}</span>
+      <span class="sub ellipsis">{p.episode_label ? `${p.episode_label} · ` : ""}{done ? t("browse.cw.watched") : t("browse.cw.left", { time: clock(left) })}</span>
       <div class="progress"><div class="progress-fill" style="width: {pct}%"></div></div>
     </div>
   </div>

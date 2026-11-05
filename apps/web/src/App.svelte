@@ -8,6 +8,7 @@
   import Logo from "./components/Logo.svelte";
   import Titlebar from "./components/Titlebar.svelte";
   import { confirmState } from "./lib/confirm.svelte";
+  import { t, type Key } from "./lib/i18n.svelte";
   import { flipMs, ms, rise, toastIn } from "./lib/motion";
   import { check, net } from "./lib/net.svelte";
   import { isAndroid, isDesktop, pickServer } from "./lib/platform";
@@ -26,13 +27,14 @@
   // Mientras se revisa la sesion ya se baja el codigo de la vista que toca.
   loadView(route.view).catch(() => {});
 
-  const nav: { id: ViewName; path: string; label: string; icon: typeof House; admin?: boolean }[] = [
-    { id: "home", path: "/", label: "Home", icon: House },
-    { id: "search", path: "/search", label: "Search", icon: Search },
-    { id: "top", path: "/top", label: "Top rated", icon: Trophy },
-    { id: "library", path: "/library", label: "Library", icon: Library },
-    { id: "settings", path: "/settings", label: "Settings", icon: Settings },
-    { id: "admin", path: "/admin", label: "Admin", icon: ShieldCheck, admin: true },
+  // `label` es la clave del texto (se traduce al pintar, sigue al idioma).
+  const nav: { id: ViewName; path: string; label: Key; icon: typeof House; admin?: boolean }[] = [
+    { id: "home", path: "/", label: "nav.home", icon: House },
+    { id: "search", path: "/search", label: "nav.search", icon: Search },
+    { id: "top", path: "/top", label: "nav.top", icon: Trophy },
+    { id: "library", path: "/library", label: "nav.library", icon: Library },
+    { id: "settings", path: "/settings", label: "nav.settings", icon: Settings },
+    { id: "admin", path: "/admin", label: "nav.admin", icon: ShieldCheck, admin: true },
   ];
   const items = $derived(nav.filter((n) => !n.admin || session.user?.is_admin));
 
@@ -121,13 +123,13 @@
     {#if isDesktop}<Titlebar bare />{/if}
     <div class="body offline" in:fade={{ duration: ms(200) }}>
       <WifiOff size={36} />
-      <h2>Can't reach the server</h2>
-      <p class="muted">Mythos keeps trying by itself. Check that the server is running and that this device can reach it.</p>
+      <h2>{t("common.unreachable")}</h2>
+      <p class="muted">{t("browse.offline.body")}</p>
       <button class="btn primary" disabled={net.checking} onclick={() => (check(), start())}>
         {#if net.checking}<LoaderCircle size={15} class="spin" />{:else}<RefreshCw size={15} />{/if}
-        Retry now
+        {t("browse.offline.retryNow")}
       </button>
-      {#if pickServer}<button class="btn ghost" onclick={changeServer}>Change server</button>{/if}
+      {#if pickServer}<button class="btn ghost" onclick={changeServer}>{t("browse.offline.changeServer")}</button>{/if}
     </div>
   {:else if !session.user || (tv.on && profiles.adding)}
     {#if isDesktop}<Titlebar bare />{/if}
@@ -145,7 +147,7 @@
     <div class="body shell" class:collapsed={prefs.sidebarCollapsed && !tv.on} class:tv={tv.on}>
       <aside class="sidebar">
         {#if !isDesktop}
-          <button class="brand" onclick={() => go("/")} aria-label="Home">
+          <button class="brand" onclick={() => go("/")} aria-label={t("nav.home")}>
             <Logo size={26} />
             <span class="label word">Mythos</span>
           </button>
@@ -156,7 +158,7 @@
               class="nav"
               class:on={route.view === n.id || (n.id === "home" && route.view === "detail")}
               href="#{n.path}"
-              title={n.label}
+              title={t(n.label)}
               onclick={(e) => {
                 e.preventDefault();
                 go(n.path);
@@ -164,14 +166,14 @@
               onpointerenter={() => loadView(n.id).catch(() => {})}
             >
               <n.icon size={18} />
-              <span class="label">{n.label}</span>
+              <span class="label">{t(n.label)}</span>
             </a>
           {/each}
         </nav>
         <div class="grow"></div>
         {#if tv.on}
           <!-- TV: el perfil; al apretarlo, "Who's watching?". -->
-          <button class="nav me-btn" onclick={() => (profiles.picking = true)} title="Switch profile">
+          <button class="nav me-btn" onclick={() => (profiles.picking = true)} title={t("browse.nav.switchProfile")}>
             <Avatar name={session.user.username} id={session.user.avatar_id} size={26} />
             <span class="label ellipsis">{session.user.username}</span>
           </button>
@@ -181,9 +183,9 @@
             <span class="ellipsis">{session.user.username}</span>
           </div>
         {/if}
-        <button class="nav collapse" onclick={toggleSidebar} title={prefs.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+        <button class="nav collapse" onclick={toggleSidebar} title={prefs.sidebarCollapsed ? t("browse.nav.expandSidebar") : t("browse.nav.collapseSidebar")}>
           {#if prefs.sidebarCollapsed}<PanelLeftOpen size={18} />{:else}<PanelLeftClose size={18} />{/if}
-          <span class="label">Collapse</span>
+          <span class="label">{t("browse.nav.collapse")}</span>
         </button>
       </aside>
 
@@ -221,9 +223,9 @@
 {#if net.down && session.user}
   <div class="netbar" role="status" transition:fade={{ duration: ms(160) }}>
     <WifiOff size={14} />
-    <span>Can't reach the server. Retrying…</span>
+    <span>{t("browse.offline.bar")}</span>
     <button class="btn sm" disabled={net.checking} onclick={check}>
-      {#if net.checking}<LoaderCircle size={13} class="spin" />{/if}Retry
+      {#if net.checking}<LoaderCircle size={13} class="spin" />{/if}{t("common.retry")}
     </button>
   </div>
 {/if}

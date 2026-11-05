@@ -1,47 +1,66 @@
 // Atajos de teclado: la lista de Settings → Keyboard shortcuts y la del "?" en el reproductor.
 // Cada fila es [teclas, que hace]; varias teclas para lo mismo van separadas por "  ·  ".
+// Los textos siguen el idioma de la interfaz: cada fila tiene getters (se traducen al leerlas,
+// no al cargar el modulo), asi las listas son fijas y `[k, what]` se sigue desarmando igual.
+import { t, type Key } from "./i18n.svelte";
 
 export type Shortcut = [keys: string, what: string];
 
+/** Fila con los dos textos calculados al leerlos. */
+function row(keys: () => string, what: () => string): Shortcut {
+  const r: string[] = [];
+  Object.defineProperty(r, 0, { get: keys, enumerable: true });
+  Object.defineProperty(r, 1, { get: what, enumerable: true });
+  return r as unknown as Shortcut;
+}
+
+/** Teclas fijas (con "Space" traducido) y que hace (una clave). */
+const key = (keys: string, what: Key) => row(() => keys.replace("Space", t("player.key.space")), () => t(what));
+/** Gesto (las dos cosas son texto). */
+const gesture = (keys: Key, what: Key) => row(() => t(keys), () => t(what));
+
 export const GENERAL_KEYS: Shortcut[] = [
-  ["/  ·  Ctrl K", "Search"],
-  ["← → ↑ ↓", "Move between posters in a row and between rows"],
-  ["Esc", "Close a panel or menu · in the player: leave full screen, then go back"],
+  key("/  ·  Ctrl K", "player.sc.search"),
+  key("← → ↑ ↓", "player.sc.moveGrid"),
+  key("Esc", "player.sc.esc"),
 ];
 
 export const PLAYER_KEYS: Shortcut[] = [
-  ["Space  ·  K", "Play or pause"],
-  ["Hold Space", "Play at 2× while held"],
-  ["F", "Full screen"],
-  ["M", "Mute"],
-  ["← →", "Back or forward 5 seconds"],
-  ["J  ·  L", "Back or forward 10 seconds"],
-  ["↑ ↓", "Volume"],
-  ["[  ·  ]", "Slower or faster"],
-  ["V", "Video scale: Fit, Fill (stretched), Crop (zoomed, no bars)"],
-  ["C", "Subtitles on or off"],
-  ["G  ·  H", "This subtitle 0.5 s earlier or later (Shift: 0.1 s; remembered per subtitle)"],
-  ["-  ·  =", "Subtitles smaller or larger"],
-  ["N", "Next episode"],
-  ["E", "Episodes and seasons (series)"],
-  ["D", "Playback stats"],
-  ["?", "Show these shortcuts"],
-  ["Enter", "Resume (when the player asks)"],
+  key("Space  ·  K", "player.sc.playPause"),
+  row(() => t("player.key.holdSpace"), () => t("player.sc.hold2x")),
+  key("F", "player.sc.fullscreen"),
+  key("M", "player.sc.mute"),
+  key("← →", "player.sc.seek5"),
+  key("J  ·  L", "player.sc.seek10"),
+  key("↑ ↓", "player.sc.volume"),
+  key("[  ·  ]", "player.sc.speed"),
+  key("V", "player.sc.scale"),
+  key("C", "player.sc.subs"),
+  key("G  ·  H", "player.sc.subDelay"),
+  key("-  ·  =", "player.sc.subSize"),
+  key("N", "player.sc.next"),
+  key("E", "player.sc.episodes"),
+  key("D", "player.sc.stats"),
+  key("?", "player.sc.help"),
+  key("Enter", "player.sc.resume"),
 ];
 
 /** Gestos del reproductor en pantallas tactiles. */
 export const PLAYER_TOUCH: Shortcut[] = [
-  ["Tap", "Show or hide the controls"],
-  ["Double tap a side", "Back or forward 10 seconds (keep tapping for more)"],
-  ["Touch and hold", "Play at 2× while held"],
-  ["Pinch", "Out: crop to fill the screen · in: fit"],
-  ["Swipe up or down on the right", "Volume"],
+  gesture("player.touch.tap", "player.touch.tapWhat"),
+  gesture("player.touch.doubleTap", "player.touch.doubleTapWhat"),
+  gesture("player.touch.hold", "player.sc.hold2x"),
+  gesture("player.touch.pinch", "player.touch.pinchWhat"),
+  gesture("player.touch.swipe", "player.sc.volume"),
 ];
 
 /** Para Settings: todo junto; las flechas del reproductor aclaran donde (en la grilla son otra cosa). */
 export const ALL_KEYS: Shortcut[] = [
   ...GENERAL_KEYS,
-  ...PLAYER_KEYS.map(([k, what]): Shortcut => [k, k === "← →" || k === "↑ ↓" || k === "?" ? `${what} (in the player)` : what]),
+  ...PLAYER_KEYS.map((r): Shortcut => {
+    const k = r[0];
+    return k === "← →" || k === "↑ ↓" || k === "?" ? row(() => r[0], () => t("player.sc.inPlayer", { what: r[1] })) : r;
+  }),
 ];
 
 /** "Space  ·  K" → ["Space", "K"]. */

@@ -55,6 +55,8 @@
   import { fit } from "../lib/images";
   import { bytes, clock, epCode, sized, speed } from "../lib/format";
   import { fadeQuick, pop, rise, step } from "../lib/motion";
+  import { date as fmtDate, num, t as tr } from "../lib/i18n.svelte";
+  import { serverText } from "../lib/i18n/server";
   import { isDesktop, isFullscreen, setFullscreen } from "../lib/platform";
   import { langName, nativeLangName, normLang, prefs, savePrefs } from "../lib/prefs.svelte";
   import { back, go, setQuery } from "../lib/router.svelte";
@@ -195,14 +197,14 @@
   const loadText = $derived.by(() => {
     if (askResume) return "";
     if (!info) {
-      if (!stream) return "Finding streams…";
-      return status?.state === "metadata" || !status ? "Connecting to peers…" : "Opening the file…";
+      if (!stream) return tr("player.load.findingStreams");
+      return status?.state === "metadata" || !status ? tr("player.load.connecting") : tr("player.load.opening");
     }
-    if (status?.state === "error") return status.error ?? "The server couldn't read this file";
-    if (status?.state === "metadata") return "Connecting to peers…";
-    if (status?.state === "probing") return "Reading the file…";
+    if (status?.state === "error") return status.error ? serverText(status.error) : tr("player.load.serverCantRead");
+    if (status?.state === "metadata") return tr("player.load.connecting");
+    if (status?.state === "probing") return tr("player.load.reading");
     const p = ringPct();
-    return p !== null ? `Buffering ${Math.round(p)}%…` : started ? "Buffering…" : "Starting…";
+    return p !== null ? tr("player.load.bufferingPct", { n: Math.round(p) }) : started ? tr("player.load.buffering") : tr("player.load.starting");
   });
 
   // ---- inicio
@@ -265,13 +267,13 @@
       // Con un idioma de audio preferido, los streams en ese idioma primero (lib/streamlang.ts).
       list = sortByLang(await api.streams(type, id), prefs.audioLang);
     } catch (e) {
-      fatal = `Couldn't get streams: ${errText(e)}`;
+      fatal = tr("player.err.streams", { e: errText(e) });
       return;
     }
     if (destroyed) return;
     streams = list;
     if (!list.length) {
-      fatal = "No streams found for this title. It may be too new, or the size and quality limits in Settings leave nothing out. Try again in a while.";
+      fatal = tr("player.err.noStreams");
       return;
     }
     const prog = await progP;
@@ -355,7 +357,7 @@
       const alt = nextPlayable(s);
       if (alt) {
         api.closeSession(next.session_id);
-        toast("This file can't play on this device. Trying another stream…");
+        toast(tr("player.toast.tryingAnother"));
         setQuery({ s: alt.key });
         return open(alt, at, newCaps);
       }
@@ -499,7 +501,7 @@
       attach(t);
     } else {
       stuck = "error";
-      stuckMsg = "The stream stopped responding.";
+      stuckMsg = tr("player.err.stopped");
     }
   }
 
@@ -530,11 +532,11 @@
       if (attempts.net++ < 4) setTimeout(() => attach(t), 1000 * attempts.net);
       else {
         stuck = "error";
-        stuckMsg = "The stream stopped responding.";
+        stuckMsg = tr("player.err.stopped");
       }
     } else if (!direct || !fallback("any")) {
       stuck = "error";
-      stuckMsg = err.message || "This file can't be played.";
+      stuckMsg = err.message || tr("player.err.cantPlay");
     }
   }
 
@@ -546,22 +548,22 @@
     if (info.transcode_available === false) {
       const alt = nextPlayable(stream);
       if (alt) {
-        toast("This file can't play on this device. Trying another stream…");
+        toast(tr("player.toast.tryingAnother"));
         switchTo(alt);
         return true;
       }
       stuck = "codec";
-      stuckMsg = "This device can't play this file without your server. Another stream will probably work.";
+      stuckMsg = tr("player.err.needServer");
       return false;
     }
     const less = degrade(caps, info, what);
     if (!less || attempts.fallback >= 3) {
       stuck = "codec";
-      stuckMsg = "Neither this device nor the server could play this file. Another stream will probably work.";
+      stuckMsg = tr("player.err.neither");
       return false;
     }
     attempts.fallback++;
-    toast("Switching to compatible playback…");
+    toast(tr("player.toast.compat"));
     open(stream, t, less);
     return true;
   }
@@ -620,14 +622,14 @@
     // volvio) y el video se trabo: se sigue en el activo, desde el mismo lugar.
     if (info && stream && started && (waiting || stuck === "error") && !fatal && movedAway(info.session_id) && Date.now() - waitSince > 3000) {
       stuck = "";
-      toast("Reconnecting playback…");
+      toast(tr("player.toast.reconnecting"));
       open(stream, t);
       return;
     }
     if (stuck || fatal || askResume || !stream) return;
     if (status?.state === "error") {
       stuck = "error";
-      stuckMsg = status.error ?? "The server couldn't read this file.";
+      stuckMsg = status.error ? serverText(status.error) : tr("player.err.serverCantRead");
       return;
     }
     const now = Date.now();
@@ -670,7 +672,7 @@
     stallFixes = stallFixes.filter((x) => now - x < 120_000);
     if (stallFixes.length >= MAX_STALL_FIXES) {
       stuck = "error";
-      stuckMsg = "Playback keeps stalling even though the video is downloaded.";
+      stuckMsg = tr("player.err.stalling");
       return;
     }
     stallFixes.push(now);
@@ -867,7 +869,7 @@
     const i = SPEEDS.indexOf(rate);
     const n = i >= 0 ? SPEEDS[i + d] : d > 0 ? SPEEDS.find((v) => v > rate) : [...SPEEDS].reverse().find((v) => v < rate);
     if (n !== undefined) rate = n;
-    bump("speed", rate === 1 ? "Normal speed" : `${rate}×`);
+    bump("speed", rate === 1 ? tr("player.flash.normalSpeed") : `${rate}×`);
   }
 
   let holding = $state(false);
@@ -918,7 +920,7 @@
 
   type Scale = "fit" | "fill" | "crop";
   const SCALES: Scale[] = ["fit", "fill", "crop"];
-  const SCALE_LABEL: Record<Scale, string> = { fit: "Fit", fill: "Fill", crop: "Crop" };
+  const SCALE_LABEL: Record<Scale, string> = { get fit() { return tr("player.scale.fit"); }, get fill() { return tr("player.scale.fill"); }, get crop() { return tr("player.scale.crop"); } };
   const SCALE_CSS: Record<Scale, string> = { fit: "contain", fill: "fill", crop: "cover" };
   const SCALE_KEY = "mythos.scale";
   let scale = $state<Scale>(readScale());
@@ -1205,7 +1207,7 @@
     prefs.muted = !prefs.muted;
     if (!prefs.muted && prefs.volume === 0) prefs.volume = 0.6;
     savePrefs(false);
-    bump("vol", prefs.muted ? "Muted" : `${Math.round(prefs.volume * 100)}%`);
+    bump("vol", prefs.muted ? tr("player.flash.muted") : `${Math.round(prefs.volume * 100)}%`);
   }
   $effect(() => {
     if (!video) return;
@@ -1273,7 +1275,7 @@
   /** Nombre del grupo: el idioma en ese idioma ("Español (Latinoamérica)"); sin idioma, "Unknown". */
   function groupName(code?: string | null): string {
     const c = (code ?? "").toLowerCase();
-    return !c || c === "und" ? "Unknown" : nativeLangName(c);
+    return !c || c === "und" ? tr("lang.unknown") : nativeLangName(c);
   }
 
   // El idioma de Settings se pone solo: primero las internas, despues las de OpenSubtitles en
@@ -1335,7 +1337,7 @@
         subSel = "";
         subLoading = "";
         // Elegidos a mano: se avisa. Los automaticos fallan en silencio y se prueba el siguiente.
-        if (manual) toast("Couldn't load those subtitles", true);
+        if (manual) toast(tr("player.toast.subsFailed"), true);
         else {
           autoFailed.add(sid);
           subAuto = false;
@@ -1392,11 +1394,11 @@
     if (v) delays[k] = v;
     saveDelays(delays);
     renderSub();
-    if (show) bump("subs", `Delay ${fmtDelay(v)}`);
+    if (show) bump("subs", tr("player.flash.delay", { d: fmtDelay(v) }));
   }
   function shiftSubs(d: number, show = false) {
     if (!subSel) {
-      if (show) bump("subs", "Subtitles are off");
+      if (show) bump("subs", tr("player.flash.subsAreOff"));
       return;
     }
     setSubDelay(subDelay + d, show);
@@ -1406,10 +1408,10 @@
 
   const SIZE_STEPS = [75, 90, 100, 125, 150, 175, 200];
   const BG_STEPS = [
-    { value: 0, label: "None" },
-    { value: 35, label: "Light" },
-    { value: 65, label: "Dark" },
-    { value: 90, label: "Solid" },
+    { value: 0, get label() { return tr("player.bg.none"); } },
+    { value: 35, get label() { return tr("player.bg.light"); } },
+    { value: 65, get label() { return tr("player.bg.dark"); } },
+    { value: 90, get label() { return tr("player.bg.solid"); } },
   ];
   const POS_MIN = 2;
   const POS_MAX = 40;
@@ -1423,7 +1425,7 @@
       savePrefs();
     }
     peekStyle();
-    if (show) bump("subs", `Subtitles ${prefs.subSize}%`);
+    if (show) bump("subs", tr("player.flash.subsSize", { n: prefs.subSize }));
   }
   function setBg(v: number) {
     prefs.subBg = v;
@@ -1461,7 +1463,7 @@
       .sort((a, b) => rank(a.list) - rank(b.list) || a.name.localeCompare(b.name));
   });
   const activeGroup = $derived(subs.find((x) => x.id === subSel)?.group ?? "");
-  const subName = (s: Sub) => s.label || (s.ext ? `Version ${s.version}` : `Track ${s.version}`);
+  const subName = (s: Sub) => s.label || (s.ext ? tr("player.sub.version", { n: s.version }) : tr("player.sub.track", { n: s.version }));
 
   let subView = $state(""); // "" = lista de idiomas; si no, el idioma abierto
   let subDir = $state(1);
@@ -1552,7 +1554,7 @@
     if (subSel) {
       lastSub = subSel;
       pickSub("", false);
-      bump("subs", "Subtitles off");
+      bump("subs", tr("player.flash.subsOff"));
     } else {
       const s = subs.find((x) => x.id === lastSub) ?? subs.find((x) => x.lang === prefs.subLang) ?? subs[0];
       if (s) {
@@ -1961,11 +1963,11 @@
   /** El aviso de subtitulos de abajo (vacio = nada que avisar). */
   const subNote = $derived(
     subLoading
-      ? "Loading subtitles…"
+      ? tr("player.sub.loading")
       : subPartial
-        ? "Subtitles still loading"
+        ? tr("player.sub.stillLoading")
         : subListLoading && !!prefs.subLang && !subSel
-          ? "Finding subtitles…"
+          ? tr("player.sub.finding")
           : "",
   );
   const VolIcon = $derived(prefs.muted || prefs.volume === 0 ? VolumeX : prefs.volume < 0.5 ? Volume1 : Volume2);
@@ -1986,7 +1988,7 @@
   onpointermove={activity}
   onpointerdown={activity}
   role="application"
-  aria-label="Video player"
+  aria-label={tr("player.aria")}
 >
   <!-- svelte-ignore a11y_media_has_caption -->
   <video
@@ -2034,7 +2036,7 @@
         <!-- El VTT viene escapado por lib/vtt.ts (solo quedan <i>, <b>, <u> y <br>). -->
         <span class="subs-line">{@html subHtml}</span>
       {:else}
-        <span class="subs-line sample">This is how subtitles will look.</span>
+        <span class="subs-line sample">{tr("player.sample")}</span>
       {/if}
     </div>
   {/if}
@@ -2086,24 +2088,24 @@
   {#if showStats && info}
     <div class="stats" transition:fadeQuick>
       <div class="st-head">
-        <span>Playback stats</span>
-        <button class="st-x" onclick={() => (showStats = false)} title="Close (D)" aria-label="Close stats"><X size={14} /></button>
+        <span>{tr("player.stats.title")}</span>
+        <button class="st-x" onclick={() => (showStats = false)} title={tr("player.stats.closeTip")} aria-label={tr("player.stats.closeAria")}><X size={14} /></button>
       </div>
       <dl>
-        <dt>Mode</dt><dd>{info.mode}{info.mode === "direct" && viaHls ? " · HLS (audio track)" : ""}</dd>
-        <dt>Video</dt>
+        <dt>{tr("player.stats.mode")}</dt><dd>{info.mode}{info.mode === "direct" && viaHls ? ` · ${tr("player.stats.hlsAudio")}` : ""}</dd>
+        <dt>{tr("player.stats.video")}</dt>
         <dd>
           {[info.video_codec?.toUpperCase(), info.width && info.height ? `${info.width}×${info.height}` : "", info.hdr ? "HDR" : ""].filter(Boolean).join(" · ") || "—"}
           {#if shownRes && info.width && shownRes !== `${info.width}×${info.height}`}<span class="dim"> → {shownRes}</span>{/if}
         </dd>
-        <dt>Audio</dt><dd>{curAudio ? `${curAudio.codec.toUpperCase()} · ${curAudio.title || langName(curAudio.lang)}` : "—"}</dd>
-        {#if info.container}<dt>Container</dt><dd>{info.container}</dd>{/if}
-        <dt>Peers</dt><dd>{stats?.peers ?? "—"}</dd>
-        <dt>Download</dt><dd>{stats ? `${speed(stats.down_bps)} · up ${speed(stats.up_bps)}` : "—"}</dd>
-        <dt>File</dt><dd>{stats && stats.total_bytes ? `${Math.round(stats.progress * 100)}% of ${bytes(stats.total_bytes)}` : bytes(info.size_bytes)}</dd>
-        <dt>Buffered</dt><dd>{aheadS.toFixed(0)} s ahead{stats?.buffered_ahead_s ? ` · server ${Math.round(stats.buffered_ahead_s)} s` : ""}</dd>
-        {#if frames}<dt>Dropped</dt><dd>{frames.dropped} of {frames.total} frames</dd>{/if}
-        <dt>Speed</dt><dd>{rate}× · {SCALE_LABEL[scale]}</dd>
+        <dt>{tr("player.stats.audio")}</dt><dd>{curAudio ? `${curAudio.codec.toUpperCase()} · ${curAudio.title || langName(curAudio.lang)}` : "—"}</dd>
+        {#if info.container}<dt>{tr("player.stats.container")}</dt><dd>{info.container}</dd>{/if}
+        <dt>{tr("player.stats.peers")}</dt><dd>{stats?.peers ?? "—"}</dd>
+        <dt>{tr("player.stats.download")}</dt><dd>{stats ? `${speed(stats.down_bps)} · ${tr("player.stats.up", { s: speed(stats.up_bps) })}` : "—"}</dd>
+        <dt>{tr("player.stats.file")}</dt><dd>{stats && stats.total_bytes ? tr("player.stats.fileOf", { p: Math.round(stats.progress * 100), size: bytes(stats.total_bytes) }) : bytes(info.size_bytes)}</dd>
+        <dt>{tr("player.stats.buffered")}</dt><dd>{tr("player.stats.ahead", { n: aheadS.toFixed(0) })}{stats?.buffered_ahead_s ? ` · ${tr("player.stats.serverAhead", { n: Math.round(stats.buffered_ahead_s) })}` : ""}</dd>
+        {#if frames}<dt>{tr("player.stats.dropped")}</dt><dd>{tr("player.stats.frames", { d: frames.dropped, total: frames.total })}</dd>{/if}
+        <dt>{tr("player.stats.speed")}</dt><dd>{rate}× · {SCALE_LABEL[scale]}</dd>
       </dl>
     </div>
   {/if}
@@ -2131,13 +2133,13 @@
         <div class="dc-actions">
           <!-- svelte-ignore a11y_autofocus -->
           <button class="btn primary lg" autofocus onclick={() => resume(askResume!.position_s)}>
-            <Play size={16} fill="currentColor" />Resume from {clock(askResume.position_s)}
+            <Play size={16} fill="currentColor" />{tr("player.resumeFrom", { time: clock(askResume.position_s) })}
           </button>
-          <button class="btn glass lg" onclick={() => resume(0)}><RotateCcw size={16} />Start over</button>
+          <button class="btn glass lg" onclick={() => resume(0)}><RotateCcw size={16} />{tr("player.startOver")}</button>
         </div>
         <!-- Mientras tanto el server ya va bajando: se dice como viene, sin "Buffering". -->
         <div class="prep">
-          {#if !info}Connecting to peers…{:else if status?.state === "ready"}Ready{:else}Preparing…{/if}
+          {#if !info}{tr("player.load.connecting")}{:else if status?.state === "ready"}{tr("player.load.ready")}{:else}{tr("player.load.preparing")}{/if}
         </div>
       </div>
     {/if}
@@ -2145,7 +2147,7 @@
 
   <!-- Barra de arriba: volver, titulo y (desktop) los controles de la ventana. -->
   <div class="topbar" data-tauri-drag-region>
-    <button class="pbtn" onclick={exit} title="Back (Esc)"><ArrowLeft size={22} /></button>
+    <button class="pbtn" onclick={exit} title={tr("player.backEsc")}><ArrowLeft size={22} /></button>
     <div class="ttl" data-tauri-drag-region>
       <span class="ellipsis name">{meta?.name ?? ""}</span>
       {#if epLabel}<span class="ellipsis ep">{epLabel}</span>{/if}
@@ -2153,18 +2155,18 @@
     <div class="grow" data-tauri-drag-region></div>
     <!-- Mientras carga no estan los controles de abajo: otro stream se elige desde aca. -->
     {#if !started && !fatal && streams.length > 1}
-      <button class="load-streams" onclick={() => (menu = menu === "streams" ? "" : "streams")} title="Choose another stream" aria-expanded={menu === "streams"}>
-        <ListVideo size={16} /><span class="lbl">Streams</span>
+      <button class="load-streams" onclick={() => (menu = menu === "streams" ? "" : "streams")} title={tr("player.chooseAnother")} aria-expanded={menu === "streams"}>
+        <ListVideo size={16} /><span class="lbl">{tr("player.streams")}</span>
       </button>
     {/if}
     <!-- Serie: los episodios y temporadas en un panel a la derecha, sin salir del reproductor. -->
     {#if ep}
-      <button class="load-streams" data-menu="eps" onclick={toggleEps} title="Episodes (E)" aria-expanded={menu === "eps"}>
-        <Rows3 size={16} /><span class="lbl">Episodes</span>
+      <button class="load-streams" data-menu="eps" onclick={toggleEps} title={tr("player.episodesE")} aria-expanded={menu === "eps"}>
+        <Rows3 size={16} /><span class="lbl">{tr("player.episodes")}</span>
       </button>
     {/if}
     {#if stream}
-      <span class="badge" title={stream.title}>{stream.quality}{info?.hdr ? " · HDR" : ""}{stream.cached ? " · Instant" : ""}</span>
+      <span class="badge" title={stream.title}>{stream.quality}{info?.hdr ? " · HDR" : ""}{stream.cached ? ` · ${tr("player.instant")}` : ""}</span>
     {/if}
     {#if isDesktop}<WindowControls onmedia />{/if}
   </div>
@@ -2173,25 +2175,25 @@
     <div class="bottom" class:open={!!menu}>
       <SeekBar time={seekTarget ?? t} {duration} {buffered} {downloaded} onseek={seek} ondrag={(d) => (dragging = d)} />
       <div class="ctrls">
-        <button class="pbtn big" onclick={toggle} title={paused ? "Play (K)" : "Pause (K)"}>
+        <button class="pbtn big" onclick={toggle} title={paused ? tr("player.playK") : tr("player.pauseK")}>
           {#if paused}<Play size={26} fill="currentColor" />{:else}<Pause size={26} fill="currentColor" />{/if}
         </button>
-        <button class="pbtn narrow-hide" onclick={() => skip(-10)} title="Back 10 s (J)"><RotateCcw size={21} /></button>
-        <button class="pbtn narrow-hide" onclick={() => skip(10)} title="Forward 10 s (L)"><RotateCw size={21} /></button>
+        <button class="pbtn narrow-hide" onclick={() => skip(-10)} title={tr("player.back10")}><RotateCcw size={21} /></button>
+        <button class="pbtn narrow-hide" onclick={() => skip(10)} title={tr("player.fwd10")}><RotateCw size={21} /></button>
         <!-- La rueda del mouse sobre el parlante o la barra tambien cambia el volumen. En TV no
              va: el volumen es el de la tele (y la barra se quedaba con las flechas). -->
         {#if !tv.on}
         <div class="vol" onwheel={volWheel}>
-          <button class="pbtn" onclick={volButton} title="Mute (M)" aria-expanded={menu === "vol"}><VolIcon size={22} /></button>
+          <button class="pbtn" onclick={volButton} title={tr("player.muteM")} aria-expanded={menu === "vol"}><VolIcon size={22} /></button>
           {#if menu === "vol"}
-            <div class="vol-menu" transition:pop={{ start: 0.94 }} role="dialog" aria-label="Volume">
+            <div class="vol-menu" transition:pop={{ start: 0.94 }} role="dialog" aria-label={tr("player.volume")}>
               <span class="vm-n">{volPct}%</span>
               <div
                 class="vm-track"
                 bind:this={vTrack}
                 role="slider"
                 tabindex="0"
-                aria-label="Volume"
+                aria-label={tr("player.volume")}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={volPct}
@@ -2201,7 +2203,7 @@
               >
                 <div class="vm-fill" style="height: {volPct}%"></div>
               </div>
-              <button class="vm-mute" class:on={prefs.muted} onclick={toggleMute} aria-label={prefs.muted ? "Unmute" : "Mute"}>
+              <button class="vm-mute" class:on={prefs.muted} onclick={toggleMute} aria-label={prefs.muted ? tr("player.unmute") : tr("player.mute")}>
                 <VolIcon size={20} />
               </button>
             </div>
@@ -2215,7 +2217,7 @@
                 step="0.01"
                 value={prefs.muted ? 0 : prefs.volume}
                 oninput={(e) => setVolume(Number(e.currentTarget.value))}
-                aria-label="Volume"
+                aria-label={tr("player.volume")}
                 aria-valuetext="{volPct}%"
                 style="--v: {volPct}%"
               />
@@ -2227,12 +2229,12 @@
         <span class="time" class:noted={!!subNote}>{clock(t)} <span class="dim">/ {clock(duration)}</span></span>
         <div class="grow"></div>
         {#if subNote}
-          <span class="sub-note" role="status" title={subPartial ? "The server is still extracting them from the file: they cover up to what's downloaded and fill in as it downloads" : subNote} transition:fadeQuick>
-            <LoaderCircle size={14} class="spin" /><span class="sn-text">{subNote}</span><span class="sn-short">Subs</span>
+          <span class="sub-note" role="status" title={subPartial ? tr("player.sub.partialTip") : subNote} transition:fadeQuick>
+            <LoaderCircle size={14} class="spin" /><span class="sn-text">{subNote}</span><span class="sn-short">{tr("player.sub.short")}</span>
           </span>
         {/if}
         {#if nextEp}
-          <button class="pbtn" onclick={playNext} title="Next episode (N)"><SkipForward size={21} /></button>
+          <button class="pbtn" onclick={playNext} title={tr("player.nextN")}><SkipForward size={21} /></button>
         {/if}
         <div class="menu-anchor subs-anchor">
           <button
@@ -2240,7 +2242,7 @@
             class:on={!!subSel}
             data-menu="subs"
             onclick={toggleSubsMenu}
-            title="Subtitles (C)"
+            title={tr("player.subsC")}
             aria-haspopup="true"
             aria-expanded={menu === "subs"}
             disabled={!subs.length}
@@ -2250,21 +2252,21 @@
           {#if menu === "subs"}
             <!-- Como Stremio: idioma → opciones de ese idioma, con el retraso de la elegida y el
                  aspecto. Un paso a la vez (entra de costado), asi entra igual en un celular. -->
-            <div class="pmenu subs-menu" bind:this={subPanel} transition:pop={{ start: 0.94 }} role="dialog" aria-label="Subtitles">
+            <div class="pmenu subs-menu" bind:this={subPanel} transition:pop={{ start: 0.94 }} role="dialog" aria-label={tr("player.subtitles")}>
               {#key subView}
                 <div class="sv" in:step={{ dir: subDir }}>
                   {#if !viewGroup}
-                    <div class="mh">Subtitles</div>
+                    <div class="mh">{tr("player.subtitles")}</div>
                     <div class="sv-body">
                       <button class="mi" class:sel={!subSel} aria-current={!subSel} onclick={subsOff}>
-                        <span class="ck">{#if !subSel}<Check size={14} />{/if}</span>Off
+                        <span class="ck">{#if !subSel}<Check size={14} />{/if}</span>{tr("player.off")}
                       </button>
                       {#each subGroups as g (g.name)}
                         {@const on = g.name === activeGroup}
                         <button class="mi" class:sel={on} aria-current={on} data-group={g.name} onclick={() => openGroup(g)}>
                           <span class="ck">{#if on}<Check size={14} />{/if}</span>
                           <span class="ellipsis">{g.name}</span>
-                          {#if g.list.some((x) => !x.ext)}<span class="tag">Embedded</span>{/if}
+                          {#if g.list.some((x) => !x.ext)}<span class="tag">{tr("player.embedded")}</span>{/if}
                           <span class="count" class:solo={!g.list.some((x) => !x.ext)}>{g.list.length}</span>
                           <span class="chev"><ChevronRight size={15} /></span>
                         </button>
@@ -2272,9 +2274,9 @@
                     </div>
                   {:else}
                     <div class="sv-head">
-                      <button class="back" onclick={backToLangs} title="Languages" aria-label="Back to languages"><ChevronLeft size={18} /></button>
+                      <button class="back" onclick={backToLangs} title={tr("player.languages")} aria-label={tr("player.backToLangs")}><ChevronLeft size={18} /></button>
                       <span class="ellipsis">{viewGroup.name}</span>
-                      <span class="faint">{viewGroup.list.length} {viewGroup.list.length === 1 ? "option" : "options"}</span>
+                      <span class="faint">{tr("player.options", { n: viewGroup.list.length })}</span>
                     </div>
                     <div class="sv-body">
                       {#each viewGroup.list as s (s.id)}
@@ -2282,37 +2284,37 @@
                         <button class="mi" class:sel={subSel === s.id} aria-current={subSel === s.id} onclick={() => pickSub(s.id)}>
                           <span class="ck">{#if subSel === s.id}<Check size={14} />{/if}</span>
                           <span class="ellipsis">{subName(s)}</span>
-                          {#if d}<span class="tag accent" title="Remembered delay">{fmtDelay(d)}</span>{/if}
-                          <span class="tag">{s.ext ? "OpenSubtitles" : "Embedded"}</span>
+                          {#if d}<span class="tag accent" title={tr("player.rememberedDelay")}>{fmtDelay(d)}</span>{/if}
+                          <span class="tag">{s.ext ? "OpenSubtitles" : tr("player.embedded")}</span>
                         </button>
                       {/each}
                     </div>
                     <div class="sv-foot">
                       {#if viewGroup.list.some((x) => x.id === subSel)}
-                        <div class="row" role="group" aria-label="Delay">
-                          <span class="rl">Delay</span>
-                          <button class="sbtn" onclick={() => shiftSubs(-0.5)} title="0.5 s earlier (G)" aria-label="0.5 seconds earlier">−0.5</button>
-                          <button class="sbtn" onclick={() => shiftSubs(-0.1)} title="0.1 s earlier (Shift G)" aria-label="0.1 seconds earlier">−0.1</button>
+                        <div class="row" role="group" aria-label={tr("player.delay")}>
+                          <span class="rl">{tr("player.delay")}</span>
+                          <button class="sbtn" onclick={() => shiftSubs(-0.5)} title={tr("player.earlier05")} aria-label={tr("player.earlier05Aria")}>−0.5</button>
+                          <button class="sbtn" onclick={() => shiftSubs(-0.1)} title={tr("player.earlier01")} aria-label={tr("player.earlier01Aria")}>−0.1</button>
                           <span class="val" class:off={subDelay !== 0} aria-live="polite">{fmtDelay(subDelay)}</span>
-                          <button class="sbtn" onclick={() => shiftSubs(0.1)} title="0.1 s later (Shift H)" aria-label="0.1 seconds later">+0.1</button>
-                          <button class="sbtn" onclick={() => shiftSubs(0.5)} title="0.5 s later (H)" aria-label="0.5 seconds later">+0.5</button>
-                          <button class="sbtn icon" onclick={() => setSubDelay(0)} disabled={subDelay === 0} title="Reset delay" aria-label="Reset delay"><RotateCcw size={14} /></button>
+                          <button class="sbtn" onclick={() => shiftSubs(0.1)} title={tr("player.later01")} aria-label={tr("player.later01Aria")}>+0.1</button>
+                          <button class="sbtn" onclick={() => shiftSubs(0.5)} title={tr("player.later05")} aria-label={tr("player.later05Aria")}>+0.5</button>
+                          <button class="sbtn icon" onclick={() => setSubDelay(0)} disabled={subDelay === 0} title={tr("player.resetDelay")} aria-label={tr("player.resetDelay")}><RotateCcw size={14} /></button>
                         </div>
                       {/if}
-                      <div class="row" role="group" aria-label="Size">
-                        <span class="rl">Size</span>
-                        <button class="sbtn icon" onclick={() => stepSize(-1)} disabled={prefs.subSize <= SIZE_STEPS[0]} title="Smaller (-)" aria-label="Smaller"><Minus size={14} /></button>
+                      <div class="row" role="group" aria-label={tr("player.size")}>
+                        <span class="rl">{tr("player.size")}</span>
+                        <button class="sbtn icon" onclick={() => stepSize(-1)} disabled={prefs.subSize <= SIZE_STEPS[0]} title={tr("player.smallerTip")} aria-label={tr("player.smaller")}><Minus size={14} /></button>
                         <span class="val" aria-live="polite">{prefs.subSize}%</span>
-                        <button class="sbtn icon" onclick={() => stepSize(1)} disabled={prefs.subSize >= SIZE_STEPS[SIZE_STEPS.length - 1]} title="Larger (=)" aria-label="Larger"><Plus size={14} /></button>
+                        <button class="sbtn icon" onclick={() => stepSize(1)} disabled={prefs.subSize >= SIZE_STEPS[SIZE_STEPS.length - 1]} title={tr("player.largerTip")} aria-label={tr("player.larger")}><Plus size={14} /></button>
                       </div>
-                      <div class="row" role="group" aria-label="Position">
-                        <span class="rl">Position</span>
-                        <button class="sbtn icon" onclick={() => stepPos(-1)} disabled={prefs.subPos <= POS_MIN} title="Lower" aria-label="Lower"><ArrowDown size={14} /></button>
+                      <div class="row" role="group" aria-label={tr("player.position")}>
+                        <span class="rl">{tr("player.position")}</span>
+                        <button class="sbtn icon" onclick={() => stepPos(-1)} disabled={prefs.subPos <= POS_MIN} title={tr("player.lower")} aria-label={tr("player.lower")}><ArrowDown size={14} /></button>
                         <span class="val" aria-live="polite">{prefs.subPos}%</span>
-                        <button class="sbtn icon" onclick={() => stepPos(1)} disabled={prefs.subPos >= POS_MAX} title="Higher" aria-label="Higher"><ArrowUp size={14} /></button>
+                        <button class="sbtn icon" onclick={() => stepPos(1)} disabled={prefs.subPos >= POS_MAX} title={tr("player.higher")} aria-label={tr("player.higher")}><ArrowUp size={14} /></button>
                       </div>
-                      <div class="row" role="radiogroup" aria-label="Background">
-                        <span class="rl">Background</span>
+                      <div class="row" role="radiogroup" aria-label={tr("player.background")}>
+                        <span class="rl">{tr("player.background")}</span>
                         <div class="chips">
                           {#each BG_STEPS as b (b.value)}
                             <button class="chip" class:sel={prefs.subBg === b.value} role="radio" aria-checked={prefs.subBg === b.value} onclick={() => setBg(b.value)}>{b.label}</button>
@@ -2328,10 +2330,10 @@
         </div>
         {#if canAudio}
           <div class="menu-anchor">
-            <button class="pbtn" data-menu="audio" onclick={() => (menu = menu === "audio" ? "" : "audio")} title="Audio"><AudioLines size={22} /></button>
+            <button class="pbtn" data-menu="audio" onclick={() => (menu = menu === "audio" ? "" : "audio")} title={tr("player.audio")}><AudioLines size={22} /></button>
             {#if menu === "audio"}
               <div class="pmenu" transition:pop={{ start: 0.94 }}>
-                <div class="mh">Audio</div>
+                <div class="mh">{tr("player.audio")}</div>
                 {#each info?.audio_tracks ?? [] as a (a.index)}
                   <button class="mi" class:sel={audioSel === a.index} onclick={() => pickAudio(a.index)}>
                     <span class="ck">{#if audioSel === a.index}<Check size={14} />{/if}</span>
@@ -2344,24 +2346,24 @@
           </div>
         {/if}
         <div class="menu-anchor narrow-hide">
-          <button class="pbtn" data-menu="speed" onclick={() => (menu = menu === "speed" ? "" : "speed")} title="Speed">
+          <button class="pbtn" data-menu="speed" onclick={() => (menu = menu === "speed" ? "" : "speed")} title={tr("player.speed")}>
             {#if rate !== 1}<span class="rate">{rate}×</span>{:else}<Gauge size={21} />{/if}
           </button>
           {#if menu === "speed"}
             <div class="pmenu narrow" transition:pop={{ start: 0.94 }}>
-              <div class="mh">Speed</div>
+              <div class="mh">{tr("player.speed")}</div>
               {#each SPEEDS as r (r)}
                 <button class="mi" class:sel={rate === r} onclick={() => ((rate = r), (menu = ""))}>
-                  <span class="ck">{#if rate === r}<Check size={14} />{/if}</span>{r === 1 ? "Normal" : `${r}×`}
+                  <span class="ck">{#if rate === r}<Check size={14} />{/if}</span>{r === 1 ? tr("player.normal") : `${r}×`}
                 </button>
               {/each}
             </div>
           {/if}
         </div>
-        <button class="pbtn" data-menu="streams" onclick={() => (menu = menu === "streams" ? "" : "streams")} title="Streams"><ListVideo size={21} /></button>
+        <button class="pbtn" data-menu="streams" onclick={() => (menu = menu === "streams" ? "" : "streams")} title={tr("player.streams")}><ListVideo size={21} /></button>
         <!-- En TV ya es pantalla completa. -->
         {#if !tv.on}
-          <button class="pbtn" onclick={toggleFs} title="Full screen (F)">
+          <button class="pbtn" onclick={toggleFs} title={tr("player.fullscreenF")}>
             {#if fs}<Minimize size={21} />{:else}<Maximize size={21} />{/if}
           </button>
         {/if}
@@ -2372,12 +2374,12 @@
   {#if menu === "streams"}
     <div class="side" transition:fadeQuick>
       <div class="side-head">
-        <button class="side-close" onclick={() => (menu = "")} title="Close" aria-label="Close streams"><X size={18} /></button>
-        <h3>Streams</h3>
-        <span class="faint">{streams.length} found · switching keeps your position</span>
+        <button class="side-close" onclick={() => (menu = "")} title={tr("common.close")} aria-label={tr("player.closeStreams")}><X size={18} /></button>
+        <h3>{tr("player.streams")}</h3>
+        <span class="faint">{tr("player.streamsFound", { n: streams.length })}</span>
         <!-- La entrada a las estadisticas en pantallas tactiles (en el teclado es la D). -->
-        <button class="side-link" onclick={() => ((showStats = !showStats), (menu = ""))} title="Playback stats (D)">
-          <Activity size={13} />{showStats ? "Hide playback stats" : "Playback stats"}
+        <button class="side-link" onclick={() => ((showStats = !showStats), (menu = ""))} title={tr("player.statsD")}>
+          <Activity size={13} />{showStats ? tr("player.hideStats") : tr("player.stats.title")}
         </button>
       </div>
       <div class="side-body">
@@ -2387,16 +2389,16 @@
   {/if}
 
   {#if menu === "eps"}
-    <div class="side eps" transition:fadeQuick role="dialog" aria-label="Episodes">
+    <div class="side eps" transition:fadeQuick role="dialog" aria-label={tr("player.episodes")}>
       <div class="side-head">
-        <button class="side-close" onclick={() => (menu = "")} title="Close" aria-label="Close episodes"><X size={18} /></button>
-        <h3 class="ellipsis">{meta?.name ?? "Episodes"}</h3>
-        <span class="faint">{epSeasonEps.length} {epSeasonEps.length === 1 ? "episode" : "episodes"}</span>
+        <button class="side-close" onclick={() => (menu = "")} title={tr("common.close")} aria-label={tr("player.closeEpisodes")}><X size={18} /></button>
+        <h3 class="ellipsis">{meta?.name ?? tr("player.episodes")}</h3>
+        <span class="faint">{tr("player.episodeCount", { n: epSeasonEps.length })}</span>
         {#if epSeasons.length > 1}
-          <div class="season-chips" role="tablist" aria-label="Season">
+          <div class="season-chips" role="tablist" aria-label={tr("player.season")}>
             {#each epSeasons as sn (sn)}
               <button class="schip" class:sel={sn === epSeason} role="tab" aria-selected={sn === epSeason} onclick={() => (epSeason = sn)}>
-                {sn === 0 ? "Specials" : `Season ${sn}`}
+                {sn === 0 ? tr("player.specials") : tr("player.seasonN", { n: sn })}
               </button>
             {/each}
           </div>
@@ -2413,22 +2415,22 @@
                 <span class="epi-thumb">
                   <Img src={fit(e.thumbnail, 140)} alt="" fallback={epCode(e.season, e.episode)} />
                   {#if prefs.hideSpoilers && !p && e.id !== id}<span class="epi-veil"></span>{/if}
-                  {#if e.id === id}<span class="epi-badge">Playing</span>{/if}
+                  {#if e.id === id}<span class="epi-badge">{tr("player.playing")}</span>{/if}
                   {#if pct > 0}<span class="epi-prog"><span style="width: {pct}%"></span></span>{/if}
-                  {#if pct > 92}<span class="epi-seen" title="Watched"><Check size={11} /></span>{/if}
+                  {#if pct > 92}<span class="epi-seen" title={tr("player.watched")}><Check size={11} /></span>{/if}
                 </span>
                 <span class="epi-text">
-                  <span class="epi-title ellipsis"><span class="num">{e.episode}.</span> {e.name ?? `Episode ${e.episode}`}</span>
+                  <span class="epi-title ellipsis"><span class="num">{e.episode}.</span> {e.name ?? tr("player.episodeN", { n: e.episode })}</span>
                   <span class="epi-sub">
-                    {#if soon}Coming {new Date(e.released!).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" })}
-                    {:else if pct > 92}Watched
-                    {:else if p && pct > 0}{clock(Math.max(0, p.duration_s - p.position_s))} left
+                    {#if soon}{tr("player.coming", { date: fmtDate(e.released!, { month: "short", day: "numeric", year: "numeric" }) })}
+                    {:else if pct > 92}{tr("player.watched")}
+                    {:else if p && pct > 0}{tr("player.left", { time: clock(Math.max(0, p.duration_s - p.position_s)) })}
                     {:else}{epCode(e.season, e.episode)}{/if}
                   </span>
                 </span>
               </button>
             {:else}
-              <div class="faint epi-none">No episodes in this season.</div>
+              <div class="faint epi-none">{tr("player.noEpisodes")}</div>
             {/each}
           </div>
         {/key}
@@ -2442,7 +2444,7 @@
 
   <!-- El navegador no dejo arrancar solo. -->
   {#if needsClick && !askResume}
-    <button class="bigplay" onclick={() => tryPlay()} transition:pop aria-label="Play"><Play size={40} fill="currentColor" /></button>
+    <button class="bigplay" onclick={() => tryPlay()} transition:pop aria-label={tr("player.play")}><Play size={40} fill="currentColor" /></button>
   {/if}
 
   <!-- Trabado: otro stream ahi mismo, sin salir. -->
@@ -2451,23 +2453,23 @@
       <div class="dialog-card stuck" transition:pop>
         <div class="dc-icon"><TriangleAlert size={22} /></div>
         <div class="dc-title">
-          {#if fatal}Can't play this{:else if stuck === "slow"}This stream is slow{:else if stuck === "codec"}This stream can't be played{:else}Playback problem{/if}
+          {#if fatal}{tr("player.stuck.fatal")}{:else if stuck === "slow"}{tr("player.stuck.slow")}{:else if stuck === "codec"}{tr("player.stuck.codec")}{:else}{tr("player.stuck.other")}{/if}
         </div>
         <div class="dc-sub">
           {#if fatal}{fatal}{:else if stuck === "slow"}
-            {status ? `${status.peers} peers · ${(status.down_bps / 1e6).toFixed(1)} MB/s.` : "No data is arriving."} Another stream may be faster.
+            {status ? tr("player.stuck.slowStats", { n: status.peers, mbps: num(status.down_bps / 1e6, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }) : tr("player.stuck.noData")} {tr("player.stuck.faster")}
           {:else}{stuckMsg}{/if}
         </div>
         {#if alternatives.length && !fatal}
           <div class="alts">
-            <div class="mh">Try another stream</div>
+            <div class="mh">{tr("player.tryAnother")}</div>
             <StreamList streams={alternatives} onpick={switchTo} onmedia />
           </div>
         {/if}
         <div class="dc-actions">
-          {#if stuck === "slow"}<button class="btn glass" onclick={keepWaiting}><LoaderCircle size={15} />Keep waiting</button>{/if}
-          {#if fatal}<button class="btn glass" onclick={retryAll}><RotateCw size={15} />Retry</button>{/if}
-          <button class="btn glass" onclick={exit}><ArrowLeft size={15} />Back</button>
+          {#if stuck === "slow"}<button class="btn glass" onclick={keepWaiting}><LoaderCircle size={15} />{tr("player.keepWaiting")}</button>{/if}
+          {#if fatal}<button class="btn glass" onclick={retryAll}><RotateCw size={15} />{tr("common.retry")}</button>{/if}
+          <button class="btn glass" onclick={exit}><ArrowLeft size={15} />{tr("common.back")}</button>
         </div>
       </div>
     </div>
@@ -2476,7 +2478,7 @@
   <!-- Creditos: el siguiente episodio a un clic. -->
   {#if showNextPill && nextEp}
     <button class="next-pill" onclick={playNext} transition:rise={{ y: 12 }}>
-      <FastForward size={16} />Next episode<ChevronRight size={16} />
+      <FastForward size={16} />{tr("player.nextEpisode")}<ChevronRight size={16} />
     </button>
   {/if}
 
@@ -2491,22 +2493,22 @@
         {/if}
       </div>
       <div class="nc-text">
-        <span class="faint">Next episode{countdown !== null ? ` in ${countdown}` : ""}</span>
-        <span class="ellipsis nc-name">{epCode(nextEp.season, nextEp.episode)} · {nextEp.name ?? `Episode ${nextEp.episode}`}</span>
+        <span class="faint">{countdown !== null ? tr("player.nextIn", { n: countdown }) : tr("player.nextEpisode")}</span>
+        <span class="ellipsis nc-name">{epCode(nextEp.season, nextEp.episode)} · {nextEp.name ?? tr("player.episodeN", { n: nextEp.episode })}</span>
         <div class="nc-actions">
-          <button class="btn primary" onclick={playNext}><Play size={14} fill="currentColor" />Play now</button>
-          {#if countdown !== null}<button class="btn glass" onclick={cancelCountdown}>Cancel</button>{/if}
+          <button class="btn primary" onclick={playNext}><Play size={14} fill="currentColor" />{tr("player.playNow")}</button>
+          {#if countdown !== null}<button class="btn glass" onclick={cancelCountdown}>{tr("common.cancel")}</button>{/if}
         </div>
       </div>
     </div>
   {:else if ended && !nextEp}
     <div class="modal-wrap">
       <div class="dialog-card" transition:pop>
-        <div class="dc-title">{meta?.name ?? "Finished"}</div>
-        <div class="dc-sub">{epLabel || "Thanks for watching."}</div>
+        <div class="dc-title">{meta?.name ?? tr("player.finished")}</div>
+        <div class="dc-sub">{epLabel || tr("player.thanks")}</div>
         <div class="dc-actions">
-          <button class="btn primary lg" onclick={toggle}><RotateCcw size={16} />Watch again</button>
-          <button class="btn glass lg" onclick={exit}><ArrowLeft size={16} />Back</button>
+          <button class="btn primary lg" onclick={toggle}><RotateCcw size={16} />{tr("player.watchAgain")}</button>
+          <button class="btn glass lg" onclick={exit}><ArrowLeft size={16} />{tr("common.back")}</button>
         </div>
       </div>
     </div>
@@ -2515,20 +2517,20 @@
   <!-- "?": los atajos (la lista de lib/shortcuts.ts, la misma de Settings). -->
   {#if showKeys}
     <div class="modal-wrap" role="presentation" onclick={(e) => e.target === e.currentTarget && (showKeys = false)}>
-      <div class="dialog-card keys-card" transition:pop role="dialog" aria-label="Keyboard shortcuts">
-        <div class="dc-title">Shortcuts</div>
+      <div class="dialog-card keys-card" transition:pop role="dialog" aria-label={tr("player.keysAria")}>
+        <div class="dc-title">{tr("player.shortcuts")}</div>
         {#each coarse ? [PLAYER_TOUCH, PLAYER_KEYS] : [PLAYER_KEYS, PLAYER_TOUCH] as list, li (li)}
-          <div class="mh">{list === PLAYER_TOUCH ? "Touch" : "Keyboard"}</div>
+          <div class="mh">{list === PLAYER_TOUCH ? tr("player.touchHead") : tr("player.keyboardHead")}</div>
           <div class="keys">
             {#each list as [k, what] (k)}
               <div class="key-row">
-                <span class="kbds">{#each keyParts(k) as one, i (one)}{#if i}<span class="or">or</span>{/if}<kbd>{one}</kbd>{/each}</span>
+                <span class="kbds">{#each keyParts(k) as one, i (one)}{#if i}<span class="or">{tr("player.or")}</span>{/if}<kbd>{one}</kbd>{/each}</span>
                 <span class="what">{what}</span>
               </div>
             {/each}
           </div>
         {/each}
-        <div class="dc-actions"><button class="btn glass" onclick={() => (showKeys = false)}>Close</button></div>
+        <div class="dc-actions"><button class="btn glass" onclick={() => (showKeys = false)}>{tr("common.close")}</button></div>
       </div>
     </div>
   {/if}

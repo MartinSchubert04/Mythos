@@ -15,6 +15,7 @@
 // Desktop (apps/desktop): solo las actualizaciones (src-tauri/src/updater.rs, mismos comandos sin
 // el prefijo del plugin) y volver a la misma pantalla despues de "Update".
 import { getToken } from "./api";
+import { t } from "./i18n.svelte";
 import { androidFs, isAndroid, isDesktop, isRemoteShell, setFullscreen, shellInvoke } from "./platform";
 import { go, route } from "./router.svelte";
 import { read, write } from "./store";
@@ -157,7 +158,7 @@ function initDesktop() {
     .then((v) => (shell.version = v), () => {});
   trackRoute();
   appInvoke<boolean>("update_handoff").then((updated) => updated && restoreRoute(), () => {});
-  watchUpdates((v) => `Mythos ${v} is ready. Click Update, or it installs when you close Mythos.`);
+  watchUpdates((v) => t("account.app.readyDesktopToast", { v }));
 }
 
 // ---- boton atras
@@ -239,5 +240,5 @@ export function initShell() {
     });
   });
 
-  watchUpdates((v) => `Mythos ${v} is ready. It installs when you leave the app.`);
+  watchUpdates((v) => t("account.app.readyAndroidToast", { v }));
 }

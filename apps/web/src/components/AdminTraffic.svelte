@@ -6,6 +6,7 @@
   import { onDestroy } from "svelte";
   import { api, errText } from "../lib/api";
   import { bytes } from "../lib/format";
+  import { t as tr } from "../lib/i18n.svelte";
   import { rise } from "../lib/motion";
   import { read, write } from "../lib/store";
   import { agoMs, buckets, count, dur, fullDate, pct } from "../lib/traffic";
@@ -15,16 +16,17 @@
 
   let { onfilter }: { onfilter: (f: LogFilters) => void } = $props();
 
+  // Las etiquetas son getters: la lista es fija y el texto sigue al idioma de la interfaz.
   const RANGES: { value: MetricsRange; label: string }[] = [
     { value: "24h", label: "24 h" },
-    { value: "7d", label: "7 days" },
-    { value: "30d", label: "30 days" },
-    { value: "90d", label: "90 days" },
+    { value: "7d", get label() { return tr("admin.tr.7d"); } },
+    { value: "30d", get label() { return tr("admin.tr.30d"); } },
+    { value: "90d", get label() { return tr("admin.tr.90d"); } },
   ];
   const METRICS: { value: ChartMetric; label: string }[] = [
-    { value: "requests", label: "Requests" },
-    { value: "bytes", label: "Data" },
-    { value: "latency", label: "Latency" },
+    { value: "requests", get label() { return tr("admin.tr.requests"); } },
+    { value: "bytes", get label() { return tr("admin.tr.data"); } },
+    { value: "latency", get label() { return tr("admin.tr.latency"); } },
   ];
 
   const RANGE_KEY = "mythos.admin.range";
@@ -103,41 +105,41 @@
 <div class="bar">
   <Seg value={range} options={RANGES} onchange={setRange} />
   <div class="grow"></div>
-  <span class="faint small upd" title={at ? fullDate(at) : ""}>{at ? `Updated ${agoMs(at, now)}` : ""}</span>
-  <button class="icon-btn" title="Refresh" onclick={load} disabled={loading}><RefreshCw size={15} class={loading ? "spin" : ""} /></button>
+  <span class="faint small upd" title={at ? fullDate(at) : ""}>{at ? tr("admin.tr.updated", { ago: agoMs(at, now) }) : ""}</span>
+  <button class="icon-btn" title={tr("admin.tr.refresh")} onclick={load} disabled={loading}><RefreshCw size={15} class={loading ? "spin" : ""} /></button>
 </div>
 
 {#if error && !m}
-  <div class="empty card"><h3>Couldn't load traffic</h3><span>{error}</span><button class="btn" onclick={load}>Retry</button></div>
+  <div class="empty card"><h3>{tr("admin.tr.loadError")}</h3><span>{error}</span><button class="btn" onclick={load}>{tr("common.retry")}</button></div>
 {:else}
   <!-- Numeros grandes -->
   <div class="kpis">
     <div class="card kpi">
-      <div class="k-head"><Activity size={14} />Requests</div>
+      <div class="k-head"><Activity size={14} />{tr("admin.tr.requests")}</div>
       {#if t}
         <div class="k-n">{count(t.requests)}</div>
-        <div class="k-sub">{m!.top_ips.length >= 20 ? "20+" : m!.top_ips.length} IPs · {m!.top_users.length} users</div>
+        <div class="k-sub">{m!.top_ips.length >= 20 ? "20+" : m!.top_ips.length} IPs · {tr("admin.tr.nUsers", { n: m!.top_users.length })}</div>
       {:else}<div class="skel line k-skel"></div>{/if}
     </div>
     <div class="card kpi" class:alert={errRate >= 0.01}>
-      <div class="k-head"><TriangleAlert size={14} />Errors</div>
+      <div class="k-head"><TriangleAlert size={14} />{tr("admin.tr.errors")}</div>
       {#if t}
         <div class="k-n" class:bad={errRate >= 0.01}>{pct(t.errors, t.requests)}</div>
-        <div class="k-sub">{count(t.errors)} server (5xx) · {count(t.client_errors)} client (4xx)</div>
+        <div class="k-sub">{tr("admin.tr.errSplit", { s: count(t.errors), c: count(t.client_errors) })}</div>
       {:else}<div class="skel line k-skel"></div>{/if}
     </div>
     <div class="card kpi">
-      <div class="k-head"><ArrowDownUp size={14} />Data sent</div>
+      <div class="k-head"><ArrowDownUp size={14} />{tr("admin.tr.dataSent")}</div>
       {#if t}
         <div class="k-n">{bytes(t.bytes_out) || "0 B"}</div>
-        <div class="k-sub">{t.requests ? `${bytes(t.bytes_out / t.requests) || "0 B"} per request` : "No requests"}</div>
+        <div class="k-sub">{t.requests ? tr("admin.tr.perRequest", { size: bytes(t.bytes_out / t.requests) || "0 B" }) : tr("admin.tr.noRequestsShort")}</div>
       {:else}<div class="skel line k-skel"></div>{/if}
     </div>
     <div class="card kpi">
-      <div class="k-head"><Gauge size={14} />p95 latency</div>
+      <div class="k-head"><Gauge size={14} />{tr("admin.tr.p95")}</div>
       {#if t}
         <div class="k-n">{dur(t.p95_ms)}</div>
-        <div class="k-sub">median {dur(t.p50_ms)} · to first byte</div>
+        <div class="k-sub">{tr("admin.tr.median", { d: dur(t.p50_ms) })}</div>
       {:else}<div class="skel line k-skel"></div>{/if}
     </div>
   </div>
@@ -146,13 +148,13 @@
   <div class="card chart-card">
     <div class="c-head">
       <div class="c-title">
-        {metric === "requests" ? "Requests" : metric === "bytes" ? "Data sent" : "p95 latency"}
-        {#if series}<span class="faint">per {series.hours >= 24 ? "day" : series.hours === 1 ? "hour" : `${series.hours} hours`}</span>{/if}
+        {metric === "requests" ? tr("admin.tr.requests") : metric === "bytes" ? tr("admin.tr.dataSent") : tr("admin.tr.p95")}
+        {#if series}<span class="faint">{series.hours >= 24 ? tr("admin.tr.perDay") : series.hours === 1 ? tr("admin.tr.perHour") : tr("admin.tr.perHours", { n: series.hours })}</span>{/if}
       </div>
       {#if metric === "requests"}
         <div class="legend">
-          <span><i class="sw main"></i>Requests</span>
-          <span><i class="sw err"></i>Server errors</span>
+          <span><i class="sw main"></i>{tr("admin.tr.requests")}</span>
+          <span><i class="sw err"></i>{tr("admin.tr.serverErrors")}</span>
         </div>
       {/if}
       <div class="grow"></div>
@@ -171,15 +173,15 @@
     <div class="card fails" in:rise>
       <div class="f-head">
         <ShieldAlert size={16} />
-        <b>{failedTotal} failed sign-in{failedTotal === 1 ? "" : "s"}</b>
-        <span class="muted">from {m.failed_logins.length} IP{m.failed_logins.length === 1 ? "" : "s"}. After 10 in 5 minutes an IP is blocked for a while.</span>
+        <b>{tr("admin.tr.failedLogins", { n: failedTotal })}</b>
+        <span class="muted">{tr("admin.tr.failedFrom", { n: m.failed_logins.length })}</span>
       </div>
       <div class="f-list">
         {#each m.failed_logins as f (f.ip)}
-          <button class="f-row" onclick={() => onfilter({ ip: f.ip })} title="Show requests from {f.ip}">
+          <button class="f-row" onclick={() => onfilter({ ip: f.ip })} title={tr("admin.tr.showFrom", { x: f.ip })}>
             <span class="mono ip">{f.ip}</span>
             <span class="chip bad">{f.count}×</span>
-            <span class="f-users ellipsis">tried {f.usernames.map((u) => `"${u}"`).join(", ") || "—"}</span>
+            <span class="f-users ellipsis">{tr("admin.tr.tried", { names: f.usernames.map((u) => `"${u}"`).join(", ") || "—" })}</span>
             <span class="faint small" title={fullDate(f.last_at_ms)}>{agoMs(f.last_at_ms, now)}</span>
           </button>
         {/each}
@@ -188,39 +190,39 @@
   {/if}
 
   <!-- Quien pega: IPs -->
-  <h2 class="section-title">Top IPs</h2>
+  <h2 class="section-title">{tr("admin.tr.topIps")}</h2>
   <div class="card table-card">
     <table class="list stackable">
-      <thead><tr><th>IP</th><th>Tailscale</th><th>Users</th><th class="r">Requests</th><th class="r">Data</th></tr></thead>
+      <thead><tr><th>IP</th><th>Tailscale</th><th>{tr("admin.tab.users")}</th><th class="r">{tr("admin.tr.requests")}</th><th class="r">{tr("admin.tr.data")}</th></tr></thead>
       <tbody>
         {#if !m}
           {#each Array(3) as _, i (i)}<tr><td colspan="5"><div class="skel line" style="width: {75 - i * 15}%"></div></td></tr>{/each}
         {:else if !m.top_ips.length}
-          <tr><td colspan="5" class="none faint">No requests in this range.</td></tr>
+          <tr><td colspan="5" class="none faint">{tr("admin.tr.noRequests")}</td></tr>
         {:else}
           {#each m.top_ips as ip, i (ip.ip)}
             {@const fail = failedByIp.get(ip.ip)}
             <tr class="stagger" style="--i: {i}" class:flag={!!fail}>
               <td class="lead">
-                <button class="link mono" onclick={() => onfilter({ ip: ip.ip })} title="Show requests from this IP">{ip.ip}</button>
-                {#if fail}<span class="chip bad" title="Failed sign-ins from this IP">{fail.count} failed</span>{/if}
+                <button class="link mono" onclick={() => onfilter({ ip: ip.ip })} title={tr("admin.tr.showFromIp")}>{ip.ip}</button>
+                {#if fail}<span class="chip bad" title={tr("admin.tr.failedFromIp")}>{tr("admin.tr.nFailed", { n: fail.count })}</span>{/if}
               </td>
               <td data-label="Tailscale" class="ts">
                 {#if ip.tailscale_logins.length}
                   <span class="ellipsis" title={ip.tailscale_logins.join(", ")}>{ip.tailscale_logins.join(", ")}</span>
                 {:else}<span class="faint">—</span>{/if}
               </td>
-              <td data-label="Users">
+              <td data-label={tr("admin.tab.users")}>
                 {#if ip.users.length}
                   <span class="users">
-                    {#each ip.users as u (u)}<button class="chip user" onclick={() => onfilter({ user: u })} title="Show requests by {u}">{u}</button>{/each}
+                    {#each ip.users as u (u)}<button class="chip user" onclick={() => onfilter({ user: u })} title={tr("admin.tr.showBy", { x: u })}>{u}</button>{/each}
                   </span>
-                {:else}<span class="faint">signed out</span>{/if}
+                {:else}<span class="faint">{tr("admin.tr.signedOut")}</span>{/if}
               </td>
-              <td data-label="Requests" class="r num">
+              <td data-label={tr("admin.tr.requests")} class="r num">
                 <span class="share" style="--w: {(ip.requests / maxIp) * 100}%"></span>{count(ip.requests)}
               </td>
-              <td data-label="Data" class="r num">{bytes(ip.bytes_out) || "0 B"}</td>
+              <td data-label={tr("admin.tr.data")} class="r num">{bytes(ip.bytes_out) || "0 B"}</td>
             </tr>
           {/each}
         {/if}
@@ -230,30 +232,30 @@
 
   <div class="two">
     <div>
-      <h2 class="section-title">Top users</h2>
+      <h2 class="section-title">{tr("admin.tr.topUsers")}</h2>
       <div class="card table-card">
         <table class="list stackable">
-          <thead><tr><th>User</th><th class="r">Requests</th><th class="r">Data</th></tr></thead>
+          <thead><tr><th>{tr("admin.users.user")}</th><th class="r">{tr("admin.tr.requests")}</th><th class="r">{tr("admin.tr.data")}</th></tr></thead>
           <tbody>
             {#if !m}
               {#each Array(2) as _, i (i)}<tr><td colspan="3"><div class="skel line" style="width: {60 - i * 15}%"></div></td></tr>{/each}
             {:else if !m.top_users.length}
-              <tr><td colspan="3" class="none faint">Nobody signed in made requests.</td></tr>
+              <tr><td colspan="3" class="none faint">{tr("admin.tr.noUsers")}</td></tr>
             {:else}
               {#each m.top_users as u, i (u.user_id)}
                 {@const name = u.username ?? `#${u.user_id}`}
                 <tr class="stagger" style="--i: {i}">
                   <td class="lead">
-                    <button class="who link" onclick={() => onfilter({ user: u.username ?? String(u.user_id) })} title="Show requests by {name}">
+                    <button class="who link" onclick={() => onfilter({ user: u.username ?? String(u.user_id) })} title={tr("admin.tr.showBy", { x: name })}>
                       <span class="avatar">{name.slice(0, 1).toUpperCase()}</span>{name}
                     </button>
-                    {#if !u.username}<span class="faint small">deleted</span>{/if}
+                    {#if !u.username}<span class="faint small">{tr("admin.tr.deleted")}</span>{/if}
                   </td>
-                  <td data-label="Requests" class="r num">
+                  <td data-label={tr("admin.tr.requests")} class="r num">
                     <span class="share" style="--w: {(u.requests / maxUser) * 100}%"></span>{count(u.requests)}
                     <span class="faint small">{pct(u.requests, t?.requests ?? 0)}</span>
                   </td>
-                  <td data-label="Data" class="r num">{bytes(u.bytes_out) || "0 B"}</td>
+                  <td data-label={tr("admin.tr.data")} class="r num">{bytes(u.bytes_out) || "0 B"}</td>
                 </tr>
               {/each}
             {/if}
@@ -262,7 +264,7 @@
       </div>
     </div>
     <div>
-      <h2 class="section-title">Responses</h2>
+      <h2 class="section-title">{tr("admin.tr.responses")}</h2>
       <div class="card status-card">
         {#if !m}
           <div class="skel line" style="width: 100%"></div>
@@ -275,7 +277,7 @@
           </div>
           <div class="classes">
             {#each classes as c (c.k)}
-              <button class="cls" disabled={!c.n} onclick={() => onfilter({ status: c.k })} title="Show {c.k} requests">
+              <button class="cls" disabled={!c.n} onclick={() => onfilter({ status: c.k })} title={tr("admin.tr.showStatus", { x: c.k })}>
                 <i class="sw seg-{c.tone}"></i><span class="mono">{c.k}</span><b>{count(c.n)}</b><span class="faint">{pct(c.n, statusTotal)}</span>
               </button>
             {/each}
@@ -283,40 +285,40 @@
           {#if topStatuses.length}
             <div class="codes">
               {#each topStatuses as s (s.status)}
-                <button class="chip" class:bad={s.status >= 500} class:warn={s.status < 500} onclick={() => onfilter({ status: String(s.status) })} title="Show {s.status} responses">
+                <button class="chip" class:bad={s.status >= 500} class:warn={s.status < 500} onclick={() => onfilter({ status: String(s.status) })} title={tr("admin.tr.showStatus", { x: s.status })}>
                   {s.status} · {count(s.requests)}
                 </button>
               {/each}
             </div>
           {/if}
           {#if m.dropped_events}
-            <div class="dropped small">{count(m.dropped_events)} requests weren't recorded (the server was too busy).</div>
+            <div class="dropped small">{tr("admin.tr.dropped", { n: count(m.dropped_events) })}</div>
           {/if}
         {/if}
       </div>
     </div>
   </div>
 
-  <h2 class="section-title">Top routes</h2>
+  <h2 class="section-title">{tr("admin.tr.topRoutes")}</h2>
   <div class="card table-card">
     <table class="list stackable">
-      <thead><tr><th>Route</th><th class="r">Requests</th><th class="r">Errors</th><th class="r">p95</th><th class="r">Data</th></tr></thead>
+      <thead><tr><th>{tr("admin.logs.route")}</th><th class="r">{tr("admin.tr.requests")}</th><th class="r">{tr("admin.tr.errors")}</th><th class="r">p95</th><th class="r">{tr("admin.tr.data")}</th></tr></thead>
       <tbody>
         {#if !m}
           {#each Array(4) as _, i (i)}<tr><td colspan="5"><div class="skel line" style="width: {80 - i * 12}%"></div></td></tr>{/each}
         {:else if !m.top_routes.length}
-          <tr><td colspan="5" class="none faint">No requests in this range.</td></tr>
+          <tr><td colspan="5" class="none faint">{tr("admin.tr.noRequests")}</td></tr>
         {:else}
           {#each allRoutes ? m.top_routes : m.top_routes.slice(0, 10) as r, i (r.method + r.route)}
             <tr class="stagger" style="--i: {Math.min(i, 12)}">
               <td class="lead route">
                 <span class="chip meth {methodTone(r.method)}">{r.method}</span>
-                <button class="link mono ellipsis" onclick={() => onfilter({ route: r.route })} title="Show requests to {r.route}">{r.route}</button>
+                <button class="link mono ellipsis" onclick={() => onfilter({ route: r.route })} title={tr("admin.tr.showTo", { x: r.route })}>{r.route}</button>
               </td>
-              <td data-label="Requests" class="r num">{count(r.requests)}</td>
-              <td data-label="Errors" class="r num" class:bad={r.errors > 0}>{r.errors ? `${count(r.errors)} · ${pct(r.errors, r.requests)}` : "0"}</td>
-              <td data-label="p95" class="r num" title="Median {dur(r.p50_ms)}">{dur(r.p95_ms)}</td>
-              <td data-label="Data" class="r num">{bytes(r.bytes_out) || "0 B"}</td>
+              <td data-label={tr("admin.tr.requests")} class="r num">{count(r.requests)}</td>
+              <td data-label={tr("admin.tr.errors")} class="r num" class:bad={r.errors > 0}>{r.errors ? `${count(r.errors)} · ${pct(r.errors, r.requests)}` : "0"}</td>
+              <td data-label="p95" class="r num" title={tr("admin.tr.medianTip", { d: dur(r.p50_ms) })}>{dur(r.p95_ms)}</td>
+              <td data-label={tr("admin.tr.data")} class="r num">{bytes(r.bytes_out) || "0 B"}</td>
             </tr>
           {/each}
         {/if}
@@ -324,7 +326,7 @@
     </table>
     {#if m && m.top_routes.length > 10}
       <button class="btn ghost sm show-all" onclick={() => (allRoutes = !allRoutes)}>
-        {allRoutes ? "Show fewer" : `Show all ${m.top_routes.length} routes`}
+        {allRoutes ? tr("admin.tr.showFewer") : tr("admin.tr.showAll", { n: m.top_routes.length })}
       </button>
     {/if}
   </div>

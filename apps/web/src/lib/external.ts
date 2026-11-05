@@ -1,6 +1,7 @@
 // Ver un stream afuera de Mythos: el link directo al archivo (con el token en ?t=, como lo usa el
 // <video>) para copiarlo o abrirlo en VLC (desktop: comando `open_in_vlc` de apps/desktop).
 import { api, mediaUrl } from "./api";
+import { t } from "./i18n.svelte";
 import { isDesktop } from "./platform";
 import type { ClientCaps, PlayInfo, Stream } from "./types";
 
@@ -30,7 +31,7 @@ export async function copyText(text: string): Promise<void> {
   ta.select();
   const ok = document.execCommand("copy");
   ta.remove();
-  if (!ok) throw new Error("Couldn't copy the link");
+  if (!ok) throw new Error(t("player.copyFailed"));
 }
 
 export const canVlc = isDesktop;

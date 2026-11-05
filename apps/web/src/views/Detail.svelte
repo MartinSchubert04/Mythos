@@ -14,6 +14,8 @@
   import StreamList from "../components/StreamList.svelte";
   import { api, ApiError, errText } from "../lib/api";
   import { clock, epCode, sized } from "../lib/format";
+  import { genreName } from "../lib/genres";
+  import { date, t } from "../lib/i18n.svelte";
   import { coverWidth, fit, retryOriginal } from "../lib/images";
   import { takeOver } from "../lib/handoff";
   import { fadeQuick, fadeSlow, pop, rise } from "../lib/motion";
@@ -51,14 +53,14 @@
   const seasons = $derived(
     [...new Set((meta?.videos ?? []).map((v) => v.season))].sort((a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b)),
   );
-  const seasonOpts = $derived(seasons.map((s) => ({ value: s, label: s === 0 ? "Specials" : `Season ${s}` })));
+  const seasonOpts = $derived(seasons.map((s) => ({ value: s, label: s === 0 ? t("browse.ep.specials") : t("browse.ep.season", { n: s }) })));
   const realSeasons = $derived(seasons.filter((s) => s > 0).length);
   const episodes = $derived((meta?.videos ?? []).filter((v) => v.season === season));
 
   api
     .meta(type, id)
     .then((r) => (meta = r))
-    .catch((e) => (failed = e instanceof ApiError && e.status === 404 ? "This title doesn't exist." : errText(e)));
+    .catch((e) => (failed = e instanceof ApiError && e.status === 404 ? t("browse.detail.notFound") : errText(e)));
 
   api
     .library()
@@ -122,7 +124,7 @@
   const resume = $derived(playTarget ? progress[playTarget] : undefined);
   const canResume = $derived(!!resume && resume.position_s > 30 && resume.position_s < resume.duration_s * 0.92);
   const playLabel = $derived(
-    (canResume ? "Resume" : "Play") + (type === "series" && current ? ` ${epCode(current.season, current.episode)}` : ""),
+    (canResume ? t("browse.resume") : t("browse.play")) + (type === "series" && current ? ` ${epCode(current.season, current.episode)}` : ""),
   );
 
   /** Al reproductor. Con `resume`, sigue donde quedo sin preguntar (o arranca de cero). */
@@ -179,7 +181,7 @@
     };
     const ok = await attempt(() => (was ? api.libraryRemove(type, id) : api.libraryAdd(preview)));
     if (!ok) inLib = was;
-    else toast(was ? "Removed from Library" : "Added to Library");
+    else toast(was ? t("browse.detail.libRemoved") : t("browse.detail.libAdded"));
   }
 
   // ---- visto / no visto a mano. "Visto" es lo mismo que al terminar de verlo: progreso con la
@@ -241,7 +243,7 @@
     }
   }
   const toggleEp = (e: Episode) =>
-    setWatched([e.id], !watched(e.id), `${epCode(e.season, e.episode)} marked as ${watched(e.id) ? "unwatched" : "watched"}`);
+    setWatched([e.id], !watched(e.id), t(watched(e.id) ? "browse.ep.markedUnwatched" : "browse.ep.markedWatched", { code: epCode(e.season, e.episode) }));
 
   // Los menus chicos: el de un episodio (clic derecho o mantener apretado) y el ⋯ de la temporada.
   let pm = $state<{ x: number; y: number; items: PopItem[]; label: string } | null>(null);
@@ -250,26 +252,26 @@
     pm = {
       x,
       y,
-      label: `${epCode(e.season, e.episode)} options`,
+      label: t("browse.menu.optionsOf", { name: epCode(e.season, e.episode) }),
       items: [
         watched(e.id)
-          ? { label: "Mark as unwatched", icon: EyeOff, run: () => toggleEp(e) }
-          : { label: "Mark as watched", icon: CircleCheck, run: () => toggleEp(e) },
-        { label: "Choose stream", icon: ListVideo, run: () => openStreams(e.id, `${m?.name} · ${epCode(e.season, e.episode)}`) },
+          ? { label: t("browse.ep.markUnwatched"), icon: EyeOff, run: () => toggleEp(e) }
+          : { label: t("browse.ep.markWatched"), icon: CircleCheck, run: () => toggleEp(e) },
+        { label: t("browse.chooseStream"), icon: ListVideo, run: () => openStreams(e.id, `${m?.name} · ${epCode(e.season, e.episode)}`) },
       ],
     };
   }
   const aired = $derived(episodes.filter((e) => !future(e)));
   const seasonWatched = $derived(aired.length > 0 && aired.every((e) => watched(e.id)));
-  const seasonName = $derived(season === 0 ? "Specials" : `Season ${season}`);
+  const seasonName = $derived(season === 0 ? t("browse.ep.specials") : t("browse.ep.season", { n: season }));
   function seasonMenu(ev: MouseEvent) {
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     const ids = aired.map((e) => e.id);
     const items: PopItem[] = [];
-    if (!seasonWatched) items.push({ label: `Mark ${seasonName.toLowerCase()} as watched`, icon: CircleCheck, run: () => setWatched(ids, true, `${seasonName} marked as watched`) });
+    if (!seasonWatched) items.push({ label: t("browse.ep.markSeasonWatched", { s: seasonName.toLowerCase() }), icon: CircleCheck, run: () => setWatched(ids, true, t("browse.ep.seasonWatched", { s: seasonName })) });
     if (aired.some((e) => progress[e.id]))
-      items.push({ label: `Mark ${seasonName.toLowerCase()} as unwatched`, icon: EyeOff, run: () => setWatched(ids, false, `${seasonName} marked as unwatched`) });
-    pm = { x: r.left, y: r.bottom + 4, label: `${seasonName} options`, items };
+      items.push({ label: t("browse.ep.markSeasonUnwatched", { s: seasonName.toLowerCase() }), icon: EyeOff, run: () => setWatched(ids, false, t("browse.ep.seasonUnwatched", { s: seasonName })) });
+    pm = { x: r.left, y: r.bottom + 4, label: t("browse.menu.optionsOf", { name: seasonName }), items };
   }
   /** Spoilers escondidos: el episodio no se empezo a ver. */
   const hidden = (e: Episode) => prefs.hideSpoilers && !progress[e.id];
@@ -307,7 +309,7 @@
   const bgWidth = coverWidth(innerWidth, Math.min(innerHeight * 0.82, 820));
   const posterHi = (innerWidth <= 700 ? 150 : Math.min(280, Math.max(170, innerWidth * 0.2))) * devicePixelRatio > 330;
   const future = (e: Episode) => !!e.released && new Date(e.released).getTime() > Date.now();
-  const fmtDate = (s?: string | null) => (s ? new Date(s).toLocaleDateString("en", { year: "numeric", month: "short", day: "numeric" }) : "");
+  const fmtDate = (s?: string | null) => (s ? date(s, { year: "numeric", month: "short", day: "numeric" }) : "");
 </script>
 
 <div class="page detail" use:keepScroll={`detail:${id}`}>
@@ -328,7 +330,7 @@
     <div class="shade"></div>
   </div>
 
-  <button class="back btn glass" onclick={() => back("/")}><ArrowLeft size={16} />Back</button>
+  <button class="back btn glass" onclick={() => back("/")}><ArrowLeft size={16} />{t("common.back")}</button>
 
   <div class="top">
     <div class="poster-frame poster">
@@ -344,11 +346,11 @@
           {#if m.imdb_rating}<span class="imdb"><Star size={14} fill="currentColor" /><b>{m.imdb_rating}</b><span class="faint">IMDb</span></span>{/if}
           {#if m.year}<span>{m.year}</span>{/if}
           {#if meta?.runtime}<span class="fact"><Clock size={13} />{meta.runtime}</span>{/if}
-          {#if type === "series" && realSeasons}<span>{realSeasons} season{realSeasons > 1 ? "s" : ""}</span>{/if}
+          {#if type === "series" && realSeasons}<span>{t("browse.detail.seasons", { n: realSeasons })}</span>{/if}
         </div>
         {#if m.genres?.length}
           <div class="genres" in:rise={{ y: 10, delay: 140 }}>
-            {#each m.genres as g (g)}<span class="chip">{g}</span>{/each}
+            {#each m.genres as g (g)}<span class="chip">{genreName(g)}</span>{/each}
           </div>
         {/if}
 
@@ -358,24 +360,24 @@
           </button>
           <button
             class="btn glass lg choose"
-            aria-label="Choose stream"
+            aria-label={t("browse.chooseStream")}
             disabled={!playTarget}
             onclick={() => playTarget && openStreams(playTarget, type === "movie" ? m!.name : `${m!.name} · ${epCode(current!.season, current!.episode)}`)}
           >
-            <ListVideo size={17} /><span class="lbl">Choose stream</span>
+            <ListVideo size={17} /><span class="lbl">{t("browse.chooseStream")}</span>
           </button>
-          <button class="btn glass lg icon" class:fav={inLib} onclick={toggleLib} title={inLib ? "Remove from Library" : "Add to Library"} disabled={inLib === null}>
+          <button class="btn glass lg icon" class:fav={inLib} onclick={toggleLib} title={inLib ? t("browse.detail.libRemove") : t("browse.detail.libAdd")} disabled={inLib === null}>
             <Heart size={18} fill={inLib ? "currentColor" : "none"} />
           </button>
           {#if meta?.trailer_youtube_id}
-            <button class="btn glass lg icon" onclick={() => (trailer = true)} title="Trailer"><Clapperboard size={18} /></button>
+            <button class="btn glass lg icon" onclick={() => (trailer = true)} title={t("browse.detail.trailer")}><Clapperboard size={18} /></button>
           {/if}
           {#if type === "movie"}
             <button
               class="btn glass lg icon"
               class:seen-on={watched(id)}
-              onclick={() => setWatched([id], !watched(id), watched(id) ? "Marked as unwatched" : "Marked as watched")}
-              title={watched(id) ? "Watched · click to mark as unwatched" : "Mark as watched"}
+              onclick={() => setWatched([id], !watched(id), watched(id) ? t("browse.detail.markedUnwatched") : t("browse.detail.markedWatched"))}
+              title={watched(id) ? t("browse.detail.watchedTip") : t("browse.ep.markWatched")}
               aria-pressed={watched(id)}
               disabled={marking || !m}
             >
@@ -386,7 +388,7 @@
         {#if resume && resume.position_s > 30 && resume.duration_s}
           <div class="resume" in:rise={{ y: 6, delay: 200 }}>
             <div class="progress"><div class="progress-fill" style="width: {(resume.position_s / resume.duration_s) * 100}%"></div></div>
-            <span class="faint">{watched(resume.meta_id) ? "Watched" : `${clock(resume.duration_s - resume.position_s)} left`}</span>
+            <span class="faint">{watched(resume.meta_id) ? t("browse.cw.watched") : t("browse.cw.left", { time: clock(resume.duration_s - resume.position_s) })}</span>
           </div>
         {/if}
 
@@ -394,7 +396,7 @@
         {#if meta}
           {#if meta.director?.length}
             <div class="director" in:rise={{ y: 10, delay: 230 }}>
-              <span class="faint">Directed by</span> {meta.director.join(", ")}
+              <span class="faint">{t("browse.detail.directedBy")}</span> {meta.director.join(", ")}
             </div>
           {/if}
         {:else if !failed}
@@ -402,7 +404,7 @@
           <div class="skel line" style="width: 50%; margin-top: 10px"></div>
         {/if}
       {:else if failed}
-        <div class="empty"><h3>Couldn't open this title</h3><span>{failed}</span></div>
+        <div class="empty"><h3>{t("browse.detail.failed")}</h3><span>{failed}</span></div>
       {:else}
         <div class="skel" style="width: 60%; height: 48px"></div>
         <div class="skel line" style="width: 40%; margin-top: 18px"></div>
@@ -414,7 +416,7 @@
 
   {#if meta?.cast?.length}
     <section class="cast-sec" in:rise={{ y: 10, delay: 260 }}>
-      <h2 class="sec-h">Cast</h2>
+      <h2 class="sec-h">{t("browse.detail.cast")}</h2>
       <div class="cast">
         {#each meta.cast.slice(0, 12) as name, i (name)}
           <div class="person" style="--i: {i}">
@@ -429,9 +431,9 @@
   {#if type === "series"}
     <section class="episodes">
       <div class="ep-head">
-        <h2>Episodes</h2>
+        <h2>{t("browse.ep.episodes")}</h2>
         {#if meta && aired.length}
-          <button class="icon-btn season-more" onclick={seasonMenu} title="{seasonName} options" aria-label="{seasonName} options" aria-haspopup="menu" disabled={marking}>
+          <button class="icon-btn season-more" onclick={seasonMenu} title={t("browse.menu.optionsOf", { name: seasonName })} aria-label={t("browse.menu.optionsOf", { name: seasonName })} aria-haspopup="menu" disabled={marking}>
             <Ellipsis size={18} />
           </button>
         {/if}
@@ -460,32 +462,32 @@
                     <Img src={fit(e.thumbnail, 200)} alt="" fallback={epCode(e.season, e.episode)} />
                     <span class="ep-play"><Play size={18} fill="currentColor" /></span>
                     {#if pct > 0}<span class="ep-prog"><span style="width: {pct}%"></span></span>{/if}
-                    {#if pct > 92}<span class="seen" title="Watched"><Check size={12} /></span>{/if}
+                    {#if pct > 92}<span class="seen" title={t("browse.cw.watched")}><Check size={12} /></span>{/if}
                   </span>
                   <span class="ep-text">
-                    <span class="ep-title"><span class="num">{e.episode}.</span> {e.name ?? `Episode ${e.episode}`}</span>
+                    <span class="ep-title"><span class="num">{e.episode}.</span> {e.name ?? t("browse.ep.episode", { n: e.episode })}</span>
                     {#if e.overview}<span class="ep-desc">{e.overview}</span>{/if}
-                    <span class="ep-date faint">{future(e) ? "Coming " : ""}{fmtDate(e.released)}</span>
+                    <span class="ep-date faint">{future(e) ? t("browse.ep.coming", { date: fmtDate(e.released) }) : fmtDate(e.released)}</span>
                   </span>
                 </button>
                 {#if !future(e)}
                   <button
                     class="icon-btn ep-watch"
                     class:seen-on={watched(e.id)}
-                    title={watched(e.id) ? "Mark as unwatched" : "Mark as watched"}
-                    aria-label={watched(e.id) ? "Mark as unwatched" : "Mark as watched"}
+                    title={watched(e.id) ? t("browse.ep.markUnwatched") : t("browse.ep.markWatched")}
+                    aria-label={watched(e.id) ? t("browse.ep.markUnwatched") : t("browse.ep.markWatched")}
                     onclick={() => toggleEp(e)}
                     disabled={marking}
                   >
                     <CircleCheck size={16} />
                   </button>
-                  <button class="icon-btn ep-streams" title="Choose stream" onclick={() => openStreams(e.id, `${m?.name} · ${epCode(e.season, e.episode)}`)}>
+                  <button class="icon-btn ep-streams" title={t("browse.chooseStream")} onclick={() => openStreams(e.id, `${m?.name} · ${epCode(e.season, e.episode)}`)}>
                     <ListVideo size={16} />
                   </button>
                 {/if}
               </div>
             {:else}
-              <div class="empty"><span>No episodes in this season.</span></div>
+              <div class="empty"><span>{t("browse.ep.none")}</span></div>
             {/each}
           </div>
         {/key}
@@ -494,7 +496,7 @@
   {/if}
   {#if m?.genres?.length}
     <div class="more">
-      <Row title="More like this" load={moreLike}>
+      <Row title={t("browse.detail.moreLike")} load={moreLike}>
         {#snippet card(x, i)}<PosterCard item={x} {i} />{/snippet}
       </Row>
     </div>
@@ -502,10 +504,10 @@
 </div>
 
 {#if panel}
-  <Drawer title="Choose stream" onclose={() => (panel = null)}>
+  <Drawer title={t("browse.chooseStream")} onclose={() => (panel = null)}>
     <div class="faint panel-sub">{panel.label}</div>
     {#if streamsErr}
-      <div class="empty"><h3>Couldn't get streams</h3><span>{streamsErr}</span></div>
+      <div class="empty"><h3>{t("browse.detail.streamsFailed")}</h3><span>{streamsErr}</span></div>
     {:else if !streams}
       {#each Array(6) as _, i (i)}<div class="skel" style="height: 66px; border-radius: var(--radius)"></div>{/each}
     {:else}
@@ -520,11 +522,11 @@
 
 {#if trailer && meta?.trailer_youtube_id}
   <div class="scrim" role="presentation" onclick={() => (trailer = false)} transition:fadeQuick></div>
-  <div class="trailer" role="dialog" aria-modal="true" aria-label="Trailer" transition:pop>
-    <button class="icon-btn close" onclick={() => (trailer = false)} aria-label="Close trailer"><X size={18} /></button>
+  <div class="trailer" role="dialog" aria-modal="true" aria-label={t("browse.detail.trailer")} transition:pop>
+    <button class="icon-btn close" onclick={() => (trailer = false)} aria-label={t("browse.detail.closeTrailer")}><X size={18} /></button>
     <iframe
       src="https://www.youtube-nocookie.com/embed/{meta.trailer_youtube_id}?autoplay=1&rel=0"
-      title="Trailer"
+      title={t("browse.detail.trailer")}
       allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
       allowfullscreen
     ></iframe>

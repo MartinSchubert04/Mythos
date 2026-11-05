@@ -18,6 +18,7 @@
 // "no contesta ninguna": antes de pasar al local se prueba el resto, y para volver alcanza con que
 // conteste una. El server del dispositivo sincroniza por la que se este usando.
 import { api, ApiError, getLocalToken, onUnreachable, remoteToken, setLocalBase, setLocalToken, setToken, useLocal } from "./api";
+import { t } from "./i18n.svelte";
 import { markUp, net } from "./net.svelte";
 import { deviceLabel, isRemoteShell, isTauri, remoteBase } from "./platform";
 import { prefs } from "./prefs.svelte";
@@ -111,14 +112,14 @@ function goLocal(notice: boolean) {
   conn.on = "local";
   // El aviso de "no se llega al server" ya no corresponde: se sigue en el local.
   markUp();
-  if (notice && prefs.localNotice) toast("Server unavailable, continuing locally");
+  if (notice && prefs.localNotice) toast(t("account.local.toLocal"));
 }
 
 function goRemote(notice: boolean) {
   useLocal(false);
   if (conn.on === "server") return;
   conn.on = "server";
-  if (notice && prefs.localNotice) toast("Back on the server · synced");
+  if (notice && prefs.localNotice) toast(t("account.local.toServer"));
   // Las vistas se recargan con los datos del server (el reproductor no: sigue donde arranco).
   net.epoch++;
 }
@@ -244,7 +245,7 @@ export async function startConn() {
 
 /** Login por el local (Auto / Solo local). Guarda las dos sesiones y elige a quien hablarle. */
 export async function loginLocal(username: string, password: string): Promise<{ user: User; r: LocalLogin }> {
-  if (conn.error) throw new Error(`The local server didn't start: ${conn.error}`);
+  if (conn.error) throw new Error(t("account.conn.localFailed", { e: conn.error }));
   const r = await api.localLogin({ username, password, device: deviceLabel(), remote_url: remoteBase() || location.origin });
   // Una sesion del server de casa vieja (de antes) queda de mas: se cierra.
   const old = remoteToken();
@@ -298,15 +299,15 @@ export async function setMode(mode: ConnMode): Promise<"ok" | "signin"> {
 export function connDetail(): string {
   if (conn.on === "server") {
     const via = activeLabel() ? ` (${activeLabel()})` : "";
-    return conn.mode === "auto" ? `Connected to your server${via}. Switches to this device if the server goes down.` : `Connected to your server${via}.`;
+    return conn.mode === "auto" ? t("account.local.connectedAuto", { via }) : t("account.local.connected", { via });
   }
   const s = conn.status;
-  const parts = ["Running on this device"];
-  if (conn.needsSignIn) parts.push("sign in again to sync with your server");
+  const parts = [t("account.local.running")];
+  if (conn.needsSignIn) parts.push(t("account.local.signInToSync"));
   else if (s) {
-    if (s.pending_changes > 0) parts.push(`${s.pending_changes} ${s.pending_changes === 1 ? "change" : "changes"} waiting to sync`);
-    else if (s.last_sync_at) parts.push("everything synced");
-    if (s.remote_reachable === false) parts.push("server unreachable");
+    if (s.pending_changes > 0) parts.push(t("account.local.pending", { n: s.pending_changes }));
+    else if (s.last_sync_at) parts.push(t("account.local.allSynced"));
+    if (s.remote_reachable === false) parts.push(t("account.local.unreachable"));
   }
   return parts.join(" · ");
 }

@@ -2,6 +2,7 @@
 // de titulo; en Android, el boton atras, la pantalla completa nativa y las actualizaciones
 // (lib/shell.svelte.ts). Aca esta lo demas: las direcciones del server y los controles de la ventana.
 // @tauri-apps/api se importa solo dentro de Tauri (import dinamico): en la web nunca se descarga.
+import { t } from "./i18n.svelte";
 import { back, route } from "./router.svelte";
 import { read, write } from "./store";
 
@@ -95,23 +96,33 @@ export function needsServer(): boolean {
   return pickServer && !(remote || DEFAULT_SERVER).trim() && !import.meta.env.DEV;
 }
 
-/** Nombre deducido de una direccion: "Tailscale" (*.ts.net o 100.64.0.0/10), "Home network" (IP
- *  privada, *.local, *.lan, *.home), "This computer" (loopback); si no, el host. */
-export function addrLabel(url: string): string {
+/** Que tipo de direccion es: "tailscale" (*.ts.net o 100.64.0.0/10), "home" (IP privada, *.local,
+ *  *.lan, *.home), "self" (loopback); si no, el host (o la URL, si no se entiende). */
+export function addrKind(url: string): "tailscale" | "home" | "self" | { host: string } {
   let host = "";
   try {
     host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
   } catch {
-    return url;
+    return { host: url };
   }
-  if (host.endsWith(".ts.net")) return "Tailscale";
+  if (host.endsWith(".ts.net")) return "tailscale";
   const ip = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
   const [a, b] = ip ? [Number(ip[1]), Number(ip[2])] : [-1, -1];
-  if (a === 100 && b >= 64 && b < 128) return "Tailscale";
-  if (a === 127 || host === "localhost" || host === "::1") return "This computer";
+  if (a === 100 && b >= 64 && b < 128) return "tailscale";
+  if (a === 127 || host === "localhost" || host === "::1") return "self";
   if (a === 10 || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || /\.(local|lan|home|internal)$/.test(host) || /^f[cd][0-9a-f]{2}:/.test(host))
-    return "Home network";
-  return host;
+    return "home";
+  return { host };
+}
+
+/** Nombre deducido de una direccion, para mostrar: "Tailscale", "Red de casa", "Esta compu"; si
+ *  no, el host. */
+export function addrLabel(url: string): string {
+  const k = addrKind(url);
+  if (k === "tailscale") return "Tailscale";
+  if (k === "home") return t("account.addr.home");
+  if (k === "self") return t("account.addr.self");
+  return k.host;
 }
 
 /** Etiqueta de este dispositivo para la lista de sesiones (Settings → Account): "Mythos Desktop ·
@@ -158,16 +169,17 @@ const hostOf = (url: string) => url.replace(/^https?:\/\//, "");
 /** Parece una direccion de server (http(s)://host[:puerto], sin camino). */
 export const isAddress = (url: string) => /^https?:\/\/[^/\s]+$/.test(url);
 
-/** ¿Hay un Mythos en esa direccion? `error` vacio si contesta (con lo que contesto en `probe`). */
-export async function checkServer(url: string, timeoutMs = 6000): Promise<{ probe: Probe | null; error: string }> {
-  if (!isAddress(url)) return { probe: null, error: "That doesn't look like an address. Example: https://my-server.ts.net:7700" };
+/** ¿Hay un Mythos en esa direccion? `error` vacio si contesta (con lo que contesto en `probe`);
+ *  `down`: no contesto (los otros errores son una direccion mal escrita o el server de una app). */
+export async function checkServer(url: string, timeoutMs = 6000): Promise<{ probe: Probe | null; error: string; down: boolean }> {
+  if (!isAddress(url)) return { probe: null, error: t("account.addr.notAddress"), down: false };
   let p = await probeServer(url, timeoutMs);
   // Android 17 corta la red local sin permiso (un server con IP de la casa): se pide y se
   // prueba de nuevo. Si ya estaba dado (o no existe), no se repite.
   if (!p && isAndroid && (await shellInvoke<boolean>("request_network").catch(() => true)) === true) p = await probeServer(url, timeoutMs);
-  if (p?.mode === "local") return { probe: null, error: `${hostOf(url)} is the server inside a Mythos app, not your server.` };
-  if (p) return { probe: p, error: "" };
-  return { probe: null, error: `Can't reach a Mythos server at ${hostOf(url)}. Check the address and that the server is running.` };
+  if (p?.mode === "local") return { probe: null, error: t("account.addr.appServer", { host: hostOf(url) }), down: false };
+  if (p) return { probe: p, error: "", down: false };
+  return { probe: null, error: t("account.addr.unreachable", { host: hostOf(url) }), down: true };
 }
 
 type TauriWindow = import("@tauri-apps/api/window").Window;

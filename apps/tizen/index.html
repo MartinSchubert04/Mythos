@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <!-- La pagina local de la app de Samsung (docs/tizen.md): elige el server y abre su interfaz. -->
+    <!-- La pagina local de la app de Samsung (docs/tizen.md): elige el server y abre su interfaz.
+         Los textos van en español; con la tele en ingles, shell.js pone los de data-t en ingles. -->
     <meta name="viewport" content="width=960" />
     <title>Mythos</title>
     <link rel="stylesheet" href="shell.css" />
@@ -13,22 +14,22 @@
       <h1>Mythos</h1>
 
       <section id="connecting" hidden>
-        <p class="lead" id="connecting-text">Connecting…</p>
-        <button class="btn" id="change">Change server</button>
+        <p class="lead" id="connecting-text">Conectando…</p>
+        <button class="btn" id="change" data-t="change">Cambiar de servidor</button>
       </section>
 
       <section id="setup" hidden>
-        <p class="lead">Enter the address of your Mythos server on your home network.</p>
+        <p class="lead" data-t="setupLead">Escribí la dirección de tu servidor de Mythos en la red de tu casa.</p>
         <label class="field">
-          <span>Server address</span>
+          <span data-t="addrLabel">Dirección del servidor</span>
           <input id="addr" type="text" inputmode="url" autocomplete="off" spellcheck="false"
                  placeholder="http://192.168.x.x:7700" />
         </label>
-        <p class="hint">Without <b>http://</b> and a port it uses <b>http://</b> and <b>:7700</b>. The TV can't use Tailscale: use the server's address at home.</p>
+        <p class="hint" data-t="addrHint">Sin <b>http://</b> ni puerto, usa <b>http://</b> y <b>:7700</b>. La tele no puede usar Tailscale: usá la dirección del servidor en tu casa.</p>
         <p class="error" id="error" role="alert"></p>
         <div class="row">
-          <button class="btn primary" id="connect">Connect</button>
-          <button class="btn" id="find">Find on this network</button>
+          <button class="btn primary" id="connect" data-t="connect">Conectar</button>
+          <button class="btn" id="find" data-t="find">Buscar en esta red</button>
         </div>
         <div class="found" id="found"></div>
       </section>

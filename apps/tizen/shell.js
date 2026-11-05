@@ -3,10 +3,12 @@
 // ES5 a proposito: en una tele vieja tiene que poder decir que no alcanza en vez de quedar en negro.
 //
 // - Primera vez: el campo para la direccion (el teclado de la tele se abre con el centro del
-//   control) y "Find on this network", que busca un Mythos en :7700 en la red de la tele.
-// - Despues: "Connecting to ..." con "Change server" un momento, y a la interfaz.
+//   control) y "Buscar en esta red", que busca un Mythos en :7700 en la red de la tele.
+// - Despues: "Conectando a ..." con "Cambiar de servidor" un momento, y a la interfaz.
 // - Al volver aca desde la interfaz (atras en el inicio, si esa pagina no puede cerrar la app), se
 //   cierra la app.
+// - Idioma: español, o ingles si la tele esta en ingles (navigator.language). Los textos fijos de
+//   index.html llevan data-t y estan en español; los de aca salen de TXT.
 (function () {
   var KEY = "mythos.tizen.server";
   // Lo que pide la interfaz (apps/web/index.html): color-mix, :has, AbortSignal.timeout.
@@ -17,6 +19,53 @@
   var IME_DONE = 65376;
   var IME_CANCEL = 65385;
   var PORT = 7700;
+
+  var LANG = /^en/i.test(navigator.language || "") ? "en" : "es";
+  var TXT = {
+    es: {
+      connecting: "Conectando…",
+      connectingTo: "Conectando a {0}…",
+      change: "Cambiar de servidor",
+      setupLead: "Escribí la dirección de tu servidor de Mythos en la red de tu casa.",
+      addrLabel: "Dirección del servidor",
+      addrHint: "Sin <b>http://</b> ni puerto, usa <b>http://</b> y <b>:7700</b>. La tele no puede usar Tailscale: usá la dirección del servidor en tu casa.",
+      connect: "Conectar",
+      find: "Buscar en esta red",
+      searching: "Buscando…",
+      local: "{0} es el servidor que trae una app de Mythos, no tu servidor.",
+      unreachable: "No hay un servidor de Mythos en {0}. Revisá la dirección y que el servidor esté andando.",
+      notAddress: "Eso no parece una dirección. Por ejemplo: http://192.168.0.20:7700",
+      noNetwork: "No se puede saber la red de esta tele. Escribí la dirección a mano.",
+      notFound: "No se encontró un servidor de Mythos en {0}. Escribí la dirección a mano.",
+      old: "El motor web de esta tele (Chromium {0}) es demasiado viejo para Mythos, que necesita Chromium {1} o más nuevo (teles Samsung de 2024 en adelante). Usá Mythos en el navegador de otro dispositivo."
+    },
+    en: {
+      connecting: "Connecting…",
+      connectingTo: "Connecting to {0}…",
+      change: "Change server",
+      setupLead: "Enter the address of your Mythos server on your home network.",
+      addrLabel: "Server address",
+      addrHint: "Without <b>http://</b> and a port it uses <b>http://</b> and <b>:7700</b>. The TV can't use Tailscale: use the server's address at home.",
+      connect: "Connect",
+      find: "Find on this network",
+      searching: "Searching…",
+      local: "{0} is the server inside a Mythos app, not your server.",
+      unreachable: "Can't reach a Mythos server at {0}. Check the address and that the server is running.",
+      notAddress: "That doesn't look like an address. Example: http://192.168.0.20:7700",
+      noNetwork: "Can't tell this TV's network. Enter the address by hand.",
+      notFound: "No Mythos server found on {0}. Enter the address by hand.",
+      old: "This TV's web engine (Chromium {0}) is too old for Mythos, which needs Chromium {1} or newer (Samsung TVs from 2024 on). Use Mythos in a browser on another device instead."
+    }
+  };
+  /** El texto `k` en el idioma de la tele, con {0} y {1} reemplazados. */
+  function tr(k, a, b) {
+    return String(TXT[LANG][k]).replace("{0}", a === undefined ? "" : a).replace("{1}", b === undefined ? "" : b);
+  }
+  document.documentElement.lang = LANG;
+  if (LANG !== "es") {
+    var fixed = document.querySelectorAll("[data-t]");
+    for (var ti = 0; ti < fixed.length; ti++) fixed[ti].innerHTML = tr(fixed[ti].getAttribute("data-t"));
+  }
 
   var $ = function (id) { return document.getElementById(id); };
   var hasTizen = typeof tizen !== "undefined" && !!tizen.application;
@@ -169,15 +218,15 @@
   function connecting(url) {
     cancelled = false;
     show("connecting");
-    $("connecting-text").textContent = "Connecting to " + host(url) + "…";
+    $("connecting-text").textContent = tr("connectingTo", host(url));
     focus($("change"));
     var t0 = Date.now();
     check(url, function (r) {
       if (cancelled) return;
       if (r !== "ok") {
-        return setup(r === "local" ? host(url) + " is the server inside a Mythos app, not your server." : "Can't reach a Mythos server at " + host(url) + ". Check the address and that the server is running.", url);
+        return setup(tr(r === "local" ? "local" : "unreachable", host(url)), url);
       }
-      // Un momento para poder apretar "Change server".
+      // Un momento para poder apretar "Cambiar de servidor".
       setTimeout(function () {
         if (!cancelled) open(url);
       }, Math.max(0, 900 - (Date.now() - t0)));
@@ -186,16 +235,16 @@
 
   function connect() {
     var url = normalize($("addr").value);
-    if (!isAddress(url)) return setError("That doesn't look like an address. Example: http://192.168.0.20:7700");
+    if (!isAddress(url)) return setError(tr("notAddress"));
     setError("");
     var b = $("connect");
     b.disabled = true;
-    b.textContent = "Connecting…";
+    b.textContent = tr("connecting");
     check(url, function (r) {
       b.disabled = false;
-      b.textContent = "Connect";
+      b.textContent = tr("connect");
       if (r === "ok") return open(url);
-      setError(r === "local" ? host(url) + " is the server inside a Mythos app, not your server." : "Can't reach a Mythos server at " + host(url) + ". Check the address and that the server is running.");
+      setError(tr(r === "local" ? "local" : "unreachable", host(url)));
       focus(b);
     });
   }
@@ -224,15 +273,15 @@
     var list = $("found");
     if (b.disabled) return;
     b.disabled = true;
-    b.textContent = "Searching…";
+    b.textContent = tr("searching");
     list.innerHTML = "";
     setError("");
     localIp(function (ip) {
       var m = /^(\d+\.\d+\.\d+)\.(\d+)$/.exec(ip);
       if (!m) {
         b.disabled = false;
-        b.textContent = "Find on this network";
-        return setError("Can't tell this TV's network. Enter the address by hand.");
+        b.textContent = tr("find");
+        return setError(tr("noNetwork"));
       }
       var base = m[1];
       var found = 0;
@@ -264,8 +313,8 @@
         }
         if (!running && !pending.length) {
           b.disabled = false;
-          b.textContent = "Find on this network";
-          if (!found) setError("No Mythos server found on " + base + ".x:" + PORT + ". Enter the address by hand.");
+          b.textContent = tr("find");
+          if (!found) setError(tr("notFound", base + ".x:" + PORT));
         }
       };
       pump();
@@ -361,7 +410,7 @@
   var v = m ? parseInt(m[1], 10) : 0;
   if (v && v < MIN_CHROME) {
     show("old");
-    $("old-text").textContent = "This TV's web engine (Chromium " + v + ") is too old for Mythos, which needs Chromium " + MIN_CHROME + " or newer (Samsung TVs from 2024 on). Use Mythos in a browser on another device instead.";
+    $("old-text").textContent = tr("old", v, MIN_CHROME);
     return;
   }
   registerKeys();

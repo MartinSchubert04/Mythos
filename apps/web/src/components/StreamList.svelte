@@ -7,6 +7,7 @@
   import { errText } from "../lib/api";
   import { canVlc, copyText, openInVlc } from "../lib/external";
   import { bytes, seedTone } from "../lib/format";
+  import { t } from "../lib/i18n.svelte";
   import { press } from "../lib/press";
   import { toast } from "../lib/toast.svelte";
   import { tv } from "../lib/tv.svelte";
@@ -30,32 +31,31 @@
 
   let menu = $state<{ s: Stream; x: number; y: number } | null>(null);
   const withMenu = $derived(!!linkFor && !tv.on);
-  const WARN = "The link includes your session: anyone who has it can watch as you. Don't share it.";
   const items = (s: Stream): PopItem[] => [
     ...(canVlc
       ? [
           {
-            label: "Open in VLC",
+            label: t("browse.streams.vlc"),
             icon: ExternalLink,
-            title: WARN,
+            title: t("browse.streams.warn"),
             run: async () => {
               try {
                 await openInVlc(await linkFor!(s));
               } catch (e) {
-                toast(String(e).includes("VLC") ? String(e) : `Couldn't open VLC: ${errText(e)}`, true);
+                toast(String(e).includes("VLC") ? String(e) : t("browse.streams.vlcFailed", { e: errText(e) }), true);
               }
             },
           },
         ]
       : []),
     {
-      label: "Copy stream link",
+      label: t("browse.streams.copy"),
       icon: Copy,
-      title: WARN,
+      title: t("browse.streams.warn"),
       run: async () => {
         try {
           await copyText(await linkFor!(s));
-          toast("Link copied. It includes your session, so don't share it.");
+          toast(t("browse.streams.copied"));
         } catch (e) {
           toast(errText(e), true);
         }
@@ -92,7 +92,7 @@
         <span class="main">
           <span class="title ellipsis" title={s.title}>{s.title}</span>
           <span class="facts">
-            {#if s.cached}<span class="chip ok instant"><Zap size={11} fill="currentColor" />Instant</span>{/if}
+            {#if s.cached}<span class="chip ok instant"><Zap size={11} fill="currentColor" />{t("browse.streams.instant")}</span>{/if}
             {#if s.size_bytes}<span class="fact"><HardDrive size={12} />{bytes(s.size_bytes)}</span>{/if}
             {#if s.seeders != null}<span class="fact seed {seedTone(s.seeders)}"><Users size={12} />{s.seeders}</span>{/if}
             {#if s.source}<span class="fact src">{s.source}</span>{/if}
@@ -100,28 +100,28 @@
           </span>
           {#if s.tags.length}
             <span class="tags">
-              {#each s.tags as t (t)}<span class="chip" class:accent={t === "HDR" || t === "DV" || t === "REMUX"}>{t}</span>{/each}
+              {#each s.tags as tag (tag)}<span class="chip" class:accent={tag === "HDR" || tag === "DV" || tag === "REMUX"}>{tag}</span>{/each}
             </span>
           {/if}
         </span>
-        {#if s.key === current}<span class="cur"><Check size={16} /></span>{:else if i === 0}<span class="best">Best</span>{/if}
+        {#if s.key === current}<span class="cur"><Check size={16} /></span>{:else if i === 0}<span class="best">{t("browse.streams.best")}</span>{/if}
       </button>
       {#if withMenu}
-        <button class="more" class:open={menu?.s.key === s.key} title="More" aria-label="More options" aria-haspopup="menu" onclick={(e) => fromButton(e, s)}>
+        <button class="more" class:open={menu?.s.key === s.key} title={t("browse.streams.more")} aria-label={t("browse.streams.moreOptions")} aria-haspopup="menu" onclick={(e) => fromButton(e, s)}>
           <Ellipsis size={16} />
         </button>
       {/if}
     </div>
   {:else}
     <div class="none">
-      <b>No streams found</b>
-      <span>It may be too new, or the size and quality limits in Settings leave nothing out. Try again in a while.</span>
+      <b>{t("browse.streams.none")}</b>
+      <span>{t("browse.streams.noneHint")}</span>
     </div>
   {/each}
 </div>
 
 {#if menu}
-  <PopMenu x={menu.x} y={menu.y} items={items(menu.s)} {onmedia} label="Stream options" onclose={() => (menu = null)} />
+  <PopMenu x={menu.x} y={menu.y} items={items(menu.s)} {onmedia} label={t("browse.streams.options")} onclose={() => (menu = null)} />
 {/if}
 
 <style>

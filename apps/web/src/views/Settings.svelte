@@ -32,14 +32,14 @@
   let theme = $state<ThemeId>(currentTheme());
   let palette = $state(currentPalette(currentTheme()));
   // La muestra de cada tema usa la paleta que tiene elegida.
-  const swatchOf = (t: ThemeId) => palettesOf(t).find((p) => p.id === currentPalette(t))?.swatch ?? ["#000", "#000", "#000"];
-  const themeName = $derived(THEMES.find((t) => t.id === theme)?.name ?? "");
+  const swatchOf = (th: ThemeId) => palettesOf(th).find((p) => p.id === currentPalette(th))?.swatch ?? ["#000", "#000", "#000"];
+  const themeName = $derived(THEMES.find((th) => th.id === theme)?.name ?? "");
   const paletteName = $derived(palettesOf(theme).find((p) => p.id === palette)?.name ?? "");
 
-  function pickTheme(t: ThemeId) {
-    theme = t;
-    palette = currentPalette(t);
-    applyTheme(t, palette);
+  function pickTheme(th: ThemeId) {
+    theme = th;
+    palette = currentPalette(th);
+    applyTheme(th, palette);
     savePrefs();
   }
   function pickPalette(p: string) {
@@ -69,10 +69,10 @@
   const touchOnly = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches && !tv.on;
 
   const SIZES = [
-    { value: 80, label: "Small" },
-    { value: 100, label: "Normal" },
-    { value: 125, label: "Large" },
-    { value: 150, label: "Huge" },
+    { value: 80, get label() { return t("account.subs.small"); } },
+    { value: 100, get label() { return t("account.subs.normal"); } },
+    { value: 125, get label() { return t("account.subs.large"); } },
+    { value: 150, get label() { return t("account.subs.huge"); } },
   ];
 
   // ---- Real-Debrid
@@ -81,7 +81,7 @@
   async function saveRd(value: string) {
     const ok = await attempt(async () => {
       session.settings = await api.saveSettings({ rd_key: value });
-    }, value ? "Real-Debrid key saved" : "Real-Debrid key removed");
+    }, value ? t("account.rd.saved") : t("account.rd.removed"));
     if (ok) rdKey = "";
   }
 
@@ -89,8 +89,8 @@
   let oldPw = $state("");
   let newPw = $state("");
   async function changePw() {
-    if (newPw.length < 4) return attempt(() => Promise.reject(new Error("Use at least 4 characters")));
-    if (await attempt(() => api.changePassword(oldPw, newPw), "Password changed")) oldPw = newPw = "";
+    if (newPw.length < 4) return attempt(() => Promise.reject(new Error(t("account.pw.short"))));
+    if (await attempt(() => api.changePassword(oldPw, newPw), t("account.pw.changed"))) oldPw = newPw = "";
   }
   let newName = $state(session.user?.username ?? "");
   let renaming = $state(false);
@@ -103,17 +103,17 @@
       session.user = u;
       newName = u.username;
       syncProfile(u);
-      toast(`You're now ${u.username}`);
+      toast(t("account.renamed", { name: u.username }));
     } catch (e) {
-      toast(e instanceof ApiError && e.status === 409 ? "That username is taken." : errText(e), true);
+      toast(e instanceof ApiError && e.status === 409 ? t("account.nameTaken") : errText(e), true);
     } finally {
       renaming = false;
     }
   }
 
   async function signOut() {
-    const body = tv.on ? "This TV forgets this profile. You'll need the password to add it again." : "You'll need your password to come back.";
-    if (await ask({ title: tv.on ? "Remove this profile?" : "Sign out?", body, confirm: tv.on ? "Remove profile" : "Sign out" })) logout();
+    const body = tv.on ? t("account.out.tvBody") : t("account.out.body");
+    if (await ask({ title: tv.on ? t("account.out.tvTitle") : t("account.out.title"), body, confirm: tv.on ? t("account.removeProfile") : t("account.signOut") })) logout();
   }
   /** Lo mismo que salir (las dos sesiones, en desktop y Android): queda el login con el server. En
    *  la TV, los perfiles guardados (sin salir de nada). */
@@ -122,7 +122,7 @@
       profiles.picking = true;
       return;
     }
-    if (await ask({ title: "Switch account?", body: "You'll sign out here and can sign in with another account on the same server.", confirm: "Switch" })) logout();
+    if (await ask({ title: t("account.switch.title"), body: t("account.switch.body"), confirm: t("account.switch.confirm") })) logout();
   }
 
   // ---- Android y desktop: actualizaciones desde los Releases de GitHub
@@ -143,13 +143,13 @@
   async function toggleServerUi(on: boolean) {
     if (!(await setRemoteUi(on, remoteBase()))) {
       useServerUi = false;
-      toast("This server can't provide the interface. Update it and try again.", true);
+      toast(t("account.app.noServerUi"), true);
     }
   }
   async function updateNow() {
     try {
       if (!(await installUpdate()))
-        toast(isAndroid ? 'Allow "Install unknown apps" for Mythos, then tap Update now again.' : "The update is no longer available. Check again.", !isAndroid);
+        toast(isAndroid ? t("account.app.allowInstall") : t("account.app.gone"), !isAndroid);
     } catch (e) {
       toast(String(e), true);
     }
@@ -157,30 +157,30 @@
 </script>
 
 <div class="page" use:keepScroll={"settings"}>
-  <div class="page-head"><h1>Settings</h1></div>
+  <div class="page-head"><h1>{t("nav.settings")}</h1></div>
 
   <div class="sections">
-    <Section id="appearance" title="Appearance" icon={Palette} summary="{themeName} · {paletteName}">
+    <Section id="appearance" title={t("account.look.title")} icon={Palette} summary="{themeName} · {paletteName}">
       <div class="field ui-lang">
         {t("common.uiLanguage")}
         <Seg value={i18n.lang} options={UI_LANGS} onchange={(v) => setUiLang(v)} />
         <span class="hint">{t("common.uiLanguageHint")}</span>
       </div>
-      <div class="sub">Theme</div>
+      <div class="sub">{t("account.look.theme")}</div>
       <div class="themes">
-        {#each THEMES as t, i (t.id)}
-          {@const sw = theme === t.id ? (palettesOf(t.id).find((p) => p.id === palette)?.swatch ?? swatchOf(t.id)) : swatchOf(t.id)}
-          <button class="theme card stagger" style="--i: {i}" class:on={theme === t.id} onclick={() => pickTheme(t.id)}>
+        {#each THEMES as th, i (th.id)}
+          {@const sw = theme === th.id ? (palettesOf(th.id).find((p) => p.id === palette)?.swatch ?? swatchOf(th.id)) : swatchOf(th.id)}
+          <button class="theme card stagger" style="--i: {i}" class:on={theme === th.id} onclick={() => pickTheme(th.id)}>
             <div class="sw" style="background: linear-gradient(135deg, {sw[0]} 0 45%, {sw[1]} 45% 75%, {sw[2]} 75%)">
               <span class="mini-poster" style="background: {sw[1]}; border-color: {sw[2]}"></span>
               <span class="mini-poster" style="background: {sw[0]}; border-color: {sw[2]}"></span>
               <span class="mini-bar" style="background: {sw[2]}"></span>
             </div>
-            <span>{t.name}</span>
+            <span>{th.name}</span>
           </button>
         {/each}
       </div>
-      <div class="sub">Palette for {themeName}</div>
+      <div class="sub">{t("account.look.paletteFor", { theme: themeName })}</div>
       <div class="palettes">
         {#each palettesOf(theme) as p (p.id)}
           <button class="pal" class:on={palette === p.id} onclick={() => pickPalette(p.id)}>
@@ -191,24 +191,24 @@
           </button>
         {/each}
       </div>
-      <Switch bind:checked={prefs.reduceMotion} onchange={() => savePrefs()}>Reduce motion (no animations or transitions)</Switch>
+      <Switch bind:checked={prefs.reduceMotion} onchange={() => savePrefs()}>{t("account.look.reduceMotion")}</Switch>
       {#if !isAndroid}
         <!-- Modo TV en la web (lib/tv.svelte.ts): en la app de Android es automatico. -->
-        <Switch checked={tv.on} onchange={(v) => setTvPref(v ? "on" : "off")}>TV mode (remote control)</Switch>
+        <Switch checked={tv.on} onchange={(v) => setTvPref(v ? "on" : "off")}>{t("account.look.tv")}</Switch>
         <span class="app-hint">
-          Big focus ring and arrow-key navigation for a TV remote: arrows move, Enter selects, Back goes back. Saved in this browser.
+          {t("account.look.tvHint")}
           {#if tv.pref}
-            <button class="btn ghost sm" onclick={() => setTvPref(null)}>Detect automatically</button>
+            <button class="btn ghost sm" onclick={() => setTvPref(null)}>{t("account.look.tvDetect")}</button>
           {:else}
-            Detected automatically ({tv.auto ? "this looks like a TV" : "this doesn't look like a TV"}).
+            {tv.auto ? t("account.look.tvAutoYes") : t("account.look.tvAutoNo")}
           {/if}
         </span>
       {/if}
       {#if isDesktop}
-        <Switch checked={glass.on} onchange={(v) => setGlass(v)}>Frosted glass window (see your desktop blurred behind Mythos)</Switch>
+        <Switch checked={glass.on} onchange={(v) => setGlass(v)}>{t("account.look.glass")}</Switch>
         {#if glass.on}
           <label class="field glass-op">
-            <span class="glass-name">Opacity <span class="faint">{Math.round(glass.opacity * 100)}%</span></span>
+            <span class="glass-name">{t("account.look.opacity")} <span class="faint">{Math.round(glass.opacity * 100)}%</span></span>
             <input
               type="range"
               min={MIN_OPACITY}
@@ -219,7 +219,7 @@
               oninput={(e) => setGlass(true, +e.currentTarget.value, false)}
               onchange={(e) => setGlass(true, +e.currentTarget.value)}
             />
-            <span class="hint">Lower is more see-through. Works with every theme.</span>
+            <span class="hint">{t("account.look.opacityHint")}</span>
           </label>
         {/if}
       {/if}
@@ -227,88 +227,88 @@
 
     <Section
       id="playback"
-      title="Playback"
+      title={t("account.play.title")}
       icon={Play}
-      summary="{quality}{maxGb ? ` · up to ${maxGb} GB` : ''} · {prefs.autoplayNext ? 'autoplay on' : 'autoplay off'}"
+      summary="{quality}{maxGb ? ` · ${t('account.play.upTo', { n: maxGb })}` : ''} · {prefs.autoplayNext ? t('account.play.autoOn') : t('account.play.autoOff')}"
     >
       <div class="grid2">
         <div class="field">
-          Preferred quality
+          {t("account.play.quality")}
           <Seg
             value={quality}
             options={QUALITIES}
             onchange={(v) => ((quality = v), saveServer({ preferred_quality: v }))}
           />
-          <span class="hint">Streams in this quality go first. Lower ones start faster on slow connections.</span>
+          <span class="hint">{t("account.play.qualityHint")}</span>
         </div>
         <div class="field">
-          Maximum file size
+          {t("account.play.maxSize")}
           <Select
             bind:value={maxGb}
             options={[
-              { value: 0, label: "No limit" },
+              { value: 0, label: t("account.play.noLimit") },
               ...[2, 4, 8, 15, 25, 40, 60].map((n) => ({ value: n, label: `${n} GB` })),
             ]}
             onchange={(v) => saveServer({ max_size_gb: v || null })}
           />
-          <span class="hint">Bigger files are skipped when choosing the best stream.</span>
+          <span class="hint">{t("account.play.maxSizeHint")}</span>
         </div>
         <div class="field">
-          Audio language
+          {t("account.play.audio")}
           <Select bind:value={prefs.audioLang} options={AUDIO_LANGS} onchange={() => savePrefs()} />
-          <span class="hint">Streams in this language go first (from tags like "Latino" or "Castellano"), and that audio track is picked when a file has several.</span>
+          <span class="hint">{t("account.play.audioHint")}</span>
         </div>
       </div>
-      <Switch bind:checked={prefs.autoplayNext} onchange={() => savePrefs()}>Play the next episode automatically (10 second countdown)</Switch>
-      <Switch bind:checked={prefs.hideSpoilers} onchange={() => savePrefs()}>Hide spoilers (blur images and descriptions of episodes you haven't started)</Switch>
+      <Switch bind:checked={prefs.autoplayNext} onchange={() => savePrefs()}>{t("account.play.autoplay")}</Switch>
+      <Switch bind:checked={prefs.hideSpoilers} onchange={() => savePrefs()}>{t("account.play.spoilers")}</Switch>
     </Section>
 
     <Section
       id="subtitles"
-      title="Subtitles"
+      title={t("account.subs.title")}
       icon={Captions}
       summary="{LANGS.find((l) => l.value === prefs.subLang)?.label ?? prefs.subLang} · {SIZES.find((s) => s.value === prefs.subSize)?.label ?? `${prefs.subSize}%`}"
     >
       <div class="grid2">
         <div class="field">
-          Preferred language
+          {t("account.subs.lang")}
           <Select bind:value={prefs.subLang} options={LANGS} onchange={() => savePrefs()} />
-          <span class="hint">Turned on by itself whenever a movie or episode has them{prefs.subAlways ? "" : ", unless the audio is already in that language"}.</span>
+          <span class="hint">{prefs.subAlways ? t("account.subs.langHintAlways") : t("account.subs.langHint")}</span>
         </div>
         <div class="field">
-          Size
+          {t("account.subs.size")}
           <Seg bind:value={prefs.subSize} options={SIZES} onchange={(v) => ((prefs.subSize = v), savePrefs())} />
         </div>
       </div>
-      <Switch bind:checked={prefs.subAlways} onchange={() => savePrefs()} disabled={!prefs.subLang}>Also when the audio is already in that language</Switch>
+      <Switch bind:checked={prefs.subAlways} onchange={() => savePrefs()} disabled={!prefs.subLang}>{t("account.subs.always")}</Switch>
       <div class="sub-preview">
-        <span style="font-size: calc(clamp(18px, 2.4vw, 40px) * {prefs.subSize / 100} * 0.7)">This is how subtitles will look.</span>
+        <span style="font-size: calc(clamp(18px, 2.4vw, 40px) * {prefs.subSize / 100} * 0.7)">{t("account.subs.preview")}</span>
       </div>
     </Section>
 
-    <Section id="rd" title="Real-Debrid" icon={KeyRound} summary={hasRd ? "Key stored · cached streams start instantly" : "Not set"}>
+    <Section id="rd" title="Real-Debrid" icon={KeyRound} summary={hasRd ? t("account.rd.stored") : t("account.rd.notSet")}>
       <div class="field">
-        API key
+        {t("account.rd.key")}
         <div class="row">
           <input
             type="password"
             bind:value={rdKey}
-            placeholder={hasRd ? "Stored. Type to replace." : "Paste your key from real-debrid.com/apitoken"}
+            placeholder={hasRd ? t("account.rd.replace") : t("account.rd.paste")}
             autocomplete="off"
             spellcheck="false"
           />
-          <button class="btn primary" disabled={!rdKey.trim()} onclick={() => saveRd(rdKey.trim())}>Save</button>
-          {#if hasRd}<button class="btn danger" onclick={() => saveRd("")}>Remove</button>{/if}
+          <button class="btn primary" disabled={!rdKey.trim()} onclick={() => saveRd(rdKey.trim())}>{t("common.save")}</button>
+          {#if hasRd}<button class="btn danger" onclick={() => saveRd("")}>{t("common.remove")}</button>{/if}
         </div>
-        <span class="hint">Optional. With a key, streams cached in Real-Debrid play right away over HTTP. It never leaves the server.</span>
+        <span class="hint">{t("account.rd.hint")}</span>
       </div>
     </Section>
 
     {#if !touchOnly}
-      <Section id="keys" title="Keyboard shortcuts" icon={Keyboard} summary="Search, rows and the player">
+      <Section id="keys" title={t("account.keys.title")} icon={Keyboard} summary={t("account.keys.summary")}>
         <div class="keys">
           {#each KEYS as [k, what] (k + what)}
-            <div class="key-row"><span class="kbds">{#each k.split("  ·  ") as one, i (one)}{#if i}<span class="or">or</span>{/if}<kbd>{one}</kbd>{/each}</span><span class="what">{what}</span></div>
+            <div class="key-row"><span class="kbds">{#each k.split("  ·  ") as one, i (one)}{#if i}<span class="or">{t("player.or")}</span>{/if}<kbd>{one}</kbd>{/each}</span><span class="what">{what}</span></div>
           {/each}
         </div>
       </Section>
@@ -316,49 +316,49 @@
 
     {#if conn.available}<ConnectionSettings />{/if}
 
-    <Section id="account" title="Account" icon={UserRound} summary="Signed in as {session.user?.username}">
-      <div class="sub">Avatar</div>
+    <Section id="account" title={t("account.title")} icon={UserRound} summary={t("account.signedInAs", { name: session.user?.username ?? "" })}>
+      <div class="sub">{t("account.avatar")}</div>
       <AvatarPicker />
-      <div class="sub">Username</div>
+      <div class="sub">{t("account.username")}</div>
       <div class="row">
         <input bind:value={newName} autocomplete="username" spellcheck="false" autocapitalize="off" maxlength="32" />
-        <button class="btn" disabled={renaming || !newName.trim() || newName.trim() === session.user?.username} onclick={rename}>Rename</button>
+        <button class="btn" disabled={renaming || !newName.trim() || newName.trim() === session.user?.username} onclick={rename}>{t("account.rename")}</button>
       </div>
-      {#if conn.on === "local"}<span class="app-hint">Running on this device: the username can only change on your server (this device picks it up when it syncs).</span>{/if}
-      <div class="sub">Change password</div>
+      {#if conn.on === "local"}<span class="app-hint">{t("account.renameLocal")}</span>{/if}
+      <div class="sub">{t("account.pw.title")}</div>
       <div class="grid2">
-        <input type="password" placeholder="Current password" bind:value={oldPw} autocomplete="current-password" />
-        <input type="password" placeholder="New password" bind:value={newPw} autocomplete="new-password" />
+        <input type="password" placeholder={t("account.pw.current")} bind:value={oldPw} autocomplete="current-password" />
+        <input type="password" placeholder={t("account.pw.new")} bind:value={newPw} autocomplete="new-password" />
       </div>
-      <div><button class="btn" disabled={!oldPw || !newPw} onclick={changePw}>Change password</button></div>
+      <div><button class="btn" disabled={!oldPw || !newPw} onclick={changePw}>{t("account.pw.title")}</button></div>
       {#if isRemoteShell}
-        <div class="sub"><Server size={12} /> Server</div>
+        <div class="sub"><Server size={12} /> {t("account.server")}</div>
         <div class="row">
           <input value={location.host} readonly />
-          <button class="btn" onclick={() => leaveServer()}>Change server</button>
+          <button class="btn" onclick={() => leaveServer()}>{t("account.changeServer")}</button>
         </div>
       {:else if pickServer}
-        <div class="sub"><Server size={12} /> Server</div>
+        <div class="sub"><Server size={12} /> {t("account.server")}</div>
         <ServerAddresses />
       {/if}
-      <div class="sub"><MonitorSmartphone size={12} /> Signed-in devices</div>
+      <div class="sub"><MonitorSmartphone size={12} /> {t("account.devices")}</div>
       <Devices />
       <div class="sep"></div>
       <div class="row">
-        <button class="btn danger" onclick={signOut}><LogOut size={14} />{tv.on ? "Remove profile" : "Sign out"}</button>
-        <button class="btn ghost" onclick={switchAccount}><Users size={14} />{tv.on ? "Switch profile" : "Switch account"}</button>
+        <button class="btn danger" onclick={signOut}><LogOut size={14} />{tv.on ? t("account.removeProfile") : t("account.signOut")}</button>
+        <button class="btn ghost" onclick={switchAccount}><Users size={14} />{tv.on ? t("account.switchProfile") : t("account.switchAccount")}</button>
       </div>
     </Section>
 
     {#if isAndroid || isDesktop}
-      <Section id="app" title="App" icon={isAndroid ? Smartphone : Monitor} summary={shell.version ? `Version ${shell.version}` : isAndroid ? "Android" : "Desktop"}>
+      <Section id="app" title={t("account.app.title")} icon={isAndroid ? Smartphone : Monitor} summary={shell.version ? t("account.app.version", { v: shell.version }) : isAndroid ? "Android" : "Desktop"}>
         <div class="row">
-          <span class="grow">Mythos for {isAndroid ? "Android" : "Windows"} {shell.version}</span>
+          <span class="grow">{t("account.app.name", { os: isAndroid ? "Android" : "Windows", v: shell.version ?? "" })}</span>
           {#if shell.update?.status === "ready"}
-            <button class="btn primary" onclick={updateNow}><Download size={14} />Update now</button>
+            <button class="btn primary" onclick={updateNow}><Download size={14} />{t("account.app.updateNow")}</button>
           {:else}
             <button class="btn" onclick={lookForUpdate} disabled={checking || !!shell.update}>
-              <RefreshCw size={14} class={checking || shell.update ? "spin" : ""} />Check for updates
+              <RefreshCw size={14} class={checking || shell.update ? "spin" : ""} />{t("account.app.check")}
             </button>
           {/if}
         </div>
@@ -366,18 +366,18 @@
           <span class="app-hint">
             {shell.update.status === "ready"
               ? isAndroid
-                ? `Mythos ${shell.update.version} is ready. It installs by itself when you leave the app while nothing is playing.`
-                : `Mythos ${shell.update.version} is ready. Update now restarts Mythos right where you are; otherwise it installs when you close it.`
-              : `Downloading Mythos ${shell.update.version}… ${Math.round(shell.update.progress * 100)}%`}
+                ? t("account.app.readyAndroid", { v: shell.update.version })
+                : t("account.app.readyDesktop", { v: shell.update.version })
+              : t("account.app.downloading", { v: shell.update.version, p: Math.round(shell.update.progress * 100) })}
           </span>
         {:else if upToDate}
-          <span class="app-hint">You have the latest version.</span>
+          <span class="app-hint">{t("account.app.latest")}</span>
         {:else}
           <span class="app-hint">
-            {isAndroid ? "The app updates by itself when you leave it while nothing is playing." : "Mythos updates by itself when you close it."}
+            {isAndroid ? t("account.app.autoAndroid") : t("account.app.autoDesktop")}
           </span>
         {/if}
-        {#if isAndroid}<Switch bind:checked={useServerUi} onchange={toggleServerUi}>Load the interface from the server (new versions without updating the app)</Switch>{/if}
+        {#if isAndroid}<Switch bind:checked={useServerUi} onchange={toggleServerUi}>{t("account.app.serverUi")}</Switch>{/if}
       </Section>
     {/if}
   </div>

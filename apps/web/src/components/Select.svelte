@@ -4,6 +4,7 @@
   // muchas opciones aparece un buscador.
   import { Check, ChevronDown, Search } from "@lucide/svelte";
   import { tick } from "svelte";
+  import { t } from "../lib/i18n.svelte";
   import { pop } from "../lib/motion";
   import { tv } from "../lib/tv.svelte";
 
@@ -16,7 +17,7 @@
   let {
     value = $bindable(),
     options,
-    placeholder = "Select...",
+    placeholder,
     disabled = false,
     onchange,
     ghost = false,
@@ -145,7 +146,7 @@
 >
   {#if lead}<span class="lead">{@render lead()}</span>{/if}
   {#if icon}<span class="lead">{@render icon(value)}</span>{/if}
-  <span class="ellipsis label">{selected?.label ?? placeholder}</span>
+  <span class="ellipsis label">{selected?.label ?? placeholder ?? t("browse.select.placeholder")}</span>
   <span class="chev"><ChevronDown size={15} /></span>
 </button>
 
@@ -164,7 +165,7 @@
     {#if searchable}
       <div class="search inbox bare">
         <Search size={14} />
-        <input placeholder="Search..." bind:value={query} oninput={() => (active = 0)} />
+        <input placeholder={t("browse.select.search")} bind:value={query} oninput={() => (active = 0)} />
       </div>
     {/if}
     <div class="opts">
@@ -189,7 +190,7 @@
           </span>
         </div>
       {:else}
-        <div class="none">Nothing matches.</div>
+        <div class="none">{t("browse.select.none")}</div>
       {/each}
     </div>
   </div>

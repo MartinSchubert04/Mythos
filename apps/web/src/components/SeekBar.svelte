@@ -5,6 +5,7 @@
   // grande) y el tiempo queda arriba del punto: izquierda/derecha lo mueven (el reproductor
   // arma el salto y lo pasa en `time`).
   import { clock } from "../lib/format";
+  import { t } from "../lib/i18n.svelte";
   import { tv } from "../lib/tv.svelte";
 
   let {
@@ -80,7 +81,7 @@
   bind:this={el}
   role="slider"
   tabindex="0"
-  aria-label="Seek"
+  aria-label={t("player.seek")}
   aria-valuemin={0}
   aria-valuemax={Math.round(duration)}
   aria-valuenow={Math.round(shown)}

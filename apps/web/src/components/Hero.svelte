@@ -6,6 +6,8 @@
   import { Info, Play, Star } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { sized } from "../lib/format";
+  import { genreName } from "../lib/genres";
+  import { t } from "../lib/i18n.svelte";
   import { handOff } from "../lib/handoff";
   import { coverWidth, fit, retryOriginal } from "../lib/images";
   import { fadeQuick, fadeSlow, rise } from "../lib/motion";
@@ -126,13 +128,13 @@
           <div class="facts">
             {#if cur.imdb_rating}<span class="imdb"><Star size={13} fill="currentColor" />{cur.imdb_rating}</span>{/if}
             {#if cur.year}<span>{cur.year}</span>{/if}
-            <span class="kind">{cur.type === "movie" ? "Movie" : "Series"}</span>
-            {#if cur.genres?.length}<span class="genres">{cur.genres.slice(0, 3).join(" · ")}</span>{/if}
+            <span class="kind">{cur.type === "movie" ? t("browse.kind.movie") : t("browse.kind.series")}</span>
+            {#if cur.genres?.length}<span class="genres">{cur.genres.slice(0, 3).map(genreName).join(" · ")}</span>{/if}
           </div>
           {#if cur.description}<p class="desc">{cur.description}</p>{/if}
           <div class="actions">
-            <button class="btn primary lg" onclick={() => go(playHref(cur))}><Play size={17} fill="currentColor" />Play</button>
-            <button class="btn glass lg" onclick={info}><Info size={17} />More info</button>
+            <button class="btn primary lg" onclick={() => go(playHref(cur))}><Play size={17} fill="currentColor" />{t("browse.play")}</button>
+            <button class="btn glass lg" onclick={info}><Info size={17} />{t("browse.moreInfo")}</button>
           </div>
         </div>
       {/key}

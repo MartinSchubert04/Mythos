@@ -11,7 +11,8 @@ modo TV (`lib/tv.svelte.ts` reconoce "Tizen" en el user agent).
 apps/tizen/
   config.xml          la app: id MythosTV01.Mythos (el paquete tiene que tener 10 caracteres),
                       version (la del repo), privilegios, navegar a cualquier origen
-  index.html          la pagina local: elegir server ("Connecting to ..." / "Change server")
+  index.html          la pagina local: elegir server ("Conectando a ..." / "Cambiar de servidor"; en
+                      español, o en inglés si la tele está en inglés)
   shell.js, shell.css (ES5: en una tele vieja dice que no alcanza en vez de quedar en negro)
   icon.png            el de la app de Android (512x512)
   build.ps1           arma build\Mythos.wgt firmado y, con -Tv <ip>, lo instala y lo abre
@@ -25,9 +26,9 @@ apps/web/src/lib/tizen.ts   lo de Samsung en la interfaz: nombres de teclas, tec
 - **La dirección del server.** Igual que en Android, ningún build la lleva. La tele no tiene
   Tailscale: va la de la red de casa (`http://<ip-del-server>:7700`, con `MYTHOS_EXTRA_BIND` en el
   server). Se escribe con el teclado de la tele (el centro del control lo abre; sin `http://` ni
-  puerto completa `http://` y `:7700`) o se busca con **Find on this network**: prueba
+  puerto completa `http://` y `:7700`) o se busca con **Buscar en esta red** ("Find on this network"): prueba
   `http://<x.y.z.1-254>:7700/icon.svg` en la red de la tele (la IP sale de `tizen.systeminfo`).
-  Queda guardada; al abrir se ve "Connecting to ..." un momento con **Change server**.
+  Queda guardada; al abrir se ve "Conectando a ..." un momento con **Cambiar de servidor**.
 - **Comprobar que es un Mythos.** `GET /api/health` (`ok`, y que no sea el server embebido de
   otra app). Si la página local no lo puede leer (CORS: el server solo deja leer a sus orígenes
   conocidos), alcanza con que cargue `/icon.svg` de esa dirección.

@@ -7,6 +7,7 @@
   import Row from "../components/Row.svelte";
   import Seg from "../components/Seg.svelte";
   import { api, errText } from "../lib/api";
+  import { t } from "../lib/i18n.svelte";
   import { uniq } from "../lib/format";
   import { rise } from "../lib/motion";
   import { onMount, tick } from "svelte";
@@ -19,11 +20,11 @@
   type Kind = "all" | "movie" | "series";
   const t0 = route.query.get("type");
   let kind = $state<Kind>(t0 === "movie" || t0 === "series" ? t0 : "all");
-  const kindOpts: { value: Kind; label: string }[] = [
-    { value: "all", label: "All" },
-    { value: "movie", label: "Movies" },
-    { value: "series", label: "Series" },
-  ];
+  const kindOpts: { value: Kind; label: string }[] = $derived([
+    { value: "all", label: t("browse.filter.all") },
+    { value: "movie", label: t("browse.filter.movies") },
+    { value: "series", label: t("browse.filter.series") },
+  ]);
   /** La URL lleva lo escrito y el filtro (volver atras deja todo como estaba). */
   function syncQuery() {
     const p: Record<string, string> = {};
@@ -61,8 +62,8 @@
 
   async function run(text: string) {
     ctl?.abort();
-    const t = text.trim();
-    if (t.length < 2) {
+    const term = text.trim();
+    if (term.length < 2) {
       res = null;
       busy = false;
       return;
@@ -71,7 +72,7 @@
     busy = true;
     error = "";
     try {
-      const r = await api.search(t, ctl.signal);
+      const r = await api.search(term, ctl.signal);
       res = { movies: uniq(r.movies ?? []), series: uniq(r.series ?? []) };
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError")) error = errText(e);
@@ -98,8 +99,8 @@
   const groups = $derived(
     res
       ? [
-          { t: "Movies", k: "movie", l: res.movies },
-          { t: "Series", k: "series", l: res.series },
+          { t: t("browse.filter.movies"), k: "movie", l: res.movies },
+          { t: t("browse.filter.series"), k: "series", l: res.series },
         ].filter((g) => kind === "all" || g.k === kind)
       : [],
   );
@@ -117,35 +118,35 @@
         bind:this={input}
         bind:value={q}
         oninput={onInput}
-        placeholder="Movies and series"
+        placeholder={t("browse.search.placeholder")}
         autocomplete="off"
         spellcheck="false"
         onkeydown={(e) => e.key === "Escape" && q && (e.preventDefault(), (q = ""), onInput())}
       />
       {#if q}
-        <button class="icon-btn" aria-label="Clear" onclick={() => ((q = ""), onInput(), input?.focus())}><X size={16} /></button>
+        <button class="icon-btn" aria-label={t("browse.clear")} onclick={() => ((q = ""), onInput(), input?.focus())}><X size={16} /></button>
       {/if}
     </div>
-    <div class="kind" role="group" aria-label="Show">
+    <div class="kind" role="group" aria-label={t("browse.search.show")}>
       <Seg value={kind} options={kindOpts} onchange={setKind} />
     </div>
   </div>
 
   {#if error}
-    <div class="empty"><h3>Search failed</h3><span>{error}</span></div>
+    <div class="empty"><h3>{t("browse.search.failed")}</h3><span>{error}</span></div>
   {:else if !res}
     {#if busy}
       <div class="poster-grid">
         {#each Array(12) as _, i (i)}<div class="skel ph"></div>{/each}
       </div>
     {:else}
-      <div class="hint-line faint" in:rise>Press <kbd>/</kbd> or <kbd>Ctrl K</kbd> from anywhere to search.</div>
+      <div class="hint-line faint" in:rise>{t("browse.search.hintA")} <kbd>/</kbd> {t("browse.search.hintOr")} <kbd>Ctrl K</kbd> {t("browse.search.hintB")}</div>
       <div class="browse" in:rise>
-        <button class="btn sm" onclick={() => go("/top")}><Trophy size={14} />Top rated movies</button>
-        <button class="btn sm" onclick={() => go("/top?type=series")}><Trophy size={14} />Top rated series</button>
+        <button class="btn sm" onclick={() => go("/top")}><Trophy size={14} />{t("browse.home.topMovies")}</button>
+        <button class="btn sm" onclick={() => go("/top?type=series")}><Trophy size={14} />{t("browse.home.topSeries")}</button>
       </div>
       {#if shownPopular.length}
-        <h2 class="section-title">Popular right now</h2>
+        <h2 class="section-title">{t("browse.search.popular")}</h2>
         <div class="poster-grid">
           {#each shownPopular as m, i (m.type + m.id)}<PosterCard item={m} {i} />{/each}
         </div>
@@ -154,18 +155,18 @@
   {:else if empty}
     <div class="empty" in:rise>
       <SearchX size={34} />
-      <h3>Nothing found for "{q.trim()}"</h3>
-      <span>Try another title, the original title, or check the spelling.</span>
+      <h3>{t("browse.search.nothing", { q: q.trim() })}</h3>
+      <span>{t("browse.search.nothingHint")}</span>
     </div>
   {:else if emptyKind}
     <div class="empty" in:rise>
       <SearchX size={34} />
-      <h3>No {kind === "movie" ? "movies" : "series"} for "{q.trim()}"</h3>
-      <button class="btn sm" onclick={() => setKind("all")}>Show all results</button>
+      <h3>{kind === "movie" ? t("browse.search.noMovies", { q: q.trim() }) : t("browse.search.noSeries", { q: q.trim() })}</h3>
+      <button class="btn sm" onclick={() => setKind("all")}>{t("browse.search.showAll")}</button>
     </div>
   {:else if kind === "all"}
     <div class="rows" in:rise>
-      {#each groups as g (g.t)}
+      {#each groups as g (g.k)}
         {#if g.l.length}
           <Row title="{g.t} · {g.l.length}" items={g.l}>
             {#snippet card(m, i)}<PosterCard item={m} {i} />{/snippet}
@@ -174,7 +175,7 @@
       {/each}
     </div>
   {:else}
-    {#each groups as g (g.t)}
+    {#each groups as g (g.k)}
       {#if g.l.length}
         <h2 class="section-title">{g.t} <span class="n">{g.l.length}</span></h2>
         <div class="poster-grid">

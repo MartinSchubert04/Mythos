@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -57,23 +57,61 @@
         }
         var android = /Android/i.test(ua) && !ff;
         var webview = android && (/; wv\)/.test(ua) || /Version\/\d/.test(ua));
-        var title = ff ? "Update Firefox" : android ? "Update Android System WebView" : "Update your browser";
-        var lead = ff
-          ? "Mythos needs a newer Firefox than this one."
-          : android
-            ? "Mythos needs a newer Android System WebView than the one on this device."
-            : "Mythos needs a newer browser than this one.";
-        var steps = ff
-          ? ["Update Firefox to the latest version (Google Play, or the latest APK with the Downloader app or from a USB drive).", "Reload this page."]
-          : android
-          ? [
-              "Open Google Play, search for <b>Android System WebView</b> and tap <b>Update</b>.",
-              "No Google Play? Install the latest <b>Android System WebView</b> APK for this device (armeabi-v7a or arm64-v8a) with the Downloader app or from a USB drive.",
-              "If the update doesn't take effect, choose it in <b>Settings &rarr; Developer options &rarr; WebView implementation</b>. To show Developer options: <b>Settings &rarr; About</b> and tap <b>Build</b> seven times.",
-              "Open Mythos again.",
-              "Can't update it? Use <b>Firefox</b> instead: install Firefox for Android (Google Play, the Downloader app or a USB drive), open the address of your Mythos server there (the same one you use on your phone) and sign in. On a TV box Mythos turns on TV mode by itself.",
-            ]
-          : ["Update Chrome, Edge or your browser to the latest version.", "Reload this page."];
+        // Idioma: el elegido en la app (mythos.lang, lib/i18n.svelte.ts) o, la primera vez, el del
+        // sistema: español salvo que el sistema este en ingles.
+        var lang = "";
+        try {
+          lang = localStorage.getItem("mythos.lang") || "";
+        } catch (e) {}
+        if (lang !== "es" && lang !== "en") lang = /^en/i.test(navigator.language || "") ? "en" : "es";
+        document.documentElement.lang = lang;
+        var T =
+          lang === "en"
+            ? {
+                titleFf: "Update Firefox",
+                titleAndroid: "Update Android System WebView",
+                titleOther: "Update your browser",
+                leadFf: "Mythos needs a newer Firefox than this one.",
+                leadAndroid: "Mythos needs a newer Android System WebView than the one on this device.",
+                leadOther: "Mythos needs a newer browser than this one.",
+                stepsFf: ["Update Firefox to the latest version (Google Play, or the latest APK with the Downloader app or from a USB drive).", "Reload this page."],
+                stepsAndroid: [
+                  "Open Google Play, search for <b>Android System WebView</b> and tap <b>Update</b>.",
+                  "No Google Play? Install the latest <b>Android System WebView</b> APK for this device (armeabi-v7a or arm64-v8a) with the Downloader app or from a USB drive.",
+                  "If the update doesn't take effect, choose it in <b>Settings &rarr; Developer options &rarr; WebView implementation</b>. To show Developer options: <b>Settings &rarr; About</b> and tap <b>Build</b> seven times.",
+                  "Open Mythos again.",
+                  "Can't update it? Use <b>Firefox</b> instead: install Firefox for Android (Google Play, the Downloader app or a USB drive), open the address of your Mythos server there (the same one you use on your phone) and sign in. On a TV box Mythos turns on TV mode by itself.",
+                ],
+                stepsOther: ["Update Chrome, Edge or your browser to the latest version.", "Reload this page."],
+                engineWebview: "WebView on this device: ",
+                engineBrowser: "Browser on this device: ",
+                required: ". Required: ",
+                orNewer: " or newer.",
+              }
+            : {
+                titleFf: "Actualizá Firefox",
+                titleAndroid: "Actualizá Android System WebView",
+                titleOther: "Actualizá el navegador",
+                leadFf: "Mythos necesita un Firefox más nuevo que este.",
+                leadAndroid: "Mythos necesita un Android System WebView más nuevo que el de este dispositivo.",
+                leadOther: "Mythos necesita un navegador más nuevo que este.",
+                stepsFf: ["Actualizá Firefox a la última versión (Google Play, o el último APK con la app Downloader o desde un pendrive).", "Volvé a cargar esta página."],
+                stepsAndroid: [
+                  "Abrí Google Play, buscá <b>Android System WebView</b> y tocá <b>Actualizar</b>.",
+                  "¿No tenés Google Play? Instalá el último APK de <b>Android System WebView</b> para este dispositivo (armeabi-v7a o arm64-v8a) con la app Downloader o desde un pendrive.",
+                  "Si la actualización no se aplica, elegila en <b>Ajustes &rarr; Opciones para desarrolladores &rarr; Implementación de WebView</b>. Para ver las Opciones para desarrolladores: <b>Ajustes &rarr; Acerca del dispositivo</b> y tocá <b>Número de compilación</b> siete veces.",
+                  "Volvé a abrir Mythos.",
+                  "¿No se puede actualizar? Usá <b>Firefox</b>: instalá Firefox para Android (Google Play, la app Downloader o un pendrive), abrí ahí la dirección de tu servidor de Mythos (la misma que usás en el celular) y entrá. En un TV box, Mythos pone solo el modo TV.",
+                ],
+                stepsOther: ["Actualizá Chrome, Edge o tu navegador a la última versión.", "Volvé a cargar esta página."],
+                engineWebview: "WebView de este dispositivo: ",
+                engineBrowser: "Navegador de este dispositivo: ",
+                required: ". Hace falta: ",
+                orNewer: " o más nuevo.",
+              };
+        var title = ff ? T.titleFf : android ? T.titleAndroid : T.titleOther;
+        var lead = ff ? T.leadFf : android ? T.leadAndroid : T.leadOther;
+        var steps = ff ? T.stepsFf : android ? T.stepsAndroid : T.stepsOther;
         var list = "";
         for (var i = 0; i < steps.length; i++) {
           list += '<li style="margin:0 0 10px 0;padding:0">' + steps[i] + "</li>";
@@ -85,8 +123,8 @@
           '<p style="font-size:17px;line-height:1.5;margin:0 0 18px 0;color:#c4c8d0">' + esc(lead) + "</p>" +
           '<ol style="font-size:17px;line-height:1.5;margin:0 0 22px 0;padding:0 0 0 24px">' + list + "</ol>" +
           '<p style="font-size:14px;line-height:1.5;margin:0;color:#8b92a0">' +
-          (webview ? "WebView" : "Browser") + " on this device: " + (ff ? "Firefox " : "Chromium ") + esc(v) + ". Required: " +
-          (ff ? "Firefox " : "Chromium ") + MIN + " or newer.</p>" +
+          (webview ? T.engineWebview : T.engineBrowser) + (ff ? "Firefox " : "Chromium ") + esc(v) + T.required +
+          (ff ? "Firefox " : "Chromium ") + MIN + T.orNewer + "</p>" +
           "</div>";
 
         function show() {
@@ -110,6 +148,8 @@
       try {
         var t = localStorage.getItem("mythos.theme") || "neovim"; // DEFAULT_THEME de src/lib/themes.ts
         var d = document.documentElement;
+        var lang = localStorage.getItem("mythos.lang"); // lib/i18n.svelte.ts (por defecto, español)
+        if (lang === "en" || lang === "es") d.lang = lang;
         d.dataset.theme = t;
         d.dataset.palette = localStorage.getItem("mythos.palette." + t) || "";
         if (JSON.parse(localStorage.getItem("mythos.prefs") || "{}").reduceMotion) d.setAttribute("data-reduce-motion", "");

@@ -7,6 +7,7 @@
   import { ImagePlus, LoaderCircle, Trash2 } from "@lucide/svelte";
   import { api, avatarUrl, errText } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
+  import { t } from "../lib/i18n.svelte";
   import { session } from "../lib/session.svelte";
   import { toast } from "../lib/toast.svelte";
   import type { Avatar } from "../lib/types";
@@ -42,7 +43,7 @@
     if (r) {
       uploading++;
       try {
-        if (r.blob.size > MAX) throw new Error("Images can be up to 2 MB");
+        if (r.blob.size > MAX) throw new Error(t("admin.av.tooBig"));
         const a = await api.uploadAvatar(r.blob, r.name);
         list = [...(list ?? []), a];
         c.ok++;
@@ -55,15 +56,15 @@
     if (c.i + 1 < c.files.length) crop = { ...c, i: c.i + 1 };
     else {
       crop = null;
-      if (c.ok) toast(c.ok === 1 ? "Avatar added" : `${c.ok} avatars added`);
+      if (c.ok) toast(t("admin.av.added", { n: c.ok }));
     }
   }
 
   async function remove(a: Avatar) {
     const ok = await ask({
-      title: `Delete ${a.name}?`,
-      body: "Anyone using it goes back to their initial.",
-      confirm: "Delete",
+      title: t("admin.av.deleteTitle", { name: a.name }),
+      body: t("admin.av.deleteBody"),
+      confirm: t("common.delete"),
       danger: true,
     });
     if (!ok) return;
@@ -78,10 +79,10 @@
 </script>
 
 <div class="head">
-  <span class="faint">Everyone picks theirs in Settings → Account. PNG, JPEG, WebP or GIF, up to 2 MB each; you can center and zoom each one before it's added.</span>
+  <span class="faint">{t("admin.av.hint")}</span>
   <div class="grow"></div>
   <label class="btn primary" class:busy={uploading > 0 || !!crop}>
-    {#if uploading}<LoaderCircle size={15} class="spin" />Uploading…{:else}<ImagePlus size={15} />Add images{/if}
+    {#if uploading}<LoaderCircle size={15} class="spin" />{t("admin.av.uploading")}{:else}<ImagePlus size={15} />{t("admin.av.add")}{/if}
     <input bind:this={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple disabled={uploading > 0 || !!crop} onchange={(e) => pick(e.currentTarget.files)} />
   </label>
 </div>
@@ -93,18 +94,18 @@
 {/if}
 
 {#if error && !list}
-  <div class="empty"><h3>Couldn't load the avatars</h3><span>{error}</span></div>
+  <div class="empty"><h3>{t("admin.av.loadError")}</h3><span>{error}</span></div>
 {:else if !list}
   <div class="grid">{#each Array(6) as _, i (i)}<span class="skel cell"></span>{/each}</div>
 {:else if !list.length}
-  <div class="empty"><ImagePlus size={28} /><h3>No avatars yet</h3><span>Add a few images and everyone can pick one.</span></div>
+  <div class="empty"><ImagePlus size={28} /><h3>{t("admin.av.none")}</h3><span>{t("admin.av.noneHint")}</span></div>
 {:else}
   <div class="grid">
     {#each list as a (a.id)}
       <div class="item">
         <img class="cell" src={avatarUrl(a.id)} alt={a.name} loading="lazy" draggable="false" />
         <span class="name ellipsis" title={a.name}>{a.name}</span>
-        <button class="icon-btn del" title="Delete {a.name}" aria-label="Delete {a.name}" onclick={() => remove(a)}><Trash2 size={15} /></button>
+        <button class="icon-btn del" title={t("admin.av.deleteTip", { name: a.name })} aria-label={t("admin.av.deleteTip", { name: a.name })} onclick={() => remove(a)}><Trash2 size={15} /></button>
       </div>
     {/each}
   </div>

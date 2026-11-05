@@ -4,6 +4,7 @@
   // esperando a mitad de camino, es un velo encima del cuadro congelado.
   import { Users, Gauge, Download } from "@lucide/svelte";
   import { speed } from "../lib/format";
+  import { t } from "../lib/i18n.svelte";
   import { fadeSlow } from "../lib/motion";
   import type { Snippet } from "svelte";
   import type { MediaStatus, PlayMode } from "../lib/types";
@@ -76,12 +77,12 @@
 
     {#if status && status.state !== "metadata"}
       <div class="stats">
-        <span title="Connected peers"><Users size={13} />{status.peers} peer{status.peers === 1 ? "" : "s"}</span>
-        <span title="Download speed"><Gauge size={13} />{speed(status.down_bps)}</span>
+        <span title={t("player.load.peersTip")}><Users size={13} />{t("player.load.peers", { n: status.peers })}</span>
+        <span title={t("player.load.speedTip")}><Gauge size={13} />{speed(status.down_bps)}</span>
         {#if status.total_bytes}
-          <span title="Downloaded"><Download size={13} />{Math.round(status.progress * 100)}%</span>
+          <span title={t("player.load.downloadedTip")}><Download size={13} />{Math.round(status.progress * 100)}%</span>
         {/if}
-        {#if mode && mode !== "direct"}<span class="mode">{mode === "remux" ? "Remux" : "Converting"}</span>{/if}
+        {#if mode && mode !== "direct"}<span class="mode">{mode === "remux" ? "Remux" : t("player.load.converting")}</span>{/if}
       </div>
     {/if}
   </div>

@@ -21,6 +21,7 @@ iguales.
 | Desktop: vidrio esmerilado (Acrylic + opacidad sobre cualquier tema) | `apps/web/src/lib/glass.svelte.ts` |
 | "Top rated": de dónde sale (datasets de IMDb), cada cuánto se baja, dónde se guarda | `backend/server/src/imdb.rs`, `docs/API.md` ("Top rated") |
 | Rendimiento: tamaño de las imágenes (`/api/media/img`), modo liviano en equipos flojos, qué evitar | `apps/web/src/lib/images.ts`, `apps/web/src/lib/perf.ts`, `DESIGN.md` (5b y 7) |
+| Idioma de la interfaz (español por defecto, inglés), cómo agregar textos, errores del server traducidos | `apps/web/src/lib/i18n.svelte.ts`, `apps/web/src/lib/i18n/server.ts` |
 
 ## Estructura
 
@@ -108,4 +109,14 @@ Android: `docs/mobile.md`).
 - **Ninguna ruta de `/api` sin login**, salvo `POST /api/auth/login` y `GET /api/health`.
   Las rutas de media aceptan el token también en `?t=` porque `<video>` no manda headers.
 - Las claves de Real-Debrid y las contraseñas nunca vuelven en ninguna respuesta.
-- Docs y comentarios en español; textos de la interfaz en inglés.
+- Docs y comentarios en español.
+- **Interfaz en español por defecto, inglés como opción** (Settings → Appearance, "Idioma /
+  Language"; viaja con las preferencias del usuario). Ningún texto visible fijo en un componente:
+  cada texto es una clave en `apps/web/src/lib/i18n/es/<zona>.ts` (common, browse, player,
+  account, admin) con su traducción en `en/<zona>.ts` (TypeScript marca la que falte o sobre), y
+  se usa con `t("zona.clave", { n })` de `lib/i18n.svelte.ts` (`{n}` se reemplaza; plurales con
+  `{ one, other }`). Números, fechas y tiempos con `num` / `date` / `ago` / `dur` de ese módulo.
+  Listas de opciones a nivel de módulo: `t()` dentro de un getter (`get label()`), nunca al cargar.
+  Español rioplatense neutro, corto, con voseo ("Probá otro stream"); stream, torrent, seeders,
+  HDR, 4K, REMUX quedan en inglés. Los textos de `apps/web/index.html` (aviso de navegador viejo)
+  y de `apps/tizen` son ES5 sin módulos: tienen su propio par es/en ahí mismo.

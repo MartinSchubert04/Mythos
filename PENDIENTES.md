@@ -25,10 +25,36 @@ prioridad de una buena conexión.
 - [ ] Tests del score con casos tipo Demon Slayer (preferido sano gana; preferido muerto pierde
       contra uno sano con subtítulos en español; sin historial, todo como hoy).
 
-## Interfaz en español por defecto — en curso (agente en un worktree)
+## Para probar mañana (2026-11-05): la interfaz en español y en inglés
 
-- [ ] i18n con español por defecto e inglés como opción; se integra cuando termine el agente de
-      las miniaturas (los dos tocan el reproductor).
+Solo se verificó con `npm run check` y `npm run build`; falta mirarla. Con `npm run dev:mock`
+(admin/admin), en los dos idiomas (Settings → Apariencia → "Idioma / Language"):
+
+- [ ] Que cambiar de idioma repinte todo sin recargar (barra lateral, la vista abierta, toasts, el
+      resumen de cada sección de Ajustes) y que sobreviva a recargar y a entrar con otro usuario
+      (viaja como `ui.lang`).
+- [ ] Textos cortados o que empujen el layout: la barra lateral (212 px y plegada), los botones
+      del detalle en una fila (en celular "Elegir stream" solo con el ícono), las tarjetas de
+      Seguir viendo / Episodios nuevos, los chips y filtros de Calificadas, las tablas de Admin.
+- [ ] Reproductor: menús de subtítulos (Desfase / Tamaño / Posición / Fondo), audio, velocidad,
+      el panel de streams, la pantalla de carga, "Probar otro stream", próximo episodio con la
+      cuenta regresiva, el `?` de atajos y las estadísticas (D).
+- [ ] Escala de TV (modo TV, página de 960 px): login, "¿Quién está viendo?", Ajustes y el
+      reproductor, que el español más largo no se salga de los botones ni de los menús.
+- [ ] Que no quede nada en inglés en español (y viceversa): buscar textos sueltos en vistas
+      poco usadas (Admin → Registros/Tráfico/Avatares, modo local, servidores, dispositivos).
+- [ ] Fechas, números y tiempos relativos con el formato del idioma ("hace 5 min", "1,5 GB").
+- [ ] El aviso de navegador viejo (`/?webviewTest=66` en localhost) en español y, con
+      `localStorage["mythos.lang"] = "en"`, en inglés.
+- [ ] App de Tizen: la página local en español con la tele en es_MX.
+
+## Idioma: lo que quedó después de pasar la interfaz al español
+
+- [ ] Que el server mande un código además del texto en los errores (`{"error": "...", "code":
+      "bad_login"}`): hoy la UI reconoce los conocidos por el texto en inglés
+      (`apps/web/src/lib/i18n/server.ts`) y si cambia una frase en el backend deja de traducirse.
+      Los de `backend/media` (ffmpeg, buffering) y los que llevan detalles (`Sync failed: ...`)
+      se muestran a medias o en inglés.
 
 ## TV (Samsung / Tizen): segunda pasada con el control remoto — para el 2026-11-05
 

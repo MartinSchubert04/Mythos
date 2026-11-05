@@ -7,6 +7,7 @@
   import { flip } from "svelte/animate";
   import { Plus, RefreshCw, Star, X } from "@lucide/svelte";
   import { ask } from "../lib/confirm.svelte";
+  import { t } from "../lib/i18n.svelte";
   import { flipMs } from "../lib/motion";
   import { addrLabel, checkServer, normalizeServer } from "../lib/platform";
   import { addAddress, choose, removeAddress, servers, setAddresses, setLabel, setPreferred, type Ping } from "../lib/servers.svelte";
@@ -21,10 +22,10 @@
   choose("manual");
 
   function pingText(p: Ping | undefined): string {
-    if (p === undefined) return servers.probing ? "Testing…" : "Not tested";
-    if (p === null) return "No response";
-    if (p === "other") return "Different server";
-    if (p === "local") return "Not your server";
+    if (p === undefined) return servers.probing ? t("account.addr.testing") : t("account.addr.notTested");
+    if (p === null) return t("account.addr.noResponse");
+    if (p === "other") return t("account.addr.different");
+    if (p === "local") return t("account.addr.notYours");
     return `${p} ms`;
   }
 
@@ -34,23 +35,23 @@
     err = "";
     if (!url) return;
     if (servers.list.some((a) => a.url === url)) {
-      err = "That address is already on the list.";
+      err = t("account.addr.dup");
       return;
     }
     busy = true;
-    const { probe, error } = await checkServer(url);
+    const { probe, error, down } = await checkServer(url);
     busy = false;
     // Mal escrita, o el server de una app: no.
-    if (!probe && !error.startsWith("Can't")) {
+    if (!probe && !down) {
       err = error;
       return;
     }
     const known = servers.list.find((a) => a.id)?.id;
     if (probe?.id && known && probe.id !== known) {
       const ok = await ask({
-        title: "Switch to this server?",
-        body: "This address leads to a different Mythos server. Mythos will sign you out and use only this address.",
-        confirm: "Switch server",
+        title: t("account.addr.switchTitle"),
+        body: t("account.addr.switchBody"),
+        confirm: t("account.addr.switchConfirm"),
       });
       if (ok) {
         setAddresses([{ url, probe }]);
@@ -61,20 +62,20 @@
     }
     if (!probe) {
       const ok = await ask({
-        title: "Add it anyway?",
-        body: `${url.replace(/^https?:\/\//, "")} isn't answering right now (for example, it's your home address and you're away). Mythos starts using it when it answers, after checking that it's the same server.`,
-        confirm: "Add address",
+        title: t("account.addr.anywayTitle"),
+        body: t("account.addr.anywayBody", { host: url.replace(/^https?:\/\//, "") }),
+        confirm: t("account.addr.anywayConfirm"),
       });
       if (!ok) return;
     }
     addAddress(url, probe);
     adding = "";
-    toast(`Added ${addrLabel(url)}`);
+    toast(t("account.addr.added", { name: addrLabel(url) }));
     if (probe) choose("manual");
   }
 
   async function remove(url: string) {
-    if (await ask({ title: "Remove this address?", body: url.replace(/^https?:\/\//, ""), confirm: "Remove", danger: true })) removeAddress(url);
+    if (await ask({ title: t("account.addr.removeTitle"), body: url.replace(/^https?:\/\//, ""), confirm: t("common.remove"), danger: true })) removeAddress(url);
   }
 </script>
 
@@ -91,8 +92,8 @@
           placeholder={addrLabel(a.url)}
           maxlength="40"
           spellcheck="false"
-          aria-label="Name of this address"
-          title="Name of this address"
+          aria-label={t("account.addr.name")}
+          title={t("account.addr.name")}
           onchange={(e) => setLabel(a.url, e.currentTarget.value)}
         />
         <div class="sub">
@@ -100,34 +101,31 @@
           <span class:warn={p === "other" || p === "local"}>{pingText(p)}</span>
         </div>
       </div>
-      {#if a.url === servers.active && servers.list.length > 1}<span class="chip accent">In use</span>{/if}
+      {#if a.url === servers.active && servers.list.length > 1}<span class="chip accent">{t("account.addr.inUse")}</span>{/if}
       {#if servers.list.length > 1}
         <button
           class="icon-btn"
           class:pref
-          title={pref ? "Preferred: used whenever it answers. Click to stop preferring it." : "Prefer this address whenever it answers"}
-          aria-label={pref ? "Stop preferring this address" : "Prefer this address"}
+          title={pref ? t("account.addr.prefOnHint") : t("account.addr.prefOffHint")}
+          aria-label={pref ? t("account.addr.prefOn") : t("account.addr.prefOff")}
           aria-pressed={pref}
           onclick={() => setPreferred(a.url)}
         >
           <Star size={15} fill={pref ? "currentColor" : "none"} />
         </button>
-        <button class="icon-btn del" title="Remove this address" aria-label="Remove this address" onclick={() => remove(a.url)}><X size={15} /></button>
+        <button class="icon-btn del" title={t("account.addr.removeOne")} aria-label={t("account.addr.removeOne")} onclick={() => remove(a.url)}><X size={15} /></button>
       {/if}
     </div>
   {/each}
   <form class="row" onsubmit={add}>
-    <input bind:value={adding} inputmode="url" placeholder="Add another address, e.g. http://192.168.1.20:7700" spellcheck="false" autocapitalize="off" />
-    <button class="btn" disabled={busy || !adding.trim()}><Plus size={14} />{busy ? "Checking…" : "Add"}</button>
-    <button type="button" class="btn ghost" disabled={servers.probing} onclick={() => choose("manual")} title="Test every address again and use the best one">
-      <RefreshCw size={14} class={servers.probing ? "spin" : ""} />Test
+    <input bind:value={adding} inputmode="url" placeholder={t("account.addr.addPlaceholder")} spellcheck="false" autocapitalize="off" />
+    <button class="btn" disabled={busy || !adding.trim()}><Plus size={14} />{busy ? t("account.addr.checking") : t("account.addr.add")}</button>
+    <button type="button" class="btn ghost" disabled={servers.probing} onclick={() => choose("manual")} title={t("account.addr.testHint")}>
+      <RefreshCw size={14} class={servers.probing ? "spin" : ""} />{t("account.addr.test")}
     </button>
   </form>
   {#if err}<div class="err">{err}</div>{/if}
-  <span class="hint">
-    Every address must lead to this same server, for example its Tailscale address and its address at home. Mythos uses the starred one whenever it answers,
-    otherwise the fastest, and switches by itself when the network changes. These addresses are saved on this device only.
-  </span>
+  <span class="hint">{t("account.addr.hint")}</span>
 </div>
 
 <style>

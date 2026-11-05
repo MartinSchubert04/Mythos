@@ -10,19 +10,20 @@
   import { prefs, savePrefs } from "../lib/prefs.svelte";
   import { logout, session } from "../lib/session.svelte";
   import { toast } from "../lib/toast.svelte";
+  import { t, type Key } from "../lib/i18n.svelte";
   import Section from "./Section.svelte";
   import Seg from "./Seg.svelte";
   import Switch from "./Switch.svelte";
 
   const MODES: { value: ConnMode; label: string }[] = [
-    { value: "auto", label: "Auto" },
-    { value: "server", label: "Server only" },
-    { value: "local", label: "Local only" },
+    { value: "auto", get label() { return t("account.conn.auto"); } },
+    { value: "server", get label() { return t("account.conn.serverOnly"); } },
+    { value: "local", get label() { return t("account.conn.localOnly"); } },
   ];
-  const HINTS: Record<ConnMode, string> = {
-    auto: "Uses your server while it responds. If it goes down, Mythos keeps working on this device (catalog, streams, progress) and syncs everything when the server is back.",
-    server: "Always uses your server, nothing runs on this device. If the server is down, Mythos waits for it.",
-    local: "Always plays and stores everything on this device, even when your server is up. Progress, library and settings still sync in the background whenever the server is reachable.",
+  const HINTS: Record<ConnMode, Key> = {
+    auto: "account.conn.hintAuto",
+    server: "account.conn.hintServer",
+    local: "account.conn.hintLocal",
   };
 
   let mode = $state<ConnMode>(conn.mode);
@@ -59,10 +60,10 @@
     try {
       await loginLocal(session.user.username, password);
       password = "";
-      toast("This device can now keep working without the server");
+      toast(t("account.conn.enrolled"));
       refreshStatus();
     } catch (err) {
-      toast(err instanceof ApiError && err.status === 401 ? "Wrong password." : errText(err), true);
+      toast(err instanceof ApiError && err.status === 401 ? t("account.wrongPassword") : errText(err), true);
     } finally {
       enrolling = false;
     }
@@ -72,44 +73,44 @@
     syncing = true;
     try {
       const r = await syncNow();
-      toast(r.pushed || r.pulled ? `Synced · ${r.pushed} up, ${r.pulled} down` : "Already in sync");
+      toast(r.pushed || r.pulled ? t("account.conn.synced", { up: r.pushed, down: r.pulled }) : t("account.conn.inSync"));
     } catch (e) {
-      toast(e instanceof ApiError && e.status === 401 ? "Sign in again to sync with your server." : errText(e), true);
+      toast(e instanceof ApiError && e.status === 401 ? t("account.conn.signInToSync") : errText(e), true);
     } finally {
       syncing = false;
     }
   }
 
-  const LIMITS = {
-    tv: "On a TV, Mythos always uses your server. Downloading and playing torrents on the TV box itself needs more memory and power than it has.",
-    low_ram: "This device has less than 2 GB of memory, so Mythos always uses your server. Downloading and playing torrents on the device itself needs more.",
+  const LIMITS: Record<"tv" | "low_ram", Key> = {
+    tv: "account.conn.limitTv",
+    low_ram: "account.conn.limitRam",
   };
 
-  const summary = $derived(`${MODES.find((m) => m.value === conn.mode)?.label} · ${conn.on === "local" ? "on this device" : "on the server"}`);
+  const summary = $derived(`${MODES.find((m) => m.value === conn.mode)?.label} · ${conn.on === "local" ? t("account.conn.onDevice") : t("account.conn.onServer")}`);
 </script>
 
-<Section id="connection" title="Connection" icon={conn.on === "local" ? HardDrive : Cloud} {summary}>
+<Section id="connection" title={t("account.conn.title")} icon={conn.on === "local" ? HardDrive : Cloud} {summary}>
   {#if conn.unavailable}
     <!-- TV box o poca RAM: el server embebido no corre (apps/local-server, docs/local-mode.md). -->
     <div class="field">
-      Use
-      <span class="now"><Cloud size={14} />Server only</span>
-      <span class="hint">{LIMITS[conn.unavailable]}</span>
+      {t("account.conn.use")}
+      <span class="now"><Cloud size={14} />{t("account.conn.serverOnly")}</span>
+      <span class="hint">{t(LIMITS[conn.unavailable])}</span>
     </div>
   {:else}
     <div class="field">
-      Use
+      {t("account.conn.use")}
       <Seg value={mode} options={MODES} onchange={(v) => ((mode = v), pick(v))} />
-      <span class="hint">{HINTS[mode]}</span>
+      <span class="hint">{t(HINTS[mode])}</span>
     </div>
 
     {#if needsPassword}
       <form class="enroll" onsubmit={enroll}>
-        <span class="what">Enter your password once so this device can keep working without the server.</span>
+        <span class="what">{t("account.conn.enrollHint")}</span>
         <div class="row">
-          <input type="password" placeholder="Password" bind:value={password} autocomplete="current-password" />
+          <input type="password" placeholder={t("account.password")} bind:value={password} autocomplete="current-password" />
           <button class="btn primary" disabled={!password || enrolling || busy}>
-            {#if enrolling}<LoaderCircle size={14} class="spin" />{/if}Enable
+            {#if enrolling}<LoaderCircle size={14} class="spin" />{/if}{t("account.conn.enable")}
           </button>
         </div>
       </form>
@@ -121,35 +122,35 @@
             {connDetail()}
           </span>
           <button class="btn sm" onclick={sync} disabled={syncing || !conn.enrolled}>
-            <RefreshCw size={13} class={syncing ? "spin" : ""} />Sync now
+            <RefreshCw size={13} class={syncing ? "spin" : ""} />{t("account.conn.syncNow")}
           </button>
         </div>
         {#if s}
           <span class="faint small">
-            {s.last_sync_at ? `Last sync ${relTime(new Date(s.last_sync_at).toISOString())}` : "Not synced yet"}{s.pending_changes
-              ? ` · ${s.pending_changes} waiting`
+            {s.last_sync_at ? t("account.conn.lastSync", { when: relTime(new Date(s.last_sync_at).toISOString()) }) : t("account.conn.notSynced")}{s.pending_changes
+              ? ` · ${t("account.conn.waiting", { n: s.pending_changes })}`
               : ""}{s.last_sync_error && s.remote_reachable ? ` · ${s.last_sync_error}` : ""}
           </span>
         {/if}
         {#if conn.needsSignIn}
           <div class="row">
-            <span class="grow faint small">Your server session ended. Sign in again to sync and use the server.</span>
-            <button class="btn sm" onclick={() => logout()}>Sign in again</button>
+            <span class="grow faint small">{t("account.conn.sessionEnded")}</span>
+            <button class="btn sm" onclick={() => logout()}>{t("account.conn.signInAgain")}</button>
           </div>
         {/if}
-        {#if conn.error}<span class="err small">The local server didn't start: {conn.error}</span>{/if}
+        {#if conn.error}<span class="err small">{t("account.conn.localFailed", { e: conn.error })}</span>{/if}
         {#if !conn.transcode}
           <span class="faint small">
-            On this device only files it can play directly work (Mythos picks those first).{isAndroid
+            {t("account.conn.directOnly")}{isAndroid
               ? ""
-              : " Install ffmpeg (on the PATH) to convert the rest."}
+              : ` ${t("account.conn.installFfmpeg")}`}
           </span>
         {/if}
       </div>
     {/if}
 
     {#if conn.mode === "auto"}
-      <Switch bind:checked={prefs.localNotice} onchange={() => savePrefs(false)}>Show a notice when switching to local</Switch>
+      <Switch bind:checked={prefs.localNotice} onchange={() => savePrefs(false)}>{t("account.conn.notice")}</Switch>
     {/if}
   {/if}
 </Section>

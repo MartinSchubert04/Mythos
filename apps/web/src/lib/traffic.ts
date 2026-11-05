@@ -1,54 +1,63 @@
 // Formatos y cuentas del panel de trafico (Admin → Traffic / Logs) y de la lista de dispositivos.
+// Los textos y las fechas siguen el idioma de la interfaz (lib/i18n.svelte.ts).
+import { date, num, t } from "./i18n.svelte";
 import type { Metrics, MetricsRange } from "./types";
 
-/** 1234 → "1,234"; 1.2 M para numeros grandes. */
+const ONE = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
+const UPTO1 = { maximumFractionDigits: 1 };
+
+/** 1234 → "1.234" (o "1,234" en inglés); 1,2 M para numeros grandes. */
 export function count(n?: number | null): string {
   if (n == null || !isFinite(n)) return "–";
-  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)} M`;
-  return Math.round(n).toLocaleString("en-US");
+  if (n >= 1e6) return `${n >= 1e7 ? Math.round(n / 1e6) : num(n / 1e6, ONE)} M`;
+  return num(Math.round(n));
 }
 
 /** Version corta para ejes: 1.2k, 3 M. */
 export function compact(n: number): string {
-  if (n >= 1e6) return `${+(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `${+(n / 1e3).toFixed(1)}k`;
+  if (n >= 1e6) return `${num(n / 1e6, UPTO1)}M`;
+  if (n >= 1e3) return `${num(n / 1e3, UPTO1)}k`;
   return String(Math.round(n));
 }
 
-/** 840 ms, 2.5 s. */
+/** 840 ms, 2,5 s. */
 export function dur(ms?: number | null): string {
   if (ms == null || !isFinite(ms)) return "–";
   if (ms < 1000) return `${Math.round(ms)} ms`;
-  return `${+(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
+  return `${num(ms / 1000, { maximumFractionDigits: ms < 10_000 ? 1 : 0 })} s`;
 }
 
 export function pct(part: number, total: number): string {
   if (!total) return "0%";
   const p = (part / total) * 100;
-  return p === 0 ? "0%" : p < 0.1 ? "<0.1%" : `${p < 10 ? p.toFixed(1) : Math.round(p)}%`;
+  return p === 0 ? "0%" : p < 0.1 ? `<${num(0.1)}%` : `${p < 10 ? num(p, ONE) : Math.round(p)}%`;
 }
 
-/** Hace cuanto, desde ms unix: "just now", "5 min ago", "3 h ago", "2 d ago". */
+/** Hace cuanto, desde ms unix: "recién", "hace 5 min", "hace 3 h", "hace 2 d". */
 export function agoMs(ms: number, now = Date.now()): string {
   const d = (now - ms) / 1000;
   if (!isFinite(d)) return "";
-  if (d < 45) return "just now";
-  if (d < 3600) return `${Math.max(1, Math.round(d / 60))} min ago`;
-  if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
-  if (d < 86400 * 60) return `${Math.floor(d / 86400)} d ago`;
-  return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  if (d < 45) return t("time.justNow");
+  if (d < 3600) return t("admin.ago.min", { n: Math.max(1, Math.round(d / 60)) });
+  if (d < 86400) return t("admin.ago.h", { n: Math.floor(d / 3600) });
+  if (d < 86400 * 60) return t("admin.ago.d", { n: Math.floor(d / 86400) });
+  return date(ms, { month: "short", day: "numeric", year: "numeric" });
 }
 
-/** Hora de un log: "14:03:22" si es de hoy, "Oct 29 14:03" si no. */
+/** Hora de un log: "14:03:22" si es de hoy, "29 oct 14:03" ("Oct 29 14:03") si no. */
 export function stamp(ms: number): string {
   const d = new Date(ms);
   const today = new Date().toDateString() === d.toDateString();
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: today ? "2-digit" : undefined });
-  return today ? time : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${time}`;
+  const time = date(d, today ? TIME_S : TIME);
+  return today ? time : `${date(d, DAY)} ${time}`;
 }
 
-export const fullDate = (ms: number) =>
-  new Date(ms).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "medium" });
+const TIME_S: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" };
+const TIME: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+const DAY: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+const FULL: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "medium" };
+
+export const fullDate = (ms: number) => date(ms, FULL);
 
 // ---- serie del grafico
 
@@ -113,9 +122,9 @@ export function niceMax(v: number): number {
 
 // ---- dispositivos
 
-/** "Chrome on Windows", "Mythos app on Android", "curl"... a partir del User-Agent. */
+/** "Chrome en Windows", "App de Mythos en Android", "curl"... a partir del User-Agent. */
 export function prettyUa(ua?: string | null): { name: string; kind: "desktop" | "phone" | "tv" | "tool" } {
-  if (!ua) return { name: "Unknown device", kind: "desktop" };
+  if (!ua) return { name: t("admin.ua.unknown"), kind: "desktop" };
   const os = /Android/.test(ua)
     ? "Android"
     : /iPhone|iPad|iPod/.test(ua)
@@ -136,13 +145,13 @@ export function prettyUa(ua?: string | null): { name: string; kind: "desktop" | 
   const tool = ua.match(/^(curl|Wget|python-requests|PostmanRuntime|okhttp|Go-http-client|node-fetch|undici)/i);
   if (tool) return { name: tool[1], kind: "tool" };
   let browser = "";
-  if (app) browser = "Mythos app";
+  if (app) browser = t("admin.ua.app");
   else if (/Edg\//.test(ua)) browser = "Edge";
   else if (/OPR\/|Opera/.test(ua)) browser = "Opera";
   else if (/Firefox\//.test(ua)) browser = "Firefox";
   else if (/SamsungBrowser/.test(ua)) browser = "Samsung Internet";
   else if (/Chrome\//.test(ua)) browser = "Chrome";
   else if (/Safari\//.test(ua)) browser = "Safari";
-  const name = browser && os ? `${browser} on ${os}` : browser || os || ua.slice(0, 40);
+  const name = browser && os ? t("admin.ua.on", { browser, os }) : browser || os || ua.slice(0, 40);
   return { name, kind: tv ? "tv" : phone ? "phone" : "desktop" };
 }

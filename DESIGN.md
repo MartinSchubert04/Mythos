@@ -13,8 +13,14 @@ cada carga tiene esqueleto con brillo, cada imagen aparece en fundido, nada salt
 
 - **Densidad:** media. Pósters de 118 a 168 px de ancho según la ventana; tarjetas de "Continue
   watching" apaisadas de 230 a 320 px.
-- **Voz:** literal y en inglés. "Play", "Resume from 42:10", "Choose stream", "Try another stream",
-  "Buffering 72%…". Sin metáforas.
+- **Voz:** literal, en español por defecto (rioplatense neutro, con voseo) o en inglés si el usuario
+  lo elige (Settings → Appearance; textos en `lib/i18n/es` y `lib/i18n/en`). "Reproducir",
+  "Seguir desde 42:10", "Elegir stream", "Probar otro stream", "Cargando 72%…" / "Play",
+  "Resume from 42:10", "Choose stream", "Try another stream". Sin metáforas. Los términos que se
+  dicen en inglés (stream, torrent, seeders, HDR, 4K, REMUX) quedan así. En este archivo los textos
+  entre comillas son los de la versión en inglés. El español es más largo: botones, la barra
+  lateral y la escala de TV (960 px) tienen que aguantarlo (`ellipsis` o que el texto baje de
+  línea, nunca que se corte un botón).
 - **Seis temas, una estructura.** Cambian colores, bordes, sombras, fondos y fuentes; nunca el layout.
 - **La única diferencia entre web y desktop** es la barra de título propia del desktop. En Android
   (`docs/mobile.md`): botón atrás, reproductor en pantalla completa horizontal, de borde a borde con
@@ -267,4 +273,5 @@ hay barras de scroll fijas ni foco automático en el login (el teclado taparía 
 Antes de cambiar la interfaz: leer este archivo, `styles/themes.css` y `docs/API.md`. Probar en los
 seis temas (Settings → Appearance) y con "Reduce motion". `npm run check` sin errores ni avisos y
 `npm run build`. Sin server: `npm run dev:mock` (datos de Cinemeta guardados y un video de prueba;
-usuarios `admin`/`admin` y `test`/`test`). Comentarios en español, textos de la interfaz en inglés.
+usuarios `admin`/`admin` y `test`/`test`). Comentarios en español; textos de la interfaz con
+`t()` (`lib/i18n.svelte.ts`), probados en los dos idiomas.

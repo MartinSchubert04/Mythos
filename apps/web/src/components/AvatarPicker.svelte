@@ -8,6 +8,7 @@
   import { profileBase, syncProfile, updateProfile, type Profile } from "../lib/profiles.svelte";
   import { session } from "../lib/session.svelte";
   import { toast } from "../lib/toast.svelte";
+  import { t } from "../lib/i18n.svelte";
   import type { Avatar } from "../lib/types";
 
   let { onpicked, profile }: { onpicked?: () => void; profile?: Profile } = $props();
@@ -54,10 +55,10 @@
 {#if !list}
   <div class="grid">{#each Array(4) as _, i (i)}<span class="skel cell"></span>{/each}</div>
 {:else if !list.length}
-  <span class="faint small">{error ? `Couldn't load the avatars: ${error}` : "No avatars yet. An admin can add some in Admin → Avatars."}</span>
+  <span class="faint small">{error ? t("account.av.loadErr", { e: error }) : t("account.av.none")}</span>
 {:else}
-  <div class="grid" role="radiogroup" aria-label="Avatar">
-    <button class="cell none" class:on={current === null} role="radio" aria-checked={current === null} title="No avatar" aria-busy={busy} onclick={() => pick(null)}>
+  <div class="grid" role="radiogroup" aria-label={t("account.avatar")}>
+    <button class="cell none" class:on={current === null} role="radio" aria-checked={current === null} title={t("account.av.noAvatar")} aria-busy={busy} onclick={() => pick(null)}>
       <ImageOff size={20} />
       {#if current === null}<span class="ck"><Check size={12} /></span>{/if}
     </button>

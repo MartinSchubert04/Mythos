@@ -7,6 +7,7 @@
   import { ChevronDown, LoaderCircle, Plus, Server, X } from "@lucide/svelte";
   import Logo from "../components/Logo.svelte";
   import { api, ApiError, errText } from "../lib/api";
+  import { t } from "../lib/i18n.svelte";
   import { expand } from "../lib/motion";
   import { checkServer, DEFAULT_SERVER, isAddress, isRemoteShell, needsServer, normalizeServer, pickServer } from "../lib/platform";
   import { isOurs, servers, setAddresses } from "../lib/servers.svelte";
@@ -22,7 +23,7 @@
   let addrs = $state<string[]>(servers.list.length ? servers.list.map((a) => a.url) : [DEFAULT_SERVER]);
   const shownAddr = $derived.by(() => {
     const filled = addrs.map((a) => a.trim()).filter(Boolean);
-    if (!filled.length) return "Choose a server";
+    if (!filled.length) return t("account.login.chooseServer");
     return filled[0].replace(/^https?:\/\//, "") + (filled.length > 1 ? ` +${filled.length - 1}` : "");
   });
   // Abierto si falta, o si se vino a cambiarlo (#/server).
@@ -55,14 +56,14 @@
       await login(username.trim(), password);
     } catch (err) {
       // Sin server (login contra la copia del dispositivo): solo cuentas que ya entraron aca.
-      if (err instanceof ApiError && err.status === 401 && err.message.includes("offline")) error = "Wrong username or password. Without the server, only accounts that already signed in on this device can sign in.";
-      else if (err instanceof ApiError && err.status === 401) error = "Wrong username or password.";
-      else if (err instanceof ApiError && err.status === 429) error = "Too many attempts. Wait a minute and try again.";
+      if (err instanceof ApiError && err.status === 401 && err.message.includes("offline")) error = t("account.login.wrongOffline");
+      else if (err instanceof ApiError && err.status === 401) error = t("account.login.wrong");
+      else if (err instanceof ApiError && err.status === 429) error = t("account.login.tooMany");
       else {
         error = errText(err);
         // Sin conexion: en desktop probablemente es la direccion del server.
         if (pickServer) showServer = true;
-        api.health().catch(() => (error = pickServer ? "Can't reach the server. Check the address." : "Can't reach the server."));
+        api.health().catch(() => (error = pickServer ? t("account.login.unreachableAddr") : t("account.login.unreachable")));
       }
       password = "";
       wobble();
@@ -76,7 +77,7 @@
    *  contesten. Devuelve el error para mostrar, o "". */
   async function checkAddrs(): Promise<string> {
     const urls = [...new Set(addrs.map(normalizeServer).filter(Boolean))];
-    if (!urls.length) return needsServer() ? "Enter the address of your Mythos server." : "";
+    if (!urls.length) return needsServer() ? t("account.login.enterAddr") : "";
     const wrong = urls.find((u) => !isAddress(u));
     if (wrong) return (await checkServer(wrong)).error;
     const checks = await Promise.all(urls.map((u) => checkServer(u)));
@@ -86,9 +87,9 @@
       // la cuenta que guarda el dispositivo (si ya se entro una vez con el server).
       if (urls.every(isOurs) && (await viaLocal())) return "";
       // "Es el server de una app" dice mas que "no contesta".
-      return checks.find((c) => !c.error.startsWith("Can't"))?.error ?? checks[0].error;
+      return checks.find((c) => !c.down)?.error ?? checks[0].error;
     }
-    if (new Set(ok.map((c) => c.probe!.id).filter(Boolean)).size > 1) return "These addresses lead to different Mythos servers. Keep only the addresses of your server.";
+    if (new Set(ok.map((c) => c.probe!.id).filter(Boolean)).size > 1) return t("account.login.mixed");
     setAddresses(urls.map((url, i) => ({ url, probe: checks[i].probe })));
     addrs = urls;
     return "";
@@ -107,28 +108,28 @@
   <div class="shaker" class:shake onanimationend={(e) => e.animationName === "shake" && (shake = false)}>
     <form class="card box stagger" onsubmit={submit}>
       <div class="mark"><Logo size={56} shine /></div>
-      <h1>{tv.on && profiles.adding ? "Add a profile" : "Welcome to Mythos"}</h1>
+      <h1>{tv.on && profiles.adding ? t("account.login.addProfile") : t("account.login.welcome")}</h1>
       {#if tv.on && profiles.adding}
-        <p class="muted">Sign in once. This TV stays signed in to this account until you remove it.</p>
+        <p class="muted">{t("account.login.addProfileHint")}</p>
       {:else if session.expired}
-        <p class="notice">Your session expired. Sign in again to continue.</p>
+        <p class="notice">{t("account.login.expired")}</p>
       {:else}
-        <p class="muted">Sign in to keep watching.</p>
+        <p class="muted">{t("account.login.lead")}</p>
       {/if}
       <label class="field">
-        Username
+        {t("account.username")}
         <!-- data-autofocus: en la TV el foco arranca aca (lib/spatial.svelte.ts). -->
         <input bind:this={userField} data-autofocus autocomplete="username" bind:value={username} spellcheck="false" autocapitalize="off" />
       </label>
       <label class="field">
-        Password
+        {t("account.password")}
         <input type="password" autocomplete="current-password" bind:value={password} />
       </label>
 
       {#if isRemoteShell}
         <button type="button" class="srv-toggle" onclick={() => leaveServer()}>
           <Server size={13} />
-          <span class="ellipsis">{location.host} · Change</span>
+          <span class="ellipsis">{location.host} · {t("account.login.change")}</span>
         </button>
       {:else if pickServer}
         <button type="button" class="srv-toggle" class:open={showServer} onclick={() => (showServer = !showServer)}>
@@ -140,7 +141,7 @@
           <div class="addrs" transition:expand>
             {#each addrs as _, i (i)}
               <label class="field">
-                {i === 0 ? "Server URL" : "Another address of the same server"}
+                {i === 0 ? t("account.login.serverUrl") : t("account.login.otherAddr")}
                 <span class="addr">
                   <input
                     bind:value={addrs[i]}
@@ -150,19 +151,19 @@
                     autocapitalize="off"
                   />
                   {#if addrs.length > 1}
-                    <button type="button" class="icon-btn" title="Remove this address" aria-label="Remove this address" onclick={() => addrs.splice(i, 1)}><X size={14} /></button>
+                    <button type="button" class="icon-btn" title={t("account.addr.removeOne")} aria-label={t("account.addr.removeOne")} onclick={() => addrs.splice(i, 1)}><X size={14} /></button>
                   {/if}
                 </span>
                 {#if i === addrs.length - 1}
                   <span class="hint">
                     {addrs.length > 1
-                      ? "Mythos uses whichever address answers fastest. You can change them later in Settings → Account."
-                      : "The address of your Mythos server, for example https://my-server.ts.net:7700"}
+                      ? t("account.login.addrsHint")
+                      : t("account.login.addrHint")}
                   </span>
                 {/if}
               </label>
             {/each}
-            <button type="button" class="btn ghost sm add" onclick={() => addrs.push("")}><Plus size={13} />Add another address</button>
+            <button type="button" class="btn ghost sm add" onclick={() => addrs.push("")}><Plus size={13} />{t("account.login.addAddr")}</button>
           </div>
         {/if}
       {/if}
@@ -170,12 +171,12 @@
       {#if error}<div class="err" role="alert">{error}</div>{/if}
       <button class="btn primary big" disabled={busy || !username.trim() || !password}>
         {#if busy}<LoaderCircle size={16} class="spin" />{/if}
-        Sign in
+        {t("account.login.signIn")}
       </button>
       {#if tv.on && profiles.list.length}
-        <button type="button" class="btn ghost" onclick={() => ((profiles.adding = false), (profiles.picking = true))}>Back to profiles</button>
+        <button type="button" class="btn ghost" onclick={() => ((profiles.adding = false), (profiles.picking = true))}>{t("account.login.backToProfiles")}</button>
       {/if}
-      <div class="faint small">No account? Ask the admin of this server.</div>
+      <div class="faint small">{t("account.login.noAccount")}</div>
     </form>
   </div>
 </div>

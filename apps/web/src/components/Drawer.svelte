@@ -2,6 +2,7 @@
   // Panel lateral para formularios (crear/editar). Portado de Ethereon.
   import { X } from "@lucide/svelte";
   import type { Snippet } from "svelte";
+  import { t } from "../lib/i18n.svelte";
   import { fadeQuick, slideIn, slideOut } from "../lib/motion";
   import { focusEl, focusFirst } from "../lib/spatial.svelte";
   import { tv } from "../lib/tv.svelte";
@@ -25,8 +26,8 @@
     let n = 0;
     const id = setInterval(() => {
       const inside = el.contains(document.activeElement);
-      const real = !!el.querySelector('button:not([aria-label="Close"]), input, select, textarea, a[href]');
-      if ((!inside || (real && document.activeElement?.matches('[aria-label="Close"]'))) && focusFirst(el) && real) clearInterval(id);
+      const real = !!el.querySelector("button:not([data-close]), input, select, textarea, a[href]");
+      if ((!inside || (real && document.activeElement?.matches("[data-close]"))) && focusFirst(el) && real) clearInterval(id);
       if (++n > 30) clearInterval(id);
     }, 150);
     return () => clearInterval(id);
@@ -61,12 +62,12 @@
 <aside class="drawer card" data-nav-scope bind:this={panel} in:slideIn|global out:slideOut|global>
   <header class="titlebar">
     <h2>{title}</h2>
-    <button class="icon-btn" onclick={onclose} aria-label="Close"><X size={16} /></button>
+    <button class="icon-btn" data-close onclick={onclose} aria-label={t("common.close")}><X size={16} /></button>
   </header>
   <div class="body">{@render children()}</div>
   {#if footer}
     <footer>
-      {#if onsave}<span class="keys">Ctrl S saves · Esc closes</span>{/if}
+      {#if onsave}<span class="keys">{t("browse.drawer.keys")}</span>{/if}
       {@render footer()}
     </footer>
   {/if}

@@ -15,7 +15,7 @@
 //   de direccion no corta la pelicula; si se traba, el reproductor la reabre en la activa.
 // Con una sola direccion no se prueba nada de mas (todo como antes).
 import { net, setRecover } from "./net.svelte";
-import { addrLabel, loadServers, pickServer, probeServer, remoteBase, saveServers, serverBase, type Probe, type ServerAddr } from "./platform";
+import { addrKind, addrLabel, loadServers, pickServer, probeServer, remoteBase, saveServers, serverBase, type Probe, type ServerAddr } from "./platform";
 
 /** Resultado de la ultima prueba de una direccion: ms, `null` = no contesto, "other" = es otro
  *  server, "local" = es el server de una app (no el de casa). */
@@ -84,7 +84,7 @@ function race(): Promise<string | null> {
   // video por Tailscale pasa por el proxy de `tailscale serve`, que en las pruebas trababa
   // reproducciones largas (docs/local-mode.md); por la red de casa va directo.
   const pref =
-    servers.preferred && urls.includes(servers.preferred) ? servers.preferred : (urls.find((u) => addrLabel(u) === "Home network") ?? null);
+    servers.preferred && urls.includes(servers.preferred) ? servers.preferred : (urls.find((u) => addrKind(u) === "home") ?? null);
   const known = knownId();
   servers.probing = true;
   return new Promise((resolve) => {

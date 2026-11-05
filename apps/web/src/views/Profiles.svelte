@@ -11,6 +11,7 @@
   import Logo from "../components/Logo.svelte";
   import { getToken } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
+  import { t } from "../lib/i18n.svelte";
   import { rise } from "../lib/motion";
   import { profileBase, profiles, removeProfile, switchTo, type Profile } from "../lib/profiles.svelte";
   import { focusEl } from "../lib/spatial.svelte";
@@ -74,9 +75,9 @@
 
   async function remove(p: Profile) {
     const ok = await ask({
-      title: `Remove ${p.username}?`,
-      body: "This TV signs out of that account. You can add it again with its password.",
-      confirm: "Remove",
+      title: t("account.prof.removeTitle", { name: p.username }),
+      body: t("account.prof.removeBody"),
+      confirm: t("common.remove"),
       danger: true,
     });
     if (!ok) return;
@@ -99,24 +100,24 @@
 <div class="who" bind:this={root} data-nav-scope>
   {#if editing}
     {@const p = editing}
-    <div class="edit card" bind:this={panel} data-nav-scope role="dialog" aria-label="Edit {p.username}" in:rise>
+    <div class="edit card" bind:this={panel} data-nav-scope role="dialog" aria-label={t("account.prof.edit", { name: p.username })} in:rise>
       <div class="head">
         <Avatar name={p.username} id={p.avatarId} size={56} to={{ base: profileBase(p), token: p.token }} />
         <h2 class="ellipsis">{p.username}</h2>
       </div>
-      <div class="sub">Avatar</div>
+      <div class="sub">{t("account.avatar")}</div>
       <AvatarPicker profile={p} />
       <div class="acts">
-        <button class="btn danger" onclick={() => remove(p)}><Trash2 size={15} />Remove profile</button>
-        <button class="btn primary" onclick={() => (editing = null)}><Check size={15} />Done</button>
+        <button class="btn danger" onclick={() => remove(p)}><Trash2 size={15} />{t("account.removeProfile")}</button>
+        <button class="btn primary" onclick={() => (editing = null)}><Check size={15} />{t("account.prof.done")}</button>
       </div>
     </div>
   {/if}
   <div class="mark"><Logo size={40} /></div>
-  <h1 in:rise>{managing ? "Manage profiles" : "Who's watching?"}</h1>
+  <h1 in:rise>{managing ? t("account.prof.manage") : t("account.prof.who")}</h1>
   <div class="row" in:rise={{ delay: 60 }}>
     {#each profiles.list as p (p.server + p.userId)}
-      <button class="pf" class:cur={p.token === active} class:managing onclick={() => choose(p)} aria-label={managing ? `Edit ${p.username}` : p.username}>
+      <button class="pf" class:cur={p.token === active} class:managing onclick={() => choose(p)} aria-label={managing ? t("account.prof.edit", { name: p.username }) : p.username}>
         <span class="pic">
           <Avatar name={p.username} id={p.avatarId} size={112} to={{ base: profileBase(p), token: p.token }} />
           {#if managing}<span class="rm"><Pencil size={30} /></span>{/if}
@@ -125,14 +126,14 @@
       </button>
     {/each}
     {#if !managing}
-      <button class="pf add" onclick={add} aria-label="Add profile">
+      <button class="pf add" onclick={add} aria-label={t("account.prof.add")}>
         <span class="pic"><span class="plus"><Plus size={44} /></span></span>
-        <span class="name">Add profile</span>
+        <span class="name">{t("account.prof.add")}</span>
       </button>
     {/if}
   </div>
   <button class="btn ghost manage" onclick={() => (managing = !managing)}>
-    {#if managing}<X size={15} />Done{:else}<Pencil size={15} />Manage profiles{/if}
+    {#if managing}<X size={15} />{t("account.prof.done")}{:else}<Pencil size={15} />{t("account.prof.manage")}{/if}
   </button>
 </div>
 

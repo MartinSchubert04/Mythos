@@ -5,6 +5,7 @@
   // "Upload original" la sube tal cual (por ejemplo, un GIF animado, que al recortarlo se quedaria
   // quieto).
   import { Minus, Plus } from "@lucide/svelte";
+  import { t } from "../lib/i18n.svelte";
   import { fadeQuick, pop } from "../lib/motion";
 
   let {
@@ -132,13 +133,13 @@
 <svelte:window onkeydown={onKey} />
 <div class="scrim" role="presentation" onclick={() => ondone(null)} transition:fadeQuick></div>
 <div class="center">
-  <div class="dialog card" role="dialog" aria-modal="true" aria-label="Crop avatar" transition:pop>
+  <div class="dialog card" role="dialog" aria-modal="true" aria-label={t("account.crop.aria")} transition:pop>
     <div class="top">
-      <h3>Crop the avatar</h3>
-      {#if total > 1}<span class="faint">{index} of {total}</span>{/if}
+      <h3>{t("account.crop.title")}</h3>
+      {#if total > 1}<span class="faint">{t("account.crop.of", { i: index, n: total })}</span>{/if}
     </div>
     {#if failed}
-      <p class="muted">This image can't be opened here. You can still upload it as it is.</p>
+      <p class="muted">{t("account.crop.failed")}</p>
     {:else}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
       <div
@@ -148,7 +149,7 @@
         style="width: {VIEW}px; height: {VIEW}px"
         tabindex="0"
         role="application"
-        aria-label="Drag to move the image, use + and - to zoom"
+        aria-label={t("account.crop.drag")}
         onpointerdown={down}
         onpointermove={move}
         onpointerup={up}
@@ -164,20 +165,20 @@
         <span class="ring" aria-hidden="true"></span>
       </div>
       <div class="zoom">
-        <button class="icon-btn" title="Zoom out" aria-label="Zoom out" onclick={() => setZoom(zoom / 1.2)} disabled={zoom <= 1}><Minus size={15} /></button>
-        <input type="range" min="1" max={MAX_ZOOM} step="0.01" value={zoom} aria-label="Zoom" oninput={(e) => setZoom(+e.currentTarget.value)} />
-        <button class="icon-btn" title="Zoom in" aria-label="Zoom in" onclick={() => setZoom(zoom * 1.2)} disabled={zoom >= MAX_ZOOM}><Plus size={15} /></button>
+        <button class="icon-btn" title={t("account.crop.zoomOut")} aria-label={t("account.crop.zoomOut")} onclick={() => setZoom(zoom / 1.2)} disabled={zoom <= 1}><Minus size={15} /></button>
+        <input type="range" min="1" max={MAX_ZOOM} step="0.01" value={zoom} aria-label={t("account.crop.zoom")} oninput={(e) => setZoom(+e.currentTarget.value)} />
+        <button class="icon-btn" title={t("account.crop.zoomIn")} aria-label={t("account.crop.zoomIn")} onclick={() => setZoom(zoom * 1.2)} disabled={zoom >= MAX_ZOOM}><Plus size={15} /></button>
       </div>
     {/if}
     <label class="field">
-      <span class="faint">Name</span>
+      <span class="faint">{t("account.crop.name")}</span>
       <input class="field-in" bind:value={name} maxlength="60" onkeydown={(e) => e.key === "Enter" && (e.preventDefault(), save())} />
     </label>
     <div class="row actions">
-      <button class="btn" onclick={() => ondone(null)}>{total > 1 ? "Skip" : "Cancel"}</button>
+      <button class="btn" onclick={() => ondone(null)}>{total > 1 ? t("account.crop.skip") : t("common.cancel")}</button>
       <div class="grow"></div>
-      <button class="btn" title="Upload the file as it is (keeps GIF animation)" onclick={() => ondone({ blob: file, name: name.trim() || "Avatar" })}>Upload original</button>
-      <button class="btn primary" disabled={!img || saving} onclick={save}>Save</button>
+      <button class="btn" title={t("account.crop.originalHint")} onclick={() => ondone({ blob: file, name: name.trim() || "Avatar" })}>{t("account.crop.original")}</button>
+      <button class="btn primary" disabled={!img || saving} onclick={save}>{t("common.save")}</button>
     </div>
   </div>
 </div>

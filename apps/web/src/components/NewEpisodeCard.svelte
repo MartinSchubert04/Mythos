@@ -3,6 +3,7 @@
   // spoilers), la serie, el episodio y hace cuanto salio. Clic: al reproductor.
   import { Play } from "@lucide/svelte";
   import { epCode, sized } from "../lib/format";
+  import { t } from "../lib/i18n.svelte";
   import { fit } from "../lib/images";
   import type { NewEp } from "../lib/newEpisodes";
   import { prefs } from "../lib/prefs.svelte";
@@ -16,7 +17,7 @@
   const href = $derived(`/watch/series/${n.ep.id}`);
   const ago = $derived.by(() => {
     const d = Math.floor((Date.now() - Date.parse(n.ep.released)) / 86_400_000);
-    return d <= 0 ? "Out today" : d === 1 ? "Out yesterday" : `${d} days ago`;
+    return d <= 0 ? t("browse.ne.today") : d === 1 ? t("browse.ne.yesterday") : t("browse.ne.daysAgo", { n: d });
   });
 </script>
 
@@ -35,7 +36,7 @@
     <Img src={img} alt="" fallback={n.series.name} />
     <div class="shade"></div>
     <span class="play"><Play size={20} fill="currentColor" /></span>
-    <span class="new">New{n.more ? ` · ${n.more + 1}` : ""}</span>
+    <span class="new">{t("browse.ne.new")}{n.more ? ` · ${n.more + 1}` : ""}</span>
     <div class="info">
       <span class="name ellipsis">{n.series.name}</span>
       <span class="sub ellipsis">{epCode(n.ep.season, n.ep.episode)}{n.ep.name ?` · ${n.ep.name}` : ""} · {ago}</span>

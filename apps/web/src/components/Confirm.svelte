@@ -2,6 +2,7 @@
   // Modal de confirmacion. Enter confirma, Esc cancela.
   import { TriangleAlert, CircleHelp } from "@lucide/svelte";
   import { confirmState as c } from "../lib/confirm.svelte";
+  import { t } from "../lib/i18n.svelte";
   import { fadeQuick, pop } from "../lib/motion";
 
   let ok = $state<HTMLButtonElement>();
@@ -41,7 +42,7 @@
       {/if}
     </div>
     <div class="row actions">
-      <button class="btn" onclick={() => c.resolve?.(false)}>Cancel</button>
+      <button class="btn" onclick={() => c.resolve?.(false)}>{t("common.cancel")}</button>
       <button bind:this={ok} class="btn {c.danger ? 'danger solid' : 'primary'}" disabled={!!c.input && !c.value} onclick={() => c.resolve?.(true)}>
         {c.confirm}
       </button>

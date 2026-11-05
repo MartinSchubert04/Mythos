@@ -3,6 +3,7 @@
   // pantalla (las de abajo no piden nada hasta que se baja). Mientras, esqueletos con shimmer.
   import { ChevronLeft, ChevronRight } from "@lucide/svelte";
   import { tick, type Snippet } from "svelte";
+  import { t } from "../lib/i18n.svelte";
   import { scrollBehavior } from "../lib/motion";
   import { go } from "../lib/router.svelte";
   import { tv } from "../lib/tv.svelte";
@@ -175,7 +176,7 @@
       <h2 class="row-title">{title}</h2>
     {/if}
     <div class="viewport">
-      <button class="arrow left" class:show={canLeft} onclick={() => page(-1)} aria-label="Scroll left" tabindex="-1">
+      <button class="arrow left" class:show={canLeft} onclick={() => page(-1)} aria-label={t("browse.row.left")} tabindex="-1">
         <ChevronLeft size={22} />
       </button>
       <div class="track" bind:this={track} onscroll={tv.on ? undefined : onScroll}>
@@ -195,11 +196,11 @@
           {/each}
         {/if}
       </div>
-      <button class="arrow right" class:show={canRight} onclick={() => page(1)} aria-label="Scroll right" tabindex="-1">
+      <button class="arrow right" class:show={canRight} onclick={() => page(1)} aria-label={t("browse.row.right")} tabindex="-1">
         <ChevronRight size={22} />
       </button>
     </div>
-    {#if failed}<div class="faint err">Couldn't load this row.</div>{/if}
+    {#if failed}<div class="faint err">{t("browse.row.failed")}</div>{/if}
   </section>
 {/if}
 

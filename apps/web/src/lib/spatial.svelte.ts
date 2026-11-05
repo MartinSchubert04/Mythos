@@ -166,7 +166,7 @@ export function focusFirst(root: HTMLElement = scope(), onlyPreferred = false): 
     list.find((el) => el.matches("[aria-current='true'], [aria-checked='true'], .sel")) ??
     list.find((el) => el.matches(".btn.primary")) ??
     // La X de un cajon no: lo primero de su contenido (la X queda arriba, a una flecha).
-    (onlyPreferred ? undefined : (list.find((el) => !el.matches('[aria-label="Close"]')) ?? list[0]));
+    (onlyPreferred ? undefined : (list.find((el) => !el.matches("[data-close]")) ?? list[0]));
   if (!pick) return false;
   focusEl(pick);
   return true;

@@ -6,6 +6,7 @@
   import PosterCard from "../components/PosterCard.svelte";
   import Row from "../components/Row.svelte";
   import { api } from "../lib/api";
+  import { t, type Key } from "../lib/i18n.svelte";
   import { lastNewEpisodes, newEpisodes, type NewEp } from "../lib/newEpisodes";
   import { keepScroll } from "../lib/scroll";
   import { attempt } from "../lib/toast.svelte";
@@ -59,17 +60,18 @@
       .then((r) => (r.state === "ready" && r.items.length ? r.items : Promise.reject()))
       .catch(() => api.catalog(type, "imdbRating"));
 
-  const ROWS: { title: string; load: () => Promise<MetaPreview[]>; href?: string }[] = [
-    { title: "Popular movies", load: () => api.catalog("movie", "top") },
-    { title: "Popular series", load: () => api.catalog("series", "top") },
-    { title: "Top rated movies", load: topRated("movie"), href: "/top" },
-    { title: "Action", load: () => api.catalog("movie", "top", { genre: "Action" }) },
-    { title: "Top rated series", load: topRated("series"), href: "/top?type=series" },
-    { title: "Comedy", load: () => api.catalog("movie", "top", { genre: "Comedy" }) },
-    { title: "Sci-Fi", load: () => api.catalog("movie", "top", { genre: "Sci-Fi" }) },
-    { title: "Animation", load: () => api.catalog("movie", "top", { genre: "Animation" }) },
-    { title: "Crime series", load: () => api.catalog("series", "top", { genre: "Crime" }) },
-    { title: "Horror", load: () => api.catalog("movie", "top", { genre: "Horror" }) },
+  // `title` es la clave del texto (se traduce al pintar).
+  const ROWS: { title: Key; load: () => Promise<MetaPreview[]>; href?: string }[] = [
+    { title: "browse.home.popularMovies", load: () => api.catalog("movie", "top") },
+    { title: "browse.home.popularSeries", load: () => api.catalog("series", "top") },
+    { title: "browse.home.topMovies", load: topRated("movie"), href: "/top" },
+    { title: "browse.genre.Action", load: () => api.catalog("movie", "top", { genre: "Action" }) },
+    { title: "browse.home.topSeries", load: topRated("series"), href: "/top?type=series" },
+    { title: "browse.genre.Comedy", load: () => api.catalog("movie", "top", { genre: "Comedy" }) },
+    { title: "browse.genre.Sci-Fi", load: () => api.catalog("movie", "top", { genre: "Sci-Fi" }) },
+    { title: "browse.genre.Animation", load: () => api.catalog("movie", "top", { genre: "Animation" }) },
+    { title: "browse.home.crimeSeries", load: () => api.catalog("series", "top", { genre: "Crime" }) },
+    { title: "browse.genre.Horror", load: () => api.catalog("movie", "top", { genre: "Horror" }) },
   ];
 </script>
 
@@ -77,17 +79,17 @@
   <Hero items={featured} {playHref} />
   <div class="rows">
     {#if cont === null || cont.length}
-      <Row title="Continue watching" items={cont ?? undefined} wide>
+      <Row title={t("browse.home.continue")} items={cont ?? undefined} wide>
         {#snippet card(p, i)}<ContinueCard {p} {i} onremove={remove} />{/snippet}
       </Row>
     {/if}
     {#if fresh.length}
-      <Row title="New episodes" items={fresh} wide>
+      <Row title={t("browse.home.newEpisodes")} items={fresh} wide>
         {#snippet card(n, i)}<NewEpisodeCard {n} {i} />{/snippet}
       </Row>
     {/if}
     {#each ROWS as r, ri (r.title)}
-      <Row title={r.title} load={r.load} href={r.href}>
+      <Row title={t(r.title)} load={r.load} href={r.href}>
         {#snippet card(m, i)}<PosterCard item={m} {i} eager={ri === 0 && i < 6} />{/snippet}
       </Row>
     {/each}

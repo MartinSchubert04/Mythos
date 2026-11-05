@@ -3,6 +3,7 @@
   // hueco para arrastrar (doble clic maximiza), "Update" si hay una version lista, a que server se
   // habla y los controles de la ventana.
   import { ArrowDownToLine, Menu, Search } from "@lucide/svelte";
+  import { t } from "../lib/i18n.svelte";
   import { go } from "../lib/router.svelte";
   import { installUpdate, shell } from "../lib/shell.svelte";
   import { toast } from "../lib/toast.svelte";
@@ -18,14 +19,14 @@
     // Si instala, la app se reinicia y vuelve aca (lib/shell.svelte.ts).
     if (!(await installUpdate().catch(() => false))) {
       installing = false;
-      toast("Couldn't install the update. It will try again later.", true);
+      toast(t("browse.titlebar.updateFailed"), true);
     }
   }
 </script>
 
 <header class="bar" data-tauri-drag-region>
   {#if !bare && ontoggle}
-    <button class="ham" title="Sidebar" onclick={ontoggle}><Menu size={17} /></button>
+    <button class="ham" title={t("browse.titlebar.sidebar")} onclick={ontoggle}><Menu size={17} /></button>
   {/if}
   <div class="brand" data-tauri-drag-region>
     <Logo size={18} />
@@ -33,15 +34,15 @@
   </div>
   <div class="drag" data-tauri-drag-region></div>
   {#if shell.update?.status === "ready"}
-    <button class="upd" onclick={update} disabled={installing} title={`Restart into Mythos ${shell.update.version}`}>
-      <ArrowDownToLine size={13} /><span>{installing ? "Updating…" : "Update"}</span>
+    <button class="upd" onclick={update} disabled={installing} title={t("browse.titlebar.restartInto", { v: shell.update.version })}>
+      <ArrowDownToLine size={13} /><span>{installing ? t("browse.titlebar.updating") : t("browse.titlebar.update")}</span>
     </button>
   {/if}
   {#if !bare}
     <!-- Server de casa o el del dispositivo (modo local). -->
     <ConnBadge />
-    <button class="find" onclick={() => go("/search")} title="Search (Ctrl K)">
-      <Search size={14} /><span>Search</span><kbd>/</kbd>
+    <button class="find" onclick={() => go("/search")} title={t("browse.titlebar.searchTip")}>
+      <Search size={14} /><span>{t("nav.search")}</span><kbd>/</kbd>
     </button>
   {/if}
   <WindowControls />

@@ -22,6 +22,8 @@
   import Select from "../components/Select.svelte";
   import { api, errText } from "../lib/api";
   import { uniq } from "../lib/format";
+  import { genreName } from "../lib/genres";
+  import { date, num, t } from "../lib/i18n.svelte";
   import { rise } from "../lib/motion";
   import { go, route, setQuery } from "../lib/router.svelte";
   import { keepScroll } from "../lib/scroll";
@@ -31,11 +33,11 @@
   /** IMDb da como mucho 3 generos por titulo (el server rechaza mas). */
   const MAX_GENRES = 3;
   const DEFAULT_VOTES: Record<MediaType, number> = { movie: 25000, series: 10000 };
-  const TYPES: { value: MediaType; label: string }[] = [
-    { value: "movie", label: "Movies" },
-    { value: "series", label: "Series" },
-  ];
-  const VOTES = [1000, 10000, 25000, 100000, 500000].map((v) => ({ value: v, label: `${v >= 1000 ? v / 1000 + "k" : v}+ votes` }));
+  const TYPES: { value: MediaType; label: string }[] = $derived([
+    { value: "movie", label: t("browse.filter.movies") },
+    { value: "series", label: t("browse.filter.series") },
+  ]);
+  const VOTES = $derived([1000, 10000, 25000, 100000, 500000].map((v) => ({ value: v, label: t("browse.top.votesOpt", { n: num(v, { notation: "compact" }) }) })));
 
   const type = $derived<MediaType>(route.query.get("type") === "series" ? "series" : "movie");
   const picked = $derived(
@@ -57,14 +59,14 @@
 
   /** Cambia el filtro (en la URL, sin agregar entradas al historial). */
   function setFilters(o: { type?: MediaType; genres?: string[]; votes?: number }) {
-    const t = o.type ?? type;
+    const ty = o.type ?? type;
     const g = o.genres ?? picked;
     const explicit = route.query.get("votes");
     const v = o.votes ?? (explicit ? Number(explicit) : undefined);
     const p: Record<string, string> = {};
-    if (t !== "movie") p.type = t;
+    if (ty !== "movie") p.type = ty;
     if (g.length) p.genres = g.join(",");
-    if (v && v !== DEFAULT_VOTES[t]) p.votes = String(v);
+    if (v && v !== DEFAULT_VOTES[ty]) p.votes = String(v);
     setQuery(p);
     page?.scrollTo({ top: 0 });
   }
@@ -133,32 +135,32 @@
   const genres = $derived(data?.genres ?? []);
   const full = $derived(picked.length >= MAX_GENRES);
   const updated = $derived(
-    data?.updated_at ? new Date(data.updated_at * 1000).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" }) : "",
+    data?.updated_at ? date(data.updated_at * 1000, { month: "short", day: "numeric", year: "numeric" }) : "",
   );
 </script>
 
 <div class="page" bind:this={page} use:keepScroll={"top"}>
   <div class="page-head">
-    <h1>Top rated</h1>
+    <h1>{t("browse.top.title")}</h1>
     {#if data?.state === "ready" && !loading}
-      <span class="sub">IMDb · {data.total.toLocaleString("en")} {data.total === 1 ? "title" : "titles"}</span>
+      <span class="sub">IMDb · {t("browse.top.titles", { n: data.total, count: num(data.total) })}</span>
     {/if}
     <div class="grow"></div>
     <div class="ctl">
       {#if picked.length}
-        <button class="btn ghost sm clear" title="Clear genres" aria-label="Clear genres" onclick={() => setFilters({ genres: [] })}
-          ><X size={14} /><span>Clear</span></button
+        <button class="btn ghost sm clear" title={t("browse.top.clearGenres")} aria-label={t("browse.top.clearGenres")} onclick={() => setFilters({ genres: [] })}
+          ><X size={14} /><span>{t("browse.clear")}</span></button
         >
       {/if}
       {#if data?.state !== "unavailable"}
         <div class="votes"><Select value={votes} options={VOTES} onchange={(v) => setFilters({ votes: v })} /></div>
       {/if}
-      <Seg value={type} onchange={(t) => setFilters({ type: t })} options={TYPES} />
+      <Seg value={type} onchange={(v) => setFilters({ type: v })} options={TYPES} />
     </div>
   </div>
 
   {#if data?.state !== "unavailable"}
-    <div class="chips" role="group" aria-label="Genres">
+    <div class="chips" role="group" aria-label={t("browse.top.genres")}>
       {#if genres.length}
         {#each genres as g (g.name)}
           {@const on = picked.includes(g.name)}
@@ -168,11 +170,11 @@
             class:on
             aria-pressed={on}
             disabled={!on && (g.count === 0 || full)}
-            title={!on && full ? `Up to ${MAX_GENRES} genres` : !on && g.count === 0 ? "No titles with all these genres" : undefined}
+            title={!on && full ? t("browse.top.upTo", { n: MAX_GENRES }) : !on && g.count === 0 ? t("browse.top.noCombo") : undefined}
             onclick={() => toggle(g.name)}
           >
-            {g.name}
-            {#if picked.length && !on && g.count > 0}<span class="n">{g.count.toLocaleString("en")}</span>{/if}
+            {genreName(g.name)}
+            {#if picked.length && !on && g.count > 0}<span class="n">{num(g.count)}</span>{/if}
             {#if on}<X size={13} />{/if}
           </button>
         {/each}
@@ -184,22 +186,22 @@
 
   {#if error}
     <div class="empty" in:rise>
-      <h3>Couldn't load the list</h3>
+      <h3>{t("browse.top.failed")}</h3>
       <span>{error}</span>
-      <button class="btn primary" onclick={() => load(fkey)}><RefreshCw size={15} />Retry</button>
+      <button class="btn primary" onclick={() => load(fkey)}><RefreshCw size={15} />{t("common.retry")}</button>
     </div>
   {:else if data?.state === "unavailable"}
     <div class="empty" in:rise>
       <Trophy size={34} />
-      <h3>Top rated needs the home server</h3>
-      <span>This list comes from your Mythos server. It shows up again as soon as it's reachable.</span>
-      <button class="btn primary" onclick={() => go("/")}>Browse</button>
+      <h3>{t("browse.top.needsServer")}</h3>
+      <span>{t("browse.top.needsServerBody")}</span>
+      <button class="btn primary" onclick={() => go("/")}>{t("browse.lib.browse")}</button>
     </div>
   {:else if data?.state === "preparing"}
     <div class="empty" in:rise>
       <LoaderCircle size={34} class="spin" />
-      <h3>Getting the IMDb ratings…</h3>
-      <span>The server is downloading IMDb's public lists. The first time takes a couple of minutes; this page updates by itself.</span>
+      <h3>{t("browse.top.preparing")}</h3>
+      <span>{t("browse.top.preparingBody")}</span>
     </div>
   {:else if loading}
     <div class="poster-grid">
@@ -208,11 +210,11 @@
   {:else if !items.length}
     <div class="empty" in:rise>
       <SearchX size={34} />
-      <h3>Nothing matches all these genres</h3>
-      <span>Try fewer genres or fewer votes.</span>
+      <h3>{t("browse.top.nothing")}</h3>
+      <span>{t("browse.top.nothingHint")}</span>
       <div class="row">
-        {#if picked.length}<button class="btn primary" onclick={() => setFilters({ genres: [] })}>Clear genres</button>{/if}
-        {#if votes > 1000}<button class="btn" onclick={() => setFilters({ votes: 1000 })}>Any votes</button>{/if}
+        {#if picked.length}<button class="btn primary" onclick={() => setFilters({ genres: [] })}>{t("browse.top.clearGenres")}</button>{/if}
+        {#if votes > 1000}<button class="btn" onclick={() => setFilters({ votes: 1000 })}>{t("browse.top.anyVotes")}</button>{/if}
       </div>
     </div>
   {:else}
@@ -223,7 +225,7 @@
       {/if}
     </div>
     {#if !data?.more}
-      <div class="foot faint">Ratings from IMDb{updated ? `, updated ${updated}` : ""} · {votes.toLocaleString("en")}+ votes</div>
+      <div class="foot faint">{updated ? t("browse.top.footUpdated", { date: updated }) : t("browse.top.foot")} · {t("browse.top.votesOpt", { n: num(votes) })}</div>
     {/if}
   {/if}
   <div class="sentinel" bind:this={sentinel} aria-hidden="true"></div>

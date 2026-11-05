@@ -15,6 +15,7 @@
   // de <body>: dentro de un panel con blur o transform, "position: fixed" se mediria desde ahi.
   import { LoaderCircle } from "@lucide/svelte";
   import { onMount, tick } from "svelte";
+  import { t } from "../lib/i18n.svelte";
   import { pop } from "../lib/motion";
 
   let {
@@ -23,7 +24,7 @@
     items,
     onclose,
     onmedia = false,
-    label = "Options",
+    label,
   }: { x: number; y: number; items: PopItem[]; onclose: () => void; onmedia?: boolean; label?: string } = $props();
 
   let el = $state<HTMLDivElement>();
@@ -95,7 +96,7 @@
   class="popmenu"
   class:onmedia
   role="menu"
-  aria-label={label}
+  aria-label={label ?? t("browse.menu.options")}
   tabindex="-1"
   style="left: {pos.left}px; top: {pos.top}px"
   in:pop={{ start: 0.94 }}

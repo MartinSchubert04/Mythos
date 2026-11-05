@@ -7,6 +7,7 @@
   // elige el padre (requests con los errores apilados, datos enviados o latencia p95). Pasar el
   // mouse, tocar o las flechas del teclado muestran el detalle de cada barra.
   import { bytes } from "../lib/format";
+  import { date, t as tr } from "../lib/i18n.svelte";
   import { compact, count, dur, niceMax, pct, type Bucket } from "../lib/traffic";
 
   let { data, hours, metric }: { data: Bucket[]; hours: number; metric: ChartMetric } = $props();
@@ -60,11 +61,16 @@
   // ---- etiquetas del eje X
 
   const sameDay = (a: number) => new Date(a).getHours() === 0;
+  // Fechas con Intl en el idioma de la interfaz (lib/i18n.svelte.ts).
+  const HM: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+  const WD: Intl.DateTimeFormatOptions = { weekday: "short" };
+  const MD: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+  const WMD: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
   function xLabel(b: Bucket): string {
     const d = new Date(b.start);
-    if (hours < 24 && data.length <= 30) return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-    if (hours < 24) return `${d.toLocaleDateString("en-US", { weekday: "short" })} ${d.getDate()}`;
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    if (hours < 24 && data.length <= 30) return date(d, HM);
+    if (hours < 24) return `${date(d, WD)} ${d.getDate()}`;
+    return date(d, MD);
   }
   const ticks = $derived.by(() => {
     const out: { x: number; text: string }[] = [];
@@ -86,16 +92,16 @@
 
   function range(b: Bucket): string {
     const s = new Date(b.start);
-    const day = s.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    const day = date(s, WMD);
     if (hours >= 24) return day;
-    const t = (ms: number) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const t = (ms: number) => date(ms, HM);
     return `${day} · ${t(b.start)}–${t(b.end)}`;
   }
   const cur = $derived(sel != null ? data[sel] : null);
   const tipX = $derived(sel != null ? PAD.left + sel * slot + slot / 2 : 0);
   const summary = $derived.by(() => {
     if (!cur) return "";
-    return `${range(cur)}: ${count(cur.requests)} requests, ${count(cur.errors)} server errors, ${bytes(cur.bytes_out) || "0 B"} sent${cur.p95_ms != null ? `, p95 ${dur(cur.p95_ms)}` : ""}`;
+    return `${range(cur)}: ${tr("admin.chart.summary", { r: count(cur.requests), e: count(cur.errors), b: bytes(cur.bytes_out) || "0 B" })}${cur.p95_ms != null ? `, p95 ${dur(cur.p95_ms)}` : ""}`;
   });
 
   function pick(e: PointerEvent) {
@@ -115,9 +121,9 @@
     else if (e.key === "Escape") sel = null;
   }
 
-  const unit = $derived(hours >= 24 ? "day" : hours === 1 ? "hour" : `${hours} hours`);
+  const unit = $derived(hours >= 24 ? tr("admin.tr.perDay") : hours === 1 ? tr("admin.tr.perHour") : tr("admin.tr.perHours", { n: hours }));
   const label = $derived(
-    metric === "requests" ? `Requests per ${unit}` : metric === "bytes" ? `Data sent per ${unit}` : `p95 latency per ${unit}`,
+    `${metric === "requests" ? tr("admin.tr.requests") : metric === "bytes" ? tr("admin.tr.dataSent") : tr("admin.tr.p95")} ${unit}`,
   );
 </script>
 
@@ -128,11 +134,11 @@
   bind:clientWidth={width}
   tabindex="0"
   role="slider"
-  aria-label="{label}. Use the arrow keys to read each bar."
+  aria-label={tr("admin.chart.aria", { label })}
   aria-valuemin={0}
   aria-valuemax={Math.max(0, data.length - 1)}
   aria-valuenow={sel ?? 0}
-  aria-valuetext={summary || "No bar selected"}
+  aria-valuetext={summary || tr("admin.chart.noBar")}
   onpointermove={pick}
   onpointerdown={pick}
   onpointerleave={(e) => e.pointerType === "mouse" && (sel = null)}
@@ -161,15 +167,15 @@
       {/each}
     </svg>
     {#if empty}
-      <div class="none">No traffic in this range</div>
+      <div class="none">{tr("admin.chart.empty")}</div>
     {/if}
     {#if cur}
       <div class="tip" style="left: {Math.min(Math.max(tipX, 90), width - 90)}px">
         <div class="tip-t">{range(cur)}</div>
-        <div class="tip-r"><span class="sw" class:main={metric === "requests"}></span>Requests<b>{count(cur.requests)}</b></div>
-        <div class="tip-r"><span class="sw" class:err={metric === "requests"}></span>Server errors<b>{count(cur.errors)}{cur.errors ? ` · ${pct(cur.errors, cur.requests)}` : ""}</b></div>
-        <div class="tip-r"><span class="sw" class:main={metric === "bytes"}></span>Data sent<b>{bytes(cur.bytes_out) || "0 B"}</b></div>
-        <div class="tip-r"><span class="sw" class:main={metric === "latency"}></span>p95 latency<b>{dur(cur.p95_ms)}</b></div>
+        <div class="tip-r"><span class="sw" class:main={metric === "requests"}></span>{tr("admin.tr.requests")}<b>{count(cur.requests)}</b></div>
+        <div class="tip-r"><span class="sw" class:err={metric === "requests"}></span>{tr("admin.tr.serverErrors")}<b>{count(cur.errors)}{cur.errors ? ` · ${pct(cur.errors, cur.requests)}` : ""}</b></div>
+        <div class="tip-r"><span class="sw" class:main={metric === "bytes"}></span>{tr("admin.tr.dataSent")}<b>{bytes(cur.bytes_out) || "0 B"}</b></div>
+        <div class="tip-r"><span class="sw" class:main={metric === "latency"}></span>{tr("admin.tr.p95")}<b>{dur(cur.p95_ms)}</b></div>
       </div>
     {/if}
   {/if}
@@ -180,7 +186,7 @@
 <div class="sr">
 <table>
   <caption>{label}</caption>
-  <thead><tr><th>Time</th><th>Requests</th><th>Server errors</th><th>Data sent</th><th>p95</th></tr></thead>
+  <thead><tr><th>{tr("admin.logs.time")}</th><th>{tr("admin.tr.requests")}</th><th>{tr("admin.tr.serverErrors")}</th><th>{tr("admin.tr.dataSent")}</th><th>p95</th></tr></thead>
   <tbody>
     {#each data as b (b.start)}
       {#if b.requests}

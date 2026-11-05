@@ -6,6 +6,7 @@
   import { Laptop, LogOut, Monitor, Smartphone, Terminal, Tv, X } from "@lucide/svelte";
   import { api, errText } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
+  import { t } from "../lib/i18n.svelte";
   import { flipMs } from "../lib/motion";
   import { attempt, toast } from "../lib/toast.svelte";
   import { agoMs, fullDate, prettyUa } from "../lib/traffic";
@@ -41,24 +42,24 @@
   }
 
   async function revoke(s: SessionInfo) {
-    const t = title(s);
-    const ok = await ask({ title: `Sign out ${t.name}?`, body: "That device will need the password to come back.", confirm: "Sign out device", danger: true });
+    const d = title(s);
+    const ok = await ask({ title: t("account.dev.revokeTitle", { name: d.name }), body: t("account.dev.revokeBody"), confirm: t("account.dev.revokeConfirm"), danger: true });
     const done = () => (user ? api.revokeUserSession(user.id, s.id) : api.revokeSession(s.id));
-    if (ok && (await attempt(done, "Device signed out"))) list = list?.filter((x) => x.id !== s.id) ?? null;
+    if (ok && (await attempt(done, t("account.dev.revoked")))) list = list?.filter((x) => x.id !== s.id) ?? null;
   }
 
   async function revokeOthers() {
     const ok = await ask({
-      title: "Sign out all other devices?",
-      body: `${others} other device${others === 1 ? "" : "s"} will need the password to come back. This one stays signed in.`,
-      confirm: "Sign out others",
+      title: t("account.dev.othersTitle"),
+      body: t("account.dev.othersBody", { n: others }),
+      confirm: t("account.dev.othersConfirm"),
       danger: true,
     });
     if (!ok) return;
     try {
       const { revoked } = await api.revokeOtherSessions();
       list = list?.filter((x) => x.current) ?? null;
-      toast(revoked === 1 ? "1 device signed out" : `${revoked} devices signed out`);
+      toast(t("account.dev.othersDone", { n: revoked }));
     } catch (e) {
       toast(errText(e), true);
       load();
@@ -68,42 +69,42 @@
 
 <div class="devices">
   {#if error && !list}
-    <div class="msg">Couldn't load {user ? "the" : "your"} devices: {error} <button class="btn sm" onclick={load}>Retry</button></div>
+    <div class="msg">{t(user ? "account.dev.loadErrUser" : "account.dev.loadErr", { e: error })} <button class="btn sm" onclick={load}>{t("common.retry")}</button></div>
   {:else if !list}
     {#each Array(2) as _, i (i)}<div class="dev"><span class="skel ico"></span><div class="skel line" style="width: {55 - i * 12}%"></div></div>{/each}
   {:else}
     {#each shown as s (s.id)}
-      {@const t = title(s)}
+      {@const d = title(s)}
       <div class="dev" animate:flip={{ duration: flipMs() }}>
-        <span class="ico" class:cur={s.current}><t.Icon size={16} /></span>
+        <span class="ico" class:cur={s.current}><d.Icon size={16} /></span>
         <div class="info">
           <div class="name">
-            <span class="ellipsis">{t.name}</span>
-            {#if s.current}<span class="chip accent">This device</span>{/if}
-            {#if s.persistent}<span class="chip" title="TV sessions stay signed in until someone signs them out here">Never expires</span>{/if}
+            <span class="ellipsis">{d.name}</span>
+            {#if s.current}<span class="chip accent">{t("account.dev.thisDevice")}</span>{/if}
+            {#if s.persistent}<span class="chip" title={t("account.dev.neverExpiresHint")}>{t("account.dev.neverExpires")}</span>{/if}
           </div>
           <div class="sub" title={s.user_agent ?? ""}>
-            {#if t.sub}<span>{t.sub}</span>{/if}
+            {#if d.sub}<span>{d.sub}</span>{/if}
             {#if s.last_ip}<span class="mono">{s.last_ip}</span>{/if}
-            <span title="Last used {fullDate(s.last_used_at * 1000)} · signed in {fullDate(s.created_at * 1000)}">
-              {s.current ? "Active now" : `Last used ${agoMs(s.last_used_at * 1000)}`}
+            <span title={t("account.dev.usedTitle", { used: fullDate(s.last_used_at * 1000), created: fullDate(s.created_at * 1000) })}>
+              {s.current ? t("account.dev.activeNow") : t("account.dev.lastUsed", { when: agoMs(s.last_used_at * 1000) })}
             </span>
           </div>
         </div>
         {#if !s.current}
-          <button class="icon-btn del" title="Sign out this device" onclick={() => revoke(s)}><X size={15} /></button>
+          <button class="icon-btn del" title={t("account.dev.revokeOne")} onclick={() => revoke(s)}><X size={15} /></button>
         {/if}
       </div>
     {/each}
     {#if list.length > FEW}
-      <button class="btn ghost sm more" onclick={() => (all = !all)}>{all ? "Show fewer" : `Show ${list.length - FEW} more`}</button>
+      <button class="btn ghost sm more" onclick={() => (all = !all)}>{all ? t("account.dev.showFewer") : t("account.dev.showMore", { n: list.length - FEW })}</button>
     {/if}
     {#if user}
-      {#if !list.length}<div class="msg">{user.username} isn't signed in anywhere.</div>{/if}
+      {#if !list.length}<div class="msg">{t("account.dev.userNone", { name: user.username })}</div>{/if}
     {:else if others}
-      <div><button class="btn" onclick={revokeOthers}><LogOut size={14} />Sign out all other devices</button></div>
+      <div><button class="btn" onclick={revokeOthers}><LogOut size={14} />{t("account.dev.othersTitleBtn")}</button></div>
     {:else}
-      <div class="msg">Only this device is signed in.</div>
+      <div class="msg">{t("account.dev.onlyThis")}</div>
     {/if}
   {/if}
 </div>

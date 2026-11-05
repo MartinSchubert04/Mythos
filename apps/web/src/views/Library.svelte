@@ -7,6 +7,7 @@
   import Row from "../components/Row.svelte";
   import Seg from "../components/Seg.svelte";
   import { api, errText } from "../lib/api";
+  import { t } from "../lib/i18n.svelte";
   import { rise } from "../lib/motion";
   import { uniq } from "../lib/format";
   import { go } from "../lib/router.svelte";
@@ -34,16 +35,16 @@
 
 <div class="page" use:keepScroll={"library"}>
   <div class="page-head">
-    <h1>Library</h1>
-    {#if items?.length}<span class="sub">{items.length} saved</span>{/if}
+    <h1>{t("nav.library")}</h1>
+    {#if items?.length}<span class="sub">{t("browse.lib.saved", { n: items.length })}</span>{/if}
     <div class="grow"></div>
     {#if items?.length || recent?.length}
       <Seg
         bind:value={kind}
         options={[
-          { value: "all", label: "All" },
-          { value: "movie", label: "Movies" },
-          { value: "series", label: "Series" },
+          { value: "all", label: t("browse.filter.all") },
+          { value: "movie", label: t("browse.filter.movies") },
+          { value: "series", label: t("browse.filter.series") },
         ]}
       />
     {/if}
@@ -51,11 +52,11 @@
 
   {#if recentShown === null || recentShown.length}
     <div class="recent">
-      <Row title="Recently watched" items={recentShown ?? undefined} wide>
+      <Row title={t("browse.lib.recent")} items={recentShown ?? undefined} wide>
         {#snippet card(p, i)}<ContinueCard {p} {i} />{/snippet}
       </Row>
     </div>
-    <h2 class="section-title">Saved</h2>
+    <h2 class="section-title">{t("browse.lib.savedTitle")}</h2>
   {/if}
 
   {#if !shown}
@@ -63,13 +64,13 @@
       {#each Array(12) as _, i (i)}<div class="skel ph"></div>{/each}
     </div>
   {:else if error}
-    <div class="empty"><h3>Couldn't load your library</h3><span>{error}</span></div>
+    <div class="empty"><h3>{t("browse.lib.failed")}</h3><span>{error}</span></div>
   {:else if !shown.length}
     <div class="empty" in:rise>
       <Heart size={34} />
-      <h3>{items?.length ? "Nothing here" : "Your library is empty"}</h3>
-      <span>Use the heart on any movie or series to save it here.</span>
-      <button class="btn primary" onclick={() => go("/")}>Browse</button>
+      <h3>{items?.length ? t("browse.lib.nothing") : t("browse.lib.empty")}</h3>
+      <span>{t("browse.lib.hint")}</span>
+      <button class="btn primary" onclick={() => go("/")}>{t("browse.lib.browse")}</button>
     </div>
   {:else}
     <div class="poster-grid">
