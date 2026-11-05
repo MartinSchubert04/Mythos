@@ -69,13 +69,13 @@ pub fn plan(duration: f64) -> (f64, usize) {
     (interval, count)
 }
 
-/// Momento que representa la miniatura `i` (el medio de su tramo). La última se aleja un poco del
-/// final: pegado al final, saltar al cuadro clave anterior a veces no devuelve nada.
+/// Momento que representa la miniatura `i` (el medio de su tramo). La última se aleja un tramo del
+/// final: pegado al final, saltar al cuadro clave anterior a veces no devuelve nada (probado con
+/// Sintel en la PC: a 2 s del final, ffmpeg terminaba bien pero sin cuadro, y la 178 nunca salía).
 pub fn time_of(i: usize, interval: f64, duration: f64) -> f64 {
-    (i as f64 * interval + interval / 2.0).min((duration - 2.0).max(0.0))
+    (i as f64 * interval + interval / 2.0).min((duration - interval.max(2.0)).max(0.0))
 }
 
-/// Alto para `WIDTH` de ancho con esa relación de aspecto (par, para el escalado); 16:9 si no se sabe.
 /// La curva de un video HDR (la misma regla que el HLS: si no la declara, PQ); `None` si es SDR.
 fn hdr_transfer(v: &crate::probe::VideoInfo) -> Option<String> {
     v.hdr.then(|| v.transfer.clone().filter(|t| t == "smpte2084" || t == "arib-std-b67").unwrap_or_else(|| "smpte2084".into()))
@@ -100,6 +100,7 @@ fn filter(width: u32, height: u32, tonemap: Option<&str>) -> String {
     }
 }
 
+/// Alto para `WIDTH` de ancho con esa relación de aspecto (par, para el escalado); 16:9 si no se sabe.
 pub fn height_for(w: Option<u32>, h: Option<u32>) -> u32 {
     let (w, h) = match (w, h) {
         (Some(w), Some(h)) if w > 0 && h > 0 => (w as f64, h as f64),
@@ -441,6 +442,8 @@ mod tests {
         let (iv, n) = plan(1203.0);
         assert_eq!(time_of(0, iv, 1203.0), 2.5);
         assert!(time_of(n - 1, iv, 1203.0) <= 1201.0);
+        // Sintel (888 s, una cada 5 s): la última no va a 2 s del final.
+        assert_eq!(time_of(177, 5.0, 888.0), 883.0);
     }
 
     #[test]

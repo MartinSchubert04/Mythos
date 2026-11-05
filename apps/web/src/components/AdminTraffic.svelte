@@ -382,12 +382,12 @@
   .k-n.bad {
     color: var(--danger);
   }
+  /* En dos lineas si hace falta: "9 del servidor (5xx) · 49 del cliente (4xx)" no entra en una a
+     1280 px (tampoco en ingles), y cortado se perdia el dato. */
   .k-sub {
     font-size: 12px;
     color: var(--text-3);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
   }
   .k-skel {
     width: 60%;
@@ -691,9 +691,6 @@
     }
     .k-n {
       font-size: 20px;
-    }
-    .k-sub {
-      white-space: normal;
     }
     .upd {
       display: none;

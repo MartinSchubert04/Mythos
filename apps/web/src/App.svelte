@@ -47,6 +47,9 @@
     if (net.epoch === seenEpoch) return;
     seenEpoch = net.epoch;
     if (session.offline) start();
+    // La vista que no se pudo bajar mientras no habia server. Si con el server de vuelta tampoco
+    // (otra version: los nombres de los archivos cambiaron), se recarga la pagina.
+    else if (!viewComponent(route.view)) loadView(route.view).catch(() => location.reload());
   });
   const playing = $derived(route.view === "player");
 

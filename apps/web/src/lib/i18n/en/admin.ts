@@ -38,6 +38,10 @@ export default {
   "admin.torrents.removeTitle": "Remove this torrent?",
   "admin.torrents.removeBody": "Its downloaded files are deleted from the cache.",
   "admin.torrents.removed": "Torrent removed",
+  "admin.torrents.state.initializing": "checking",
+  "admin.torrents.state.live": "live",
+  "admin.torrents.state.paused": "paused",
+  "admin.torrents.state.error": "error",
 
   "admin.users.new": "New user",
   "admin.users.create": "Create user",

@@ -2177,7 +2177,7 @@
         <button class="st-x" onclick={() => (showStats = false)} title={tr("player.stats.closeTip")} aria-label={tr("player.stats.closeAria")}><X size={14} /></button>
       </div>
       <dl>
-        <dt>{tr("player.stats.mode")}</dt><dd>{info.mode}{info.mode === "direct" && viaHls ? ` · ${tr("player.stats.hlsAudio")}` : ""}</dd>
+        <dt>{tr("player.stats.mode")}</dt><dd>{tr(`player.stats.mode.${info.mode}`)}{info.mode === "direct" && viaHls ? ` · ${tr("player.stats.hlsAudio")}` : ""}</dd>
         <dt>{tr("player.stats.video")}</dt>
         <dd>
           {[info.video_codec?.toUpperCase(), info.width && info.height ? `${info.width}×${info.height}` : "", info.hdr ? "HDR" : ""].filter(Boolean).join(" · ") || "—"}

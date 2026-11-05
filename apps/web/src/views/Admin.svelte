@@ -19,11 +19,16 @@
   import { route, setQuery } from "../lib/router.svelte";
   import { keepScroll } from "../lib/scroll";
   import { session } from "../lib/session.svelte";
-  import { t as tr } from "../lib/i18n.svelte";
+  import { has, t as tr } from "../lib/i18n.svelte";
   import { attempt, toast } from "../lib/toast.svelte";
   import type { AdminStats, LogFilters, TorrentStat, User } from "../lib/types";
 
   type Tab = "overview" | "traffic" | "logs" | "users" | "avatars";
+  /** El estado de librqbit (initializing, live, paused, error) en el idioma de la interfaz. */
+  const torrentState = (s: string) => {
+    const k = `admin.torrents.state.${s}`;
+    return has(k) ? tr(k) : s;
+  };
   const tabOpt = (value: Tab) => ({
     value,
     get label() {
@@ -243,7 +248,7 @@
           {#each torrents as t (t.info_hash)}
             {@const pct = t.size_bytes ? (t.downloaded_bytes / t.size_bytes) * 100 : 0}
             <tr>
-              <td class="tname"><span class="ellipsis" title={t.name}>{t.name}</span><span class="faint small">{bytes(t.size_bytes)} · {t.state}</span></td>
+              <td class="tname"><span class="ellipsis" title={t.name}>{t.name}</span><span class="faint small">{bytes(t.size_bytes)} · {torrentState(t.state)}</span></td>
               <td class="tprog">
                 <div class="progress"><div class="progress-fill" style="width: {pct}%"></div></div>
                 <span class="faint small">{pct.toFixed(0)}%</span>
@@ -586,6 +591,11 @@
     }
     .tabs > :global(*) {
       flex: 1;
+    }
+    /* Cinco pestañas en 358 px: en español ("Registros", "Avatares") no entraban con el relleno de
+       siempre y la ultima quedaba cortada contra el borde. */
+    .tabs :global(.seg2 button) {
+      padding: 0 4px;
     }
     .stats-grid {
       grid-template-columns: 1fr 1fr;

@@ -41,6 +41,10 @@ export default {
   "admin.torrents.removeTitle": "¿Quitar este torrent?",
   "admin.torrents.removeBody": "Se borran de la caché los archivos que bajó.",
   "admin.torrents.removed": "Torrent quitado",
+  "admin.torrents.state.initializing": "revisando",
+  "admin.torrents.state.live": "activo",
+  "admin.torrents.state.paused": "en pausa",
+  "admin.torrents.state.error": "con error",
 
   // Usuarios
   "admin.users.new": "Nuevo usuario",

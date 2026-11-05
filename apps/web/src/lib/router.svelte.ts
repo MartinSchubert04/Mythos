@@ -3,6 +3,7 @@
 import type { Component } from "svelte";
 import { tick } from "svelte";
 import { reduceMotion } from "./motion";
+import { markDown } from "./net.svelte";
 
 export type ViewName = "home" | "search" | "top" | "detail" | "player" | "library" | "settings" | "admin";
 
@@ -31,7 +32,13 @@ export function loadView(v: ViewName): Promise<void> {
     p = loaders[v]().then((m) => {
       loaded[v] = m.default;
     });
-    p.catch(() => pending.delete(v));
+    // Sin el codigo de la vista (en la web lo sirve el mismo server: si se cayo, no llega) quedaba
+    // el logo girando para siempre y sin aviso (probado en la PC con el server apagado). Se avisa
+    // como cualquier pedido que no llega; al volver, App la carga de nuevo.
+    p.catch(() => {
+      pending.delete(v);
+      markDown();
+    });
     pending.set(v, p);
   }
   return p;
