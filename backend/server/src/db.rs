@@ -167,6 +167,30 @@ CREATE TABLE server_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 -- Modo local: el server_id del remoto vinculado. Cambiar a otra direccion del mismo server no
 -- reinicia la sincronizacion (local.rs, save_link).
 ALTER TABLE local_link ADD COLUMN remote_server_id TEXT;
+"#, r#"
+-- Streams que aprenden (taste.rs): cada reproducción, con el grupo del release, los idiomas reales
+-- del archivo (ffprobe), si se eligió a mano y cómo salió. Se guardan las últimas 600 por usuario.
+CREATE TABLE plays (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    meta_id     TEXT NOT NULL,                -- el episodio (tt:1:2) o la película
+    series_id   TEXT NOT NULL,                -- la serie (o la película)
+    ts_ms       INTEGER NOT NULL,
+    stream_key  TEXT NOT NULL,
+    grp         TEXT,                         -- grupo del release, en minúsculas
+    binge       TEXT,                         -- bingeGroup de Torrentio
+    quality     TEXT,
+    size_bytes  INTEGER,
+    dual_audio  INTEGER NOT NULL DEFAULT 0,
+    audio_langs TEXT NOT NULL DEFAULT '',     -- idiomas reales, separados por coma
+    sub_langs   TEXT NOT NULL DEFAULT '',
+    manual      INTEGER NOT NULL DEFAULT 0,   -- elegido a mano (Choose stream, panel de streams)
+    top_key     TEXT,                         -- el que la app ponía primero
+    outcome     TEXT,                         -- NULL (en curso), finished, switched, stalled
+    watched_s   REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX plays_user ON plays(user_id, ts_ms DESC);
+CREATE INDEX plays_meta ON plays(user_id, meta_id, ts_ms DESC);
 "#];
 
 #[derive(Clone)]

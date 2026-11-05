@@ -50,7 +50,7 @@
   import SeekBar from "../components/SeekBar.svelte";
   import StreamList from "../components/StreamList.svelte";
   import WindowControls from "../components/WindowControls.svelte";
-  import { api, dropCache, errText, mediaUrl, movedAway, withToken } from "../lib/api";
+  import { api, ApiError, dropCache, errText, mediaUrl, movedAway, withToken } from "../lib/api";
   import { degrade, detectCaps } from "../lib/caps";
   import { fit } from "../lib/images";
   import { bytes, clock, epCode, sized, speed } from "../lib/format";
@@ -67,7 +67,7 @@
   import { preferredAudio, sortByLang } from "../lib/streamlang";
   import { streamLink } from "../lib/external";
   import { toast } from "../lib/toast.svelte";
-  import type { ClientCaps, Episode, MediaStatus, MediaType, Meta, PlayInfo, Progress, Stream } from "../lib/types";
+  import type { ClientCaps, Episode, MediaStatus, MediaType, Meta, PlayInfo, Progress, Stream, ThumbsIndex } from "../lib/types";
   import { loadDelays, saveDelays } from "../lib/subdelay";
   import { externalSub, prefetchSubs } from "../lib/subcache";
   import { cuesAt, parseVtt, type Cue } from "../lib/vtt";
@@ -83,6 +83,9 @@
   // ?resume=1: retomar sin preguntar (Continue watching, "Resume"); ?resume=0: desde el principio.
   // svelte-ignore state_referenced_locally
   const resumeMode = query.get("resume");
+  // ?pick=1: el stream de ?s= se eligio a mano en "Choose stream" (el server aprende cual prefiere).
+  // svelte-ignore state_referenced_locally
+  const pickedInDetail = query.get("pick") === "1";
   const seriesId = id.split(":")[0];
 
   // ---- constantes anti-trabas
@@ -279,6 +282,7 @@
     const prog = await progP;
     const key = wantKey ?? prog?.stream_key;
     const chosen = list.find((s) => s.key === key) ?? list[0];
+    pick = { manual: pickedInDetail && chosen.key === wantKey, after_stall: false };
 
     // Retomar: se pregunta mientras el server ya va preparando el archivo.
     startAt = Promise.resolve(0);
@@ -308,6 +312,8 @@
   /** Pide la sesion al server y la conecta al <video> en `at`. Si mientras espera se abre otro
    *  (un stream elegido durante la carga), este se descarta al volver. */
   let openGen = 0;
+  /** Como se eligio el stream que se abre (para el registro del server, server/src/taste.rs). */
+  let pick = { manual: false, after_stall: false };
   async function open(s: Stream, at: number | Promise<number>, newCaps?: ClientCaps) {
     const gen = ++openGen;
     const prev = info;
@@ -338,7 +344,17 @@
     startPolling();
     let next: PlayInfo;
     try {
-      const p = api.play({ stream_key: s.key, info_hash: s.info_hash, file_idx: s.file_idx, url: s.url, caps, meta_id: id });
+      const p = api.play({
+        stream_key: s.key,
+        info_hash: s.info_hash,
+        file_idx: s.file_idx,
+        url: s.url,
+        caps,
+        meta_id: id,
+        manual: pick.manual,
+        top_key: streams[0]?.key,
+        after_stall: pick.after_stall,
+      });
       next = await p;
     } catch (e) {
       if (destroyed || gen !== openGen) return;
@@ -549,7 +565,7 @@
       const alt = nextPlayable(stream);
       if (alt) {
         toast(tr("player.toast.tryingAnother"));
-        switchTo(alt);
+        switchTo(alt, "auto");
         return true;
       }
       stuck = "codec";
@@ -685,8 +701,11 @@
     waitSince = Date.now();
   }
 
-  async function switchTo(s: Stream) {
+  /** `how`: "manual" (el panel de streams), "stall" (desde el cartel de trabado), "auto" (la app
+   *  prueba otro sola). */
+  async function switchTo(s: Stream, how: "manual" | "stall" | "auto" = "manual") {
     menu = "";
+    pick = { manual: how !== "auto", after_stall: how === "stall" };
     // El mismo que ya esta cargando: nada que hacer (trabado si: es reintentarlo).
     if (!started && !stuck && s.key === stream?.key) return;
     stuck = "";
@@ -1255,7 +1274,7 @@
   }
 
   function pickAudio(index: number) {
-    menu = "";
+    closeMenu();
     if (!info || index === audioSel) return;
     audioSel = index;
     const native = (video as unknown as { audioTracks?: { length: number; [i: number]: { enabled: boolean } } }).audioTracks;
@@ -1718,6 +1737,45 @@
     back(type === "series" ? `/title/series/${seriesId}` : `/title/movie/${id}`);
   }
 
+  // ---- vista previa al adelantar (miniaturas del server, docs/API.md "Vista previa al adelantar")
+  //
+  // Se pide el indice apenas arranca el video (eso le dice al server que empiece a generarlas) y
+  // cada 15 s hasta que no vengan mas. Sin ffmpeg (501), con un server viejo o sin duracion
+  // todavia (404, se reintenta unas veces): la barra sigue con el tiempo solo.
+  let thumbs = $state<ThumbsIndex | null>(null);
+  $effect(() => {
+    const sid = started && info && info.transcode_available !== false ? info.session_id : null;
+    thumbs = null;
+    if (!sid) return;
+    const ctl = new AbortController();
+    let timer = 0;
+    let misses = 0;
+    const poll = async () => {
+      try {
+        const ix = await api.thumbs(sid, ctl.signal);
+        if (ctl.signal.aborted) return;
+        thumbs = ix;
+        if (ix.done) return;
+      } catch (e) {
+        if (ctl.signal.aborted || (e instanceof ApiError && e.status === 501) || ++misses > 8) return;
+      }
+      timer = window.setTimeout(poll, 15_000);
+    };
+    poll();
+    return () => {
+      ctl.abort();
+      clearTimeout(timer);
+    };
+  });
+  const preview = $derived(
+    thumbs && info
+      ? {
+          ...thumbs,
+          url: (i: number) => mediaUrl(`/api/media/${info!.session_id}/thumbs/${i}.jpg`),
+        }
+      : null,
+  );
+
   // ---- controles que se esconden solos
 
   let hideTimer = 0;
@@ -1786,6 +1844,16 @@
     if (el) focusEl(el);
   }
 
+  /** Donde entra el foco en el panel de streams o de episodios: el actual, o lo primero de la
+   *  lista (no la X de cerrar, que va antes en el DOM). */
+  function sideStart(side: HTMLElement): HTMLElement | null {
+    return (
+      side.querySelector<HTMLElement>("[aria-current='true']:not(:disabled)") ??
+      side.querySelector<HTMLElement>(".side-body .stream.on, .side-body button:not(:disabled)") ??
+      side.querySelector<HTMLElement>("button")
+    );
+  }
+
   /** "done": usada; "native": la aprieta el boton enfocado; "pass": sigue el teclado de siempre. */
   function tvKey(e: KeyboardEvent): "done" | "native" | "pass" {
     const k = keyName(e);
@@ -1802,7 +1870,7 @@
     if (side) {
       if (!d) return "native";
       if (!el || !side.contains(el)) {
-        const b = side.querySelector<HTMLElement>("[aria-current='true'], button");
+        const b = sideStart(side);
         if (b) focusEl(b);
       } else moveFocus(d, side);
       return "done";
@@ -1869,6 +1937,21 @@
   // focusMenu); si no, las flechas seguian moviendose por los controles de abajo.
   $effect(() => {
     const m = menu;
+    if (tv.on && (m === "streams" || m === "eps")) {
+      // Los paneles: el foco entra al actual (el stream o el episodio que se esta viendo).
+      tick().then(() => {
+        const side = root?.querySelector<HTMLElement>(".side");
+        const b = side && !side.contains(document.activeElement) ? sideStart(side) : null;
+        if (!b) return;
+        // Sin scrollIntoView: con el panel entrando de costado corria todo el reproductor (ver
+        // toggleEps); solo vertical, a mano.
+        b.focus({ preventScroll: true });
+        const box = b.closest<HTMLElement>(".side-body");
+        if (box && (b.offsetTop < box.scrollTop || b.offsetTop + b.offsetHeight > box.scrollTop + box.clientHeight))
+          box.scrollTop = b.offsetTop - box.offsetTop - box.clientHeight / 2 + b.offsetHeight / 2;
+      });
+      return;
+    }
     if (!tv.on || (m !== "audio" && m !== "speed")) return;
     tick().then(() => {
       const p = root?.querySelector<HTMLElement>(`[data-menu="${m}"]`)?.parentElement?.querySelector<HTMLElement>(".pmenu");
@@ -1877,21 +1960,15 @@
     });
   });
 
-  // TV: al cerrarse un menu por elegir algo (velocidad, audio, otro stream), el foco quedaba en la
-  // nada: vuelve al boton que lo abrio.
-  let prevMenu = "";
-  $effect(() => {
-    const m = menu;
-    const was = prevMenu;
-    prevMenu = m;
-    if (!tv.on || m || !was) return;
-    tick().then(() => {
-      // (El menu puede seguir en pantalla mientras se va, con el foco adentro.)
-      const cur = document.activeElement;
-      if (cur && cur !== document.body && cur.isConnected && !cur.closest(".pmenu, .side")) return;
-      root?.querySelector<HTMLElement>(`[data-menu="${was}"]`)?.focus({ preventScroll: true });
-    });
-  });
+  /** Cierra el menu despues de elegir algo (velocidad, audio). Si el foco estaba adentro vuelve al
+   *  boton que lo abrio, en el momento (como con Esc): si se espera a que el menu se vaya, el
+   *  navegador ya lo solto y con el control remoto quedaba en la nada. */
+  function closeMenu() {
+    const was = menu;
+    const inMenu = !!document.activeElement?.closest(".pmenu, .side");
+    menu = "";
+    if (inMenu) root?.querySelector<HTMLElement>(`[data-menu="${was}"]`)?.focus({ preventScroll: true });
+  }
 
   // ---- teclado
 
@@ -1904,6 +1981,11 @@
     } else if (tgt.closest("input, textarea")) return;
     // AltGr (Ctrl+Alt en Windows) escribe [ ] en algunos teclados: esa si pasa.
     if ((e.ctrlKey || e.metaKey || e.altKey) && !e.getModifierState?.("AltGraph")) return;
+    // Teclas multimedia del control (play/pausa, adelantar...): tambien con un menu abierto.
+    if (tv.on && keyName(e).startsWith("Media")) {
+      if (tvKey(e) === "done") e.preventDefault();
+      return activity();
+    }
     const panel = (e.target as HTMLElement).closest<HTMLElement>(".pmenu");
     if (panel && menuKey(e, panel)) return activity();
     if (tv.on && !panel) {
@@ -2173,7 +2255,7 @@
 
   {#if started}
     <div class="bottom" class:open={!!menu}>
-      <SeekBar time={seekTarget ?? t} {duration} {buffered} {downloaded} onseek={seek} ondrag={(d) => (dragging = d)} />
+      <SeekBar time={seekTarget ?? t} {duration} {buffered} {downloaded} {preview} onseek={seek} ondrag={(d) => (dragging = d)} />
       <div class="ctrls">
         <button class="pbtn big" onclick={toggle} title={paused ? tr("player.playK") : tr("player.pauseK")}>
           {#if paused}<Play size={26} fill="currentColor" />{:else}<Pause size={26} fill="currentColor" />{/if}
@@ -2353,7 +2435,7 @@
             <div class="pmenu narrow" transition:pop={{ start: 0.94 }}>
               <div class="mh">{tr("player.speed")}</div>
               {#each SPEEDS as r (r)}
-                <button class="mi" class:sel={rate === r} onclick={() => ((rate = r), (menu = ""))}>
+                <button class="mi" class:sel={rate === r} onclick={() => ((rate = r), closeMenu())}>
                   <span class="ck">{#if rate === r}<Check size={14} />{/if}</span>{r === 1 ? tr("player.normal") : `${r}×`}
                 </button>
               {/each}
@@ -2463,7 +2545,7 @@
         {#if alternatives.length && !fatal}
           <div class="alts">
             <div class="mh">{tr("player.tryAnother")}</div>
-            <StreamList streams={alternatives} onpick={switchTo} onmedia />
+            <StreamList streams={alternatives} onpick={(s) => switchTo(s, "stall")} onmedia />
           </div>
         {/if}
         <div class="dc-actions">

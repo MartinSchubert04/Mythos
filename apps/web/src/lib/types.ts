@@ -64,6 +64,9 @@ export type Stream = {
   languages: string[];
   cached?: boolean | null;
   score: number;
+  /** Por que lo recomienda lo aprendido del usuario (server/src/taste.rs): "same_group",
+   *  "liked_group", "subs:<idioma>", "dual_audio". */
+  reasons?: string[];
 };
 
 export type ClientCaps = {
@@ -120,6 +123,19 @@ export type MediaStatus = {
   buffer_target_s?: number | null;
   /** Tramos del archivo ya bajados en el server, fracciones [desde, hasta] de 0 a 1 (torrents). */
   have_ranges?: [number, number][] | null;
+};
+
+/** Miniaturas para la vista previa al adelantar (`GET /api/media/{session}/thumbs`, docs/API.md).
+ *  La `i` representa el tramo [i * interval_s, (i + 1) * interval_s). */
+export type ThumbsIndex = {
+  interval_s: number;
+  count: number;
+  width: number;
+  height: number;
+  /** Un caracter por miniatura: "1" lista, "0" todavia no. */
+  ready: string;
+  /** No van a aparecer mas. */
+  done: boolean;
 };
 
 export type Progress = {

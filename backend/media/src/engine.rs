@@ -691,6 +691,7 @@ impl Engine {
         self.usage.lock().unwrap().forget(&hash);
         if delete_files {
             crate::subs::forget_torrent(&self.subs_dir, &hash).await;
+            crate::thumbs::forget_torrent(&self.cfg.data_dir, &hash).await;
         }
         Ok(())
     }

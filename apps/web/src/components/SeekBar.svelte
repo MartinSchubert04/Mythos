@@ -4,9 +4,12 @@
   // En TV, con el foco encima se nota de lejos (mas gruesa, con el anillo del acento y un punto
   // grande) y el tiempo queda arriba del punto: izquierda/derecha lo mueven (el reproductor
   // arma el salto y lo pasa en `time`).
+  // Con `preview` (las miniaturas del server, docs/API.md) el tiempo de arriba lleva la imagen de
+  // ese momento si ya esta; si no, solo el tiempo.
   import { clock } from "../lib/format";
   import { t } from "../lib/i18n.svelte";
   import { tv } from "../lib/tv.svelte";
+  import type { ThumbsIndex } from "../lib/types";
 
   let {
     time,
@@ -15,6 +18,7 @@
     downloaded = [],
     onseek,
     ondrag,
+    preview = null,
   }: {
     time: number;
     duration: number;
@@ -25,6 +29,8 @@
     downloaded?: [number, number][];
     onseek: (t: number) => void;
     ondrag?: (dragging: boolean) => void;
+    /** Miniaturas para la vista previa (null: sin). */
+    preview?: (ThumbsIndex & { url: (i: number) => string }) | null;
   } = $props();
 
   let el = $state<HTMLDivElement>();
@@ -36,6 +42,12 @@
   const shown = $derived(drag ?? time);
   /** Donde va el tiempo de arriba: el mouse, el arrastre o (TV, con el foco) la posicion. */
   const tipAt = $derived(drag ?? hover ?? (tv.on && focused ? shown : null));
+  /** La miniatura del tramo de `tipAt`, si ya esta. */
+  const thumb = $derived.by(() => {
+    if (!preview || tipAt === null || preview.interval_s <= 0) return null;
+    const i = Math.min(preview.count - 1, Math.max(0, Math.floor(tipAt / preview.interval_s)));
+    return preview.ready[i] === "1" ? preview.url(i) : null;
+  });
   const pct = (t: number) => (duration > 0 ? Math.max(0, Math.min(100, (t / duration) * 100)) : 0);
 
   function at(e: PointerEvent) {
@@ -108,7 +120,14 @@
   </div>
   <div class="thumb-track" style="transform: translateX({pct(shown)}%)"><div class="thumb"></div></div>
   {#if tipAt !== null}
-    <div class="tip" style="left: clamp(28px, {pct(tipAt)}%, calc(100% - 28px))">{clock(tipAt)}</div>
+    {#if thumb && preview}
+      <div class="tip pv" style="left: clamp(calc(var(--pw) / 2 + 4px), {pct(tipAt)}%, calc(100% - var(--pw) / 2 - 4px)); --ar: {preview.width} / {preview.height}">
+        <img src={thumb} alt="" draggable="false" />
+        <span>{clock(tipAt)}</span>
+      </div>
+    {:else}
+      <div class="tip" style="left: clamp(28px, {pct(tipAt)}%, calc(100% - 28px))">{clock(tipAt)}</div>
+    {/if}
   {/if}
 </div>
 
@@ -225,6 +244,34 @@
     padding: 4px 10px;
     font-size: 15px;
     border-color: var(--accent);
+  }
+  /* Con miniatura: la imagen arriba y el tiempo abajo, en la misma tarjeta. Ancho fijo (el alto
+     sale de la relacion de aspecto): la tarjeta no salta al cambiar de imagen. */
+  .seek {
+    --pw: 168px;
+  }
+  .tip.pv {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 4px 3px;
+  }
+  .pv img {
+    display: block;
+    width: var(--pw);
+    aspect-ratio: var(--ar);
+    border-radius: 4px;
+    object-fit: cover;
+    background: var(--media-bg);
+  }
+  @media (max-width: 700px) {
+    .seek {
+      --pw: 128px;
+    }
+  }
+  :global(html[data-tv]) .seek {
+    --pw: 200px;
   }
   :global([data-theme="athanor"]) .rail,
   :global([data-theme="athanor"]) .thumb {

@@ -31,6 +31,7 @@ mod score;
 mod state;
 mod streams;
 mod subtitles;
+mod taste;
 mod sync;
 mod torrentio;
 mod user_data;

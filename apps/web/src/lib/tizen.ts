@@ -3,7 +3,7 @@
 //
 // - El control manda algunas teclas con codigos propios (atras = 10009, "XF86Back"): `keyName`
 //   les da el nombre estandar (BrowserBack, MediaPlayPause...) que ya entienden
-//   lib/spatial.svelte.ts y el reproductor.
+//   lib/spatial.svelte.ts y el reproductor. "Done" del teclado en pantalla (65376) = "ImeDone".
 // - Las teclas multimedia solo llegan si se registran (`tizen.tvinputdevice`, solo dentro de la
 //   app; en el navegador de la tele no existe y no pasa nada).
 // - Atras en el inicio cierra la app: con `tizen.application` si esta pagina lo tiene; si no,
@@ -25,6 +25,8 @@ const CODES: Record<number, string> = {
   413: "MediaStop",
   417: "MediaFastForward",
   412: "MediaRewind",
+  // "Done" del teclado en pantalla (lib/spatial.svelte.ts lo usa en los formularios).
+  65376: "ImeDone",
 };
 
 /** El nombre estandar de la tecla (en Tizen, por el codigo; en el resto, `e.key`). */

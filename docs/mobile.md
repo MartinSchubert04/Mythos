@@ -185,6 +185,10 @@ de cada tema.
   vuelve a lo que lo abrio; si lo enfocado desaparece (un boton que se deshabilita mientras
   guarda), la proxima flecha sigue desde donde estaba.
 - Menu del control: el menu contextual del elemento (el de clic derecho / mantener apretado).
+- Lo que tiene un boton propio adentro (la X de "Continue watching", `data-nav-inner`): con el
+  foco en la tarjeta se ve, y arriba lo enfoca.
+- Samsung: "Done" del teclado en pantalla pasa al campo siguiente del formulario y en el ultimo lo
+  envia (login: usuario → contraseña → entrar).
 - Foco: anillo de 3 px del acento separado del borde, y las tarjetas crecen un poco (con "reducir
   animaciones", sin animar).
 - Sin mouse: lo que en la PC aparece al pasar el mouse aparece con el foco (los botones de cada
@@ -193,7 +197,10 @@ de cada tema.
 - Liviano siempre (`data-lite`) y desplazamiento de un salto: ver `docs/tizen.md`, "Rendimiento".
 - Reproductor: sin volumen (es el de la tele; además la barra se quedaba con las flechas) ni
   pantalla completa. Los controles se esconden a los 5 s. Los carteles (trabado, error, terminó)
-  se llevan el foco; los menús de audio y velocidad también. Izquierda/derecha llevan el foco a la
+  se llevan el foco; los menús de audio y velocidad también, y los paneles de streams y episodios
+  entran en el actual. Al elegir una velocidad o un audio el foco vuelve a su botón. Las teclas
+  multimedia andan también con un menú abierto. Con la vista previa al adelantar (docs/API.md), la
+  miniatura va encima del tiempo. Izquierda/derecha llevan el foco a la
   barra de progreso, que con el foco se ve más gruesa, con el anillo del acento, un punto grande y el
   tiempo encima (`components/SeekBar.svelte`). centro = play/pausa; izquierda/derecha = -10/+10 s (manteniendo, el salto crece:
   10, 30 y 60 s por paso, y se aplica una sola vez al soltar); arriba/abajo muestran los controles

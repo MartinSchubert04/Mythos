@@ -24,6 +24,8 @@ pub fn public_router(engine: Arc<Engine>) -> Router {
         .route("/{session}/hls/index.m3u8", get(hls_index))
         .route("/{session}/hls/{segment}", get(hls_segment))
         .route("/{session}/subs/{file}", get(subs))
+        .route("/{session}/thumbs", get(thumbs_index))
+        .route("/{session}/thumbs/{file}", get(thumbs_image))
         .with_state(engine)
 }
 
@@ -93,4 +95,21 @@ async fn subs(State(e): St, Path((id, file)): Path<(String, String)>) -> Respons
         return json_error(StatusCode::NOT_FOUND, "subtitle not found");
     };
     crate::subs::serve(&e, s, idx).await
+}
+
+/// Miniaturas para la vista previa al adelantar (`thumbs.rs`). Sin ffmpeg, 501: la UI sigue sin.
+async fn thumbs_index(State(e): St, Path(id): Path<String>) -> Response {
+    if !e.tools.ffmpeg {
+        return no_ffmpeg();
+    }
+    let Some(s) = e.session(&id) else { return not_found() };
+    crate::thumbs::index(&e, s)
+}
+
+async fn thumbs_image(State(e): St, Path((id, file)): Path<(String, String)>) -> Response {
+    if !e.tools.ffmpeg {
+        return no_ffmpeg();
+    }
+    let Some(s) = e.session(&id) else { return not_found() };
+    crate::thumbs::image(&e, s, &file).await
 }

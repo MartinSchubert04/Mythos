@@ -165,6 +165,11 @@ async fn local_mode_end_to_end() {
     for p in ["/api/admin/metrics", "/api/admin/logs", "/api/admin/audit"] {
         assert_eq!(r.call("GET", p, Some(&bob), None).await.0, 403, "{p}");
     }
+    // Vista previa al adelantar: con login; sin ffmpeg (como en estas pruebas), 501 (la UI sigue
+    // sin miniaturas).
+    assert_eq!(r.call("GET", "/api/media/abcdef/thumbs", None, None).await.0, 401);
+    assert_eq!(r.call("GET", "/api/media/abcdef/thumbs", Some(&bob), None).await.0, 501);
+    assert_eq!(r.call("GET", "/api/media/abcdef/thumbs/0.jpg", Some(&bob), None).await.0, 501);
     // El escritor junta eventos hasta 2 s.
     let mut logs = Value::Null;
     for _ in 0..40 {

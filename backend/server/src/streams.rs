@@ -14,6 +14,7 @@ use crate::{
     db::now_unix,
     error::{ApiError, ApiResult, Json, Path, Query},
     score::{self, Prefs},
+    taste::{self, NewPlay},
     state::{AppState, Watching},
     torrentio::{self, is_info_hash, Quality, Stream, RD_PLACEHOLDER},
     user_data::{self, UserPrefs},
@@ -31,6 +32,17 @@ struct StreamSource {
     /// Link de Real-Debrid con la clave reemplazada por `RD_PLACEHOLDER`.
     url: Option<String>,
     trackers: Arc<Vec<String>>,
+    /// Lo que se guarda de la reproducción (`taste.rs`).
+    facts: Option<Arc<Facts>>,
+}
+
+/// Datos del release para el registro de reproducciones.
+struct Facts {
+    group: Option<String>,
+    binge: Option<String>,
+    quality: String,
+    size_bytes: Option<u64>,
+    dual_audio: bool,
 }
 
 pub struct StreamCtx {
@@ -106,6 +118,13 @@ impl StreamCtx {
                     file_idx: s.file_idx,
                     url: s.url.clone(),
                     trackers: Arc::new(s.trackers.clone()),
+                    facts: Some(Arc::new(Facts {
+                        group: s.group.clone(),
+                        binge: s.binge.clone(),
+                        quality: format!("{:?}", s.quality),
+                        size_bytes: s.size_bytes,
+                        dual_audio: taste::dual_audio(s),
+                    })),
                 },
             );
         }
@@ -153,8 +172,18 @@ async fn streams(
     check_type(&kind)?;
     check_id(&id)?;
     let prefs = user_data::load_prefs(&st.db, u.user.id).await?;
-    let (list, (duration_s, years)) = tokio::join!(st.streams.list(&kind, &id, prefs.rd_key.as_deref()), meta_info(&st, &kind, &id));
+    let uid = u.user.id;
+    let history = st.db.call(move |c| Ok(taste::recent(c, uid)?));
+    let (list, (duration_s, years), history) =
+        tokio::join!(st.streams.list(&kind, &id, prefs.rd_key.as_deref()), meta_info(&st, &kind, &id), history);
     let mut list = (*list?).clone();
+    // Lo aprendido de sus reproducciones (sin historial, nada cambia). Un error de la base no
+    // deja sin streams.
+    let sub_lang = prefs.ui.get("subLang").and_then(|v| v.as_str()).map(str::to_string);
+    let personal = history
+        .ok()
+        .map(|rows| taste::infer(&rows, series_of(&id), sub_lang.as_deref()))
+        .filter(|p| !p.is_empty());
     let p = Prefs {
         preferred: prefs.preferred_quality.as_deref().and_then(Quality::parse_pref).unwrap_or(Quality::P1080),
         max_size_bytes: prefs.max_size_gb.map(|g| (g * 1073741824.0) as u64),
@@ -162,6 +191,7 @@ async fn streams(
         caps: q.caps.as_deref().and_then(score::parse_caps),
         years,
         direct_only: !st.media.tools().ffmpeg,
+        personal,
     };
     let media = &st.media;
     score::rank(
@@ -170,6 +200,11 @@ async fn streams(
         &p,
     );
     Ok(Json(list))
+}
+
+/// La serie de un episodio (`tt123:1:2` → `tt123`); una película es su propio id.
+fn series_of(id: &str) -> &str {
+    id.split(':').next().unwrap_or(id)
 }
 
 /// Arma la `Source` de media a partir de lo que mandó la UI y lo que quedó cacheado del listado.
@@ -265,6 +300,15 @@ struct PlayBody {
     #[serde(default)]
     caps: ClientCaps,
     meta_id: Option<String>,
+    /// Elegido a mano (Choose stream, el panel de streams del reproductor). Para aprender qué
+    /// release prefiere (`taste.rs`).
+    #[serde(default)]
+    manual: bool,
+    /// El que la app ponía primero para este título.
+    top_key: Option<String>,
+    /// Se eligió desde el cartel de "trabado": el anterior del mismo episodio salió mal.
+    #[serde(default)]
+    after_stall: bool,
 }
 
 async fn play(State(st): State<AppState>, u: AuthUser, Json(b): Json<PlayBody>) -> ApiResult<Json<PlayInfo>> {
@@ -281,7 +325,7 @@ async fn play(State(st): State<AppState>, u: AuthUser, Json(b): Json<PlayBody>) 
             Watching {
                 username: u.user.username.clone(),
                 meta_id: meta_id.clone(),
-                stream_key: b.stream_key,
+                stream_key: b.stream_key.clone(),
                 session_id: info.session_id.clone(),
                 started_at: now_unix(),
             },
@@ -292,6 +336,36 @@ async fn play(State(st): State<AppState>, u: AuthUser, Json(b): Json<PlayBody>) 
         if let Some(prev) = previous.filter(|p| p.meta_id == meta_id && p.session_id != info.session_id) {
             st.media.close(&prev.session_id).await;
         }
+        // Registro para aprender qué release prefiere (de fondo: no demora el video).
+        let facts = st.streams.sources.get(&b.stream_key).and_then(|s| s.facts);
+        let langs = |t: &[mythos_media::Track]| {
+            let mut v: Vec<String> = t.iter().filter_map(|x| x.lang.as_deref().and_then(taste::norm_lang)).collect();
+            v.sort();
+            v.dedup();
+            v
+        };
+        let rec = NewPlay {
+            user_id: u.user.id,
+            series_id: series_of(&meta_id).to_string(),
+            meta_id,
+            stream_key: b.stream_key.clone(),
+            group: facts.as_ref().and_then(|f| f.group.clone()),
+            binge: facts.as_ref().and_then(|f| f.binge.clone()),
+            quality: facts.as_ref().map(|f| f.quality.clone()),
+            size_bytes: facts.as_ref().and_then(|f| f.size_bytes).or(Some(info.size_bytes)),
+            dual_audio: facts.as_ref().is_some_and(|f| f.dual_audio) || langs(&info.audio_tracks).len() > 1,
+            audio_langs: langs(&info.audio_tracks),
+            sub_langs: langs(&info.subtitle_tracks),
+            manual: b.manual,
+            top_key: b.top_key.filter(|k| k.len() <= 128),
+            after_stall: b.after_stall,
+        };
+        let db = st.db.clone();
+        tokio::spawn(async move {
+            if let Err(e) = db.call(move |c| Ok(taste::record(c, &rec, crate::db::now_ms())?)).await {
+                tracing::warn!("plays: {}", e.message);
+            }
+        });
     }
     Ok(Json(info))
 }
@@ -322,7 +396,7 @@ mod tests {
         // Con trackers cacheados del listado.
         c.sources.insert(
             H.to_string(),
-            StreamSource { info_hash: Some(H.into()), file_idx: None, url: None, trackers: Arc::new(vec!["udp://t:1".into()]) },
+            StreamSource { info_hash: Some(H.into()), file_idx: None, url: None, trackers: Arc::new(vec!["udp://t:1".into()]), facts: None },
         );
         match resolve_source(&c, &p, Some(H), None, None, None).unwrap() {
             Source::Torrent { trackers, file_idx, .. } => {

@@ -261,6 +261,8 @@ async fn put_progress(State(st): State<AppState>, u: AuthUser, Json(p): Json<Pro
                     p.position_s, p.duration_s, p.stream_key, now_ms(), seq
                 ],
             )?;
+            // Cuánto se vio y si se terminó la reproducción en curso (taste.rs).
+            crate::taste::progress(&tx, uid, &p.meta_id, p.position_s, p.duration_s)?;
             tx.commit()?;
             Ok(())
         })

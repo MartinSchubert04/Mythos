@@ -15,6 +15,7 @@
 //!   trackers extra, puerto fijo TCP+uTP, UPnP, torrents vivos un rato tras cerrar.
 //! - `stream`: ffmpeg/ffprobe leen por un endpoint local, así la prioridad de piezas los alcanza.
 //! - `hls`: segmentos que esperan a existir en vez de dar 404.
+//! - `thumbs`: miniaturas para la vista previa al adelantar, de lo ya bajado y sin competir.
 
 mod cache;
 mod engine;
@@ -25,6 +26,7 @@ mod session;
 mod sniff;
 mod stream;
 mod subs;
+mod thumbs;
 mod util;
 mod window;
 
