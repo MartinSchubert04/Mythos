@@ -3,27 +3,27 @@
 // idioma, asi que el orden se ajusta aca, sin tocar el del server dentro de cada grupo.
 // Codigos: ISO 639-2 ("eng", "spa") con la variante cuando se sabe: "spa-419" (Latinoamerica),
 // "spa-ES" (España), "por-BR" (Brasil).
-import { normLang } from "./prefs.svelte";
+import { langOpt, normLang } from "./prefs.svelte";
 import type { Stream, Track } from "./types";
 
 /** Las opciones de Settings → Playback. */
 export const AUDIO_LANGS: { value: string; label: string }[] = [
-  { value: "", label: "Original" },
-  { value: "eng", label: "English" },
-  { value: "spa-419", label: "Spanish (Latin America)" },
-  { value: "spa-ES", label: "Spanish (Spain)" },
-  { value: "por-BR", label: "Portuguese (Brazil)" },
-  { value: "por", label: "Portuguese (Portugal)" },
-  { value: "fre", label: "French" },
-  { value: "ger", label: "German" },
-  { value: "ita", label: "Italian" },
-  { value: "rus", label: "Russian" },
-  { value: "pol", label: "Polish" },
-  { value: "tur", label: "Turkish" },
-  { value: "jpn", label: "Japanese" },
-  { value: "kor", label: "Korean" },
-  { value: "chi", label: "Chinese" },
-  { value: "hin", label: "Hindi" },
+  langOpt("", "lang.original"),
+  langOpt("eng", "lang.eng"),
+  langOpt("spa-419", "lang.spa-419"),
+  langOpt("spa-ES", "lang.spa-ES"),
+  langOpt("por-BR", "lang.por-BR"),
+  langOpt("por", "lang.por-PT"),
+  langOpt("fre", "lang.fre"),
+  langOpt("ger", "lang.ger"),
+  langOpt("ita", "lang.ita"),
+  langOpt("rus", "lang.rus"),
+  langOpt("pol", "lang.pol"),
+  langOpt("tur", "lang.tur"),
+  langOpt("jpn", "lang.jpn"),
+  langOpt("kor", "lang.kor"),
+  langOpt("chi", "lang.chi"),
+  langOpt("hin", "lang.hin"),
 ];
 
 // Banderas que pone Torrentio (🇲🇽 = "Latino", 🇪🇸 = Castellano).

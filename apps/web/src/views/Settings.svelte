@@ -15,7 +15,8 @@
   import { ask } from "../lib/confirm.svelte";
   import { isAndroid, isDesktop, isRemoteShell, pickServer, remoteBase } from "../lib/platform";
   import ServerAddresses from "../components/ServerAddresses.svelte";
-  import { LANGS, prefs, savePrefs } from "../lib/prefs.svelte";
+  import { LANGS, prefs, savePrefs, setUiLang } from "../lib/prefs.svelte";
+  import { i18n, t, UI_LANGS } from "../lib/i18n.svelte";
   import { ALL_KEYS as KEYS } from "../lib/shortcuts";
   import { AUDIO_LANGS } from "../lib/streamlang";
   import { keepScroll } from "../lib/scroll";
@@ -160,6 +161,11 @@
 
   <div class="sections">
     <Section id="appearance" title="Appearance" icon={Palette} summary="{themeName} · {paletteName}">
+      <div class="field ui-lang">
+        {t("common.uiLanguage")}
+        <Seg value={i18n.lang} options={UI_LANGS} onchange={(v) => setUiLang(v)} />
+        <span class="hint">{t("common.uiLanguageHint")}</span>
+      </div>
       <div class="sub">Theme</div>
       <div class="themes">
         {#each THEMES as t, i (t.id)}

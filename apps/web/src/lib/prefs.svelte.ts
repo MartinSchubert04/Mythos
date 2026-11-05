@@ -1,7 +1,9 @@
 // Preferencias de la interfaz. Se guardan en local (para que apliquen al instante al abrir) y en
 // el server, dentro de Settings.ui, junto con el tema y las paletas. Volumen y barra lateral son
-// solo de este dispositivo.
+// solo de este dispositivo. El idioma de la interfaz vive en lib/i18n.svelte.ts y viaja aca como
+// `ui.lang`.
 import { api } from "./api";
+import { i18n, isLang, setLang, t, type Key, type Lang } from "./i18n.svelte";
 import { readJson, write } from "./store";
 import { allPalettes, applyRemoteTheme, currentTheme } from "./themes";
 
@@ -73,6 +75,7 @@ export function savePrefs(sync = true) {
 function uiPayload(): Record<string, unknown> {
   const out: Record<string, unknown> = { theme: currentTheme(), palettes: allPalettes() };
   for (const k of SYNCED) out[k] = prefs[k];
+  out.lang = i18n.lang;
   return out;
 }
 
@@ -84,27 +87,45 @@ export function applyRemoteUi(ui: Record<string, unknown>) {
     if (v !== undefined && typeof v === typeof d[k]) (prefs as unknown as Record<string, unknown>)[k] = v;
   }
   if (ui.theme) applyRemoteTheme(ui.theme, ui.palettes);
+  if (isLang(ui.lang)) setLang(ui.lang);
   savePrefs(false);
+}
+
+/** Cambia el idioma de la interfaz y lo guarda (local y en el server). */
+export function setUiLang(l: Lang) {
+  setLang(l);
+  savePrefs();
 }
 
 // ---- idiomas
 
+/** Opcion de una lista de idiomas con el nombre traducido: `label` es un getter, asi la lista es
+ *  fija pero el texto sigue al idioma de la interfaz. */
+export function langOpt<V extends string>(value: V, key: Key): { value: V; label: string } {
+  return {
+    value,
+    get label() {
+      return t(key);
+    },
+  };
+}
+
 export const LANGS: { value: string; label: string }[] = [
-  { value: "", label: "Off" },
-  { value: "eng", label: "English" },
-  { value: "spa", label: "Spanish" },
-  { value: "por", label: "Portuguese" },
-  { value: "fre", label: "French" },
-  { value: "ger", label: "German" },
-  { value: "ita", label: "Italian" },
-  { value: "dut", label: "Dutch" },
-  { value: "pol", label: "Polish" },
-  { value: "rus", label: "Russian" },
-  { value: "tur", label: "Turkish" },
-  { value: "ara", label: "Arabic" },
-  { value: "jpn", label: "Japanese" },
-  { value: "kor", label: "Korean" },
-  { value: "chi", label: "Chinese" },
+  langOpt("", "lang.off"),
+  langOpt("eng", "lang.eng"),
+  langOpt("spa", "lang.spa"),
+  langOpt("por", "lang.por"),
+  langOpt("fre", "lang.fre"),
+  langOpt("ger", "lang.ger"),
+  langOpt("ita", "lang.ita"),
+  langOpt("dut", "lang.dut"),
+  langOpt("pol", "lang.pol"),
+  langOpt("rus", "lang.rus"),
+  langOpt("tur", "lang.tur"),
+  langOpt("ara", "lang.ara"),
+  langOpt("jpn", "lang.jpn"),
+  langOpt("kor", "lang.kor"),
+  langOpt("chi", "lang.chi"),
 ];
 
 const ALIAS: Record<string, string> = {
@@ -122,7 +143,7 @@ export function normLang(l?: string | null): string {
 
 export function langName(l?: string | null): string {
   const n = normLang(l);
-  return LANGS.find((x) => x.value === n)?.label ?? (l ? l.toUpperCase() : "Unknown");
+  return LANGS.find((x) => x.value === n)?.label ?? (l ? l.toUpperCase() : t("lang.unknown"));
 }
 
 // Codigos de OpenSubtitles / ffprobe → BCP 47, para el nombre del idioma en su propio idioma.

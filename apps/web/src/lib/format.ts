@@ -1,4 +1,8 @@
-// Formatos para mostrar: tiempos, tamaños, velocidades, imagenes.
+// Formatos para mostrar: tiempos, tamaños, velocidades, imagenes. Los decimales y los tiempos
+// relativos siguen el idioma de la interfaz (lib/i18n.svelte.ts).
+import { ago, num } from "./i18n.svelte";
+
+const ONE = { minimumFractionDigits: 1, maximumFractionDigits: 1 };
 
 /** 42:10 o 1:05:09. */
 export function clock(s: number): string {
@@ -19,12 +23,12 @@ export function bytes(n?: number | null): string {
     n /= 1000;
     i++;
   }
-  return `${n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)} ${u[i]}`;
+  return `${n >= 100 || i === 0 ? n.toFixed(0) : num(n, ONE)} ${u[i]}`;
 }
 
 export function speed(bps?: number | null): string {
   if (!bps) return "0 MB/s";
-  return bps >= 1e6 ? `${(bps / 1e6).toFixed(1)} MB/s` : `${Math.round(bps / 1e3)} KB/s`;
+  return bps >= 1e6 ? `${num(bps / 1e6, ONE)} MB/s` : `${Math.round(bps / 1e3)} KB/s`;
 }
 
 /** Tamaño de las imagenes de metahub: chico en grillas para no gastar. */
@@ -43,13 +47,9 @@ export function seedTone(n?: number | null): "ok" | "warn" | "bad" {
   return n >= 50 ? "ok" : n >= 10 ? "warn" : "bad";
 }
 
+/** "hace 5 min" / "5 min ago". */
 export function relTime(iso: string): string {
-  const d = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (!isFinite(d)) return "";
-  if (d < 60) return "just now";
-  if (d < 3600) return `${Math.floor(d / 60)} min ago`;
-  if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
-  return `${Math.floor(d / 86400)} d ago`;
+  return ago(iso);
 }
 
 /** Sin repetidos (mismo tipo e id): los catalogos a veces traen el mismo titulo dos veces. */

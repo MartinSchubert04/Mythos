@@ -1,5 +1,7 @@
 // Cliente tipado del contrato (docs/API.md). El token vive en localStorage; un 401 lleva al login.
 import { detectCaps } from "./caps";
+import { t } from "./i18n.svelte";
+import { serverText } from "./i18n/server";
 import { markDown, markUp } from "./net.svelte";
 import { deviceLabel, serverBase, setActiveServer } from "./platform";
 import { read, write } from "./store";
@@ -95,9 +97,9 @@ export class ApiError extends Error {
 
 /** Texto para mostrar de cualquier error. */
 export function errText(e: unknown): string {
-  if (e instanceof ApiError) return e.message;
-  if (e instanceof DOMException && e.name === "AbortError") return "Cancelled";
-  if (e instanceof TypeError) return "Can't reach the server";
+  if (e instanceof ApiError) return serverText(e.message);
+  if (e instanceof DOMException && e.name === "AbortError") return t("common.cancelled");
+  if (e instanceof TypeError) return t("common.unreachable");
   return e instanceof Error ? e.message : String(e);
 }
 

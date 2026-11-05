@@ -1,4 +1,6 @@
 // Confirmaciones con el modal de la app (en vez del confirm() del navegador). Portado de Ethereon.
+import { t } from "./i18n.svelte";
+
 export interface Ask {
   title: string;
   body?: string;
@@ -29,7 +31,7 @@ function open(o: Ask, input: Prompt | null, done: (ok: boolean) => void) {
   Object.assign(confirmState, {
     title: o.title,
     body: o.body ?? "",
-    confirm: o.confirm ?? "OK",
+    confirm: o.confirm ?? t("common.ok"),
     danger: o.danger ?? false,
     input: input ? { placeholder: input.placeholder ?? "", secret: input.secret ?? false } : null,
     value: input?.value ?? "",
