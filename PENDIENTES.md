@@ -3,14 +3,6 @@
 Lo que falta hacer. Cada tarea se borra de acá apenas se completa (en el mismo commit que la
 resuelve); cuando no queda ninguna, se borra el archivo.
 
-## Idioma: lo que quedó después de pasar la interfaz al español
-
-- [ ] Que el server mande un código además del texto en los errores (`{"error": "...", "code":
-      "bad_login"}`): hoy la UI reconoce los conocidos por el texto en inglés
-      (`apps/web/src/lib/i18n/server.ts`) y si cambia una frase en el backend deja de traducirse.
-      Los de `backend/media` (ffmpeg, buffering) y los que llevan detalles (`Sync failed: ...`)
-      se muestran a medias o en inglés.
-
 ## TV (Samsung / Tizen): segunda pasada con el control remoto — para el 2026-11-05
 
 Lo que quedó de la depuración en la tele (v0.17.0). Se prueba en la UN50DU7000 con la app de

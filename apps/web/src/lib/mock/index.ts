@@ -112,7 +112,8 @@ function userOf(req: Request): User | null {
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-const err = (status: number, error: string) => json({ error }, status);
+// Como el server: el texto en ingles y el codigo que traduce la UI (docs/API.md, "Errores").
+const err = (status: number, error: string, code?: string) => json(code ? { error, code } : { error }, status);
 const none = (status = 204) => new Response(null, { status });
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -266,20 +267,21 @@ async function route(req: Request): Promise<Response> {
   if (path === "/api/auth/login" && m === "POST") {
     const { username, password } = await body<{ username: string; password: string }>();
     const u = db.users.find((x) => x.username === username);
-    if (!u || db.passwords[username] !== password || u.disabled) return err(401, "Wrong username or password");
+    if (!u || db.passwords[username] !== password) return err(401, "Invalid username or password", "bad_login");
+    if (u.disabled) return err(401, "This account is disabled", "disabled");
     const token = `mock-${username}`;
     tokens.set(token, username);
     return json({ token, user: u });
   }
   const me = userOf(req);
-  if (!me) return err(401, "Not signed in");
+  if (!me) return err(401, "Missing session token", "no_token");
 
   let r: RegExpMatchArray | null;
   if (path === "/api/auth/logout") return none();
   if (path === "/api/me" && m === "PATCH") {
     const b = await body<{ avatar_id?: number | null }>();
     if (b.avatar_id !== undefined) {
-      if (b.avatar_id !== null && !avatarsOf().some((a) => a.id === b.avatar_id)) return err(404, "Avatar not found");
+      if (b.avatar_id !== null && !avatarsOf().some((a) => a.id === b.avatar_id)) return err(404, "Avatar not found", "avatar_not_found");
       me.avatar_id = b.avatar_id;
       save();
     }
@@ -289,8 +291,8 @@ async function route(req: Request): Promise<Response> {
   if (path === "/api/me/username" && m === "PUT") {
     const { username } = await body<{ username: string }>();
     const name = username.trim();
-    if (!/^[A-Za-z0-9_.-]{1,32}$/.test(name)) return err(400, "Username must be 1-32 characters: letters, numbers, '_', '-' or '.'");
-    if (db.users.some((u) => u.id !== me.id && u.username.toLowerCase() === name.toLowerCase())) return err(409, "Username already exists");
+    if (!/^[A-Za-z0-9_.-]{1,32}$/.test(name)) return err(400, "Username must be 1-32 characters: letters, numbers, '_', '-' or '.'", "bad_username");
+    if (db.users.some((u) => u.id !== me.id && u.username.toLowerCase() === name.toLowerCase())) return err(409, "Username already exists", "user_exists");
     db.passwords[name] = db.passwords[me.username];
     // La sesion sigue: el token viejo ahora es de este nombre (hasta recargar la pagina).
     tokens.set(`mock-${me.username}`, name);
@@ -300,13 +302,13 @@ async function route(req: Request): Promise<Response> {
   }
   if (path === "/api/avatars") return json(avatarsOf().map(({ src: _, ...a }) => a));
   if (path === "/api/admin/avatars" && m === "POST") {
-    if (!me.is_admin) return err(403, "Admin access required");
+    if (!me.is_admin) return err(403, "Admin access required", "admin_only");
     // Como el server: un formulario multipart con `file` y `name`.
     const form = await req.formData();
     const blob = form.get("file");
     if (!(blob instanceof Blob)) return err(400, "Send the image in a `file` field");
-    if (blob.size > 2 * 1024 * 1024) return err(413, "Images can be up to 2 MB");
-    if (!/^image\/(png|jpeg|webp|gif)$/.test(blob.type)) return err(415, "Use a PNG, JPEG, WebP or GIF image");
+    if (blob.size > 2 * 1024 * 1024) return err(413, "Images can be up to 2 MB", "avatar_too_big");
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(blob.type)) return err(415, "Use a PNG, JPEG, WebP or GIF image", "avatar_type");
     const src = await new Promise<string>((ok) => {
       const r = new FileReader();
       r.onload = () => ok(String(r.result));
@@ -320,7 +322,7 @@ async function route(req: Request): Promise<Response> {
     return json(out, 201);
   }
   if ((r = path.match(/^\/api\/admin\/avatars\/(\d+)$/)) && m === "DELETE") {
-    if (!me.is_admin) return err(403, "Admin access required");
+    if (!me.is_admin) return err(403, "Admin access required", "admin_only");
     const id = Number(r[1]);
     db.avatars = avatarsOf().filter((a) => a.id !== id);
     for (const u of db.users) if (u.avatar_id === id) u.avatar_id = null;
@@ -333,7 +335,7 @@ async function route(req: Request): Promise<Response> {
   }
   if (path === "/api/me/password") {
     const b = await body<{ current: string; new: string }>();
-    if (db.passwords[me.username] !== b.current) return err(400, "The current password is wrong");
+    if (db.passwords[me.username] !== b.current) return err(400, "Current password is incorrect", "pw_wrong");
     db.passwords[me.username] = b.new;
     save();
     return none();
@@ -395,7 +397,7 @@ async function route(req: Request): Promise<Response> {
   }
   if ((r = path.match(/^\/api\/meta\/(movie|series)\/(.+)$/))) {
     const meta = metaFor(r[1], decodeURIComponent(r[2]));
-    return meta ? json(meta) : err(404, "Not found");
+    return meta ? json(meta) : err(404, "Title not found", "title_not_found");
   }
   if ((r = path.match(/^\/api\/streams\/(movie|series)\/(.+)$/))) {
     await wait(500);
@@ -457,7 +459,7 @@ async function route(req: Request): Promise<Response> {
   if ((r = path.match(/^\/api\/media\/([^/]+)\/subs\/(\d+)\.vtt$/))) return new Response(vtt(r[2] === "4" ? "spa" : "eng"));
   if ((r = path.match(/^\/api\/media\/([^/]+)\/status$/))) {
     const s = sessions.get(r[1]);
-    return s ? json(status(s)) : err(404, "No such session");
+    return s ? json(status(s)) : err(404, "unknown or expired media session", "media_session");
   }
   if ((r = path.match(/^\/api\/media\/([^/]+)$/)) && m === "DELETE") {
     sessions.delete(r[1]);
@@ -505,11 +507,11 @@ async function route(req: Request): Promise<Response> {
     save();
     return none();
   }
-  if (path.startsWith("/api/admin/") && !me.is_admin) return err(403, "Admins only");
+  if (path.startsWith("/api/admin/") && !me.is_admin) return err(403, "Admin access required", "admin_only");
   if (path === "/api/admin/users" && m === "GET") return json(db.users);
   if (path === "/api/admin/users" && m === "POST") {
     const b = await body<{ username: string; password: string; is_admin: boolean }>();
-    if (db.users.some((u) => u.username === b.username)) return err(409, "That username is taken");
+    if (db.users.some((u) => u.username === b.username)) return err(409, "Username already exists", "user_exists");
     const u: User = { id: db.nextId++, username: b.username, is_admin: b.is_admin, disabled: false, created_at: new Date().toISOString() };
     db.users.push(u);
     db.passwords[u.username] = b.password;
@@ -518,21 +520,21 @@ async function route(req: Request): Promise<Response> {
   }
   if ((r = path.match(/^\/api\/admin\/users\/(\d+)\/sessions(?:\/(\d+))?$/))) {
     const u = db.users.find((x) => x.id === Number(r![1]));
-    if (!u) return err(404, "User not found");
+    if (!u) return err(404, "User not found", "user_not_found");
     const l = sessionsOf(u.username);
     if (!r[2] && m === "GET") return json([...l].sort((a, b) => b.last_used_at - a.last_used_at).map((x) => ({ ...x, current: x.current && u.id === me.id })));
     if (r[2] && m === "DELETE") {
       const i = l.findIndex((x) => x.id === Number(r![2]));
-      if (i < 0) return err(404, "Session not found");
+      if (i < 0) return err(404, "Session not found", "session_not_found");
       l.splice(i, 1);
       return none();
     }
   }
   if ((r = path.match(/^\/api\/admin\/users\/(\d+)$/))) {
     const u = db.users.find((x) => x.id === Number(r![1]));
-    if (!u) return err(404, "No such user");
+    if (!u) return err(404, "User not found", "user_not_found");
     if (m === "DELETE") {
-      if (u.id === me.id) return err(400, "You can't delete yourself");
+      if (u.id === me.id) return err(400, "You can't delete your own account", "self_delete");
       db.users = db.users.filter((x) => x !== u);
       save();
       return none();
@@ -540,8 +542,8 @@ async function route(req: Request): Promise<Response> {
     const b = await body<{ username?: string; password?: string; is_admin?: boolean; disabled?: boolean }>();
     if (b.username !== undefined && b.username.trim() !== u.username) {
       const name = b.username.trim();
-      if (!/^[A-Za-z0-9_.-]{1,32}$/.test(name)) return err(400, "Username must be 1-32 characters: letters, numbers, '_', '-' or '.'");
-      if (db.users.some((x) => x !== u && x.username.toLowerCase() === name.toLowerCase())) return err(409, "Username already exists");
+      if (!/^[A-Za-z0-9_.-]{1,32}$/.test(name)) return err(400, "Username must be 1-32 characters: letters, numbers, '_', '-' or '.'", "bad_username");
+      if (db.users.some((x) => x !== u && x.username.toLowerCase() === name.toLowerCase())) return err(409, "Username already exists", "user_exists");
       db.passwords[name] = db.passwords[u.username];
       tokens.set(`mock-${u.username}`, name);
       u.username = name;

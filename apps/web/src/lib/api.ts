@@ -87,10 +87,14 @@ export function onUnauthorized(f: () => void) {
   unauthorized = f;
 }
 
+/** Error del server: status, el texto (en ingles), y si lo manda, el codigo estable y sus datos
+ *  (docs/API.md, "Errores"; los servers viejos mandan solo el texto). */
 export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code: string | null = null,
+    public params: Record<string, unknown> | null = null,
   ) {
     super(message);
   }
@@ -98,7 +102,7 @@ export class ApiError extends Error {
 
 /** Texto para mostrar de cualquier error. */
 export function errText(e: unknown): string {
-  if (e instanceof ApiError) return serverText(e.message);
+  if (e instanceof ApiError) return serverText(e.message, e.code, e.params);
   if (e instanceof DOMException && e.name === "AbortError") return t("common.cancelled");
   if (e instanceof TypeError) return t("common.unreachable");
   return e instanceof Error ? e.message : String(e);
@@ -153,11 +157,15 @@ async function req<T>(method: string, path: string, body?: unknown, o: Opts = {}
   }
   if (!r.ok) {
     let msg = `Error ${r.status}`;
+    let code: string | null = null;
+    let params: Record<string, unknown> | null = null;
     try {
       const j = await r.json();
-      if (j?.error) msg = j.error;
+      if (typeof j?.error === "string") msg = j.error;
+      if (typeof j?.code === "string") code = j.code;
+      if (j?.params && typeof j.params === "object") params = j.params;
     } catch {}
-    throw new ApiError(r.status, msg);
+    throw new ApiError(r.status, msg, code, params);
   }
   if (r.status === 204 || r.status === 202) return undefined as T;
   const text = await r.text();

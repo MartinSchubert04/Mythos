@@ -1,8 +1,17 @@
-// Errores del server (`{"error": "..."}`, en inglés) que la UI muestra traducidos. El server no
-// manda codigos: se reconoce el texto (exacto, o con una expresion para los que llevan un numero).
-// Los que no estan aca se muestran tal cual vienen. Si cambia un texto en el backend, cambiarlo
-// aca tambien (PENDIENTES.md: que el server mande codigos de error).
-import { t, type Key } from "../i18n.svelte";
+// Errores del server en el idioma de la interfaz. El server manda `{"error": "...", "code": "...",
+// "params": {...}}` (docs/API.md, "Errores"): se traduce por `code` (la clave es "srv." + el codigo
+// en camelCase: `bad_login` -> "srv.badLogin") con `params` para los datos ({n}, {status}, {e}).
+// Si no hay codigo, o es uno que esta UI no conoce, se reconoce el texto (los servers anteriores a
+// los codigos solo mandan el texto); si tampoco, se muestra tal cual vino.
+import { has, t, type Key, type Params } from "../i18n.svelte";
+
+/** Clave de un codigo del server (`sync_failed` -> "srv.syncFailed"), si esta UI la tiene. */
+export function codeKey(code: string): Key | null {
+  const k = "srv." + code.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+  return /^[a-z0-9_]+$/.test(code) && has(k) ? k : null;
+}
+
+// ---- servers sin codigos: por el texto en ingles
 
 const EXACT: Record<string, Key> = {
   "Invalid username or password": "srv.badLogin",
@@ -53,23 +62,32 @@ const EXACT: Record<string, Key> = {
   "Search query is too long": "srv.queryLong",
   "transcoding is not available on this device (ffmpeg not found); use direct play": "srv.noFfmpeg",
   "stream is still buffering, try again": "srv.buffering",
+  "Internal server error": "srv.internal",
 };
 
-/** Los que llevan un dato: el primer grupo va como {code}, {n} o {e} segun la clave. */
+/** Los que llevan un dato: el primer grupo va como el parametro que se indica. */
 const PATTERNS: [RegExp, Key, string][] = [
-  [/^Torrentio answered (\d+), try again in a moment$/, "srv.torrentioStatus", "code"],
-  [/^The catalog service \(Cinemeta\) answered (\d+)$/, "srv.cinemetaStatus", "code"],
-  [/^The subtitles service answered (\d+)$/, "srv.subsStatus", "code"],
+  [/^Torrentio answered (\d+)/, "srv.torrentioStatus", "status"],
+  [/^The catalog service \(Cinemeta\) answered (\d+)/, "srv.cinemetaStatus", "status"],
+  [/^The subtitles service answered (\d+)/, "srv.subsStatus", "status"],
   [/^The gallery is full \((\d+) images\)\. Delete some first\.$/, "srv.galleryFull", "n"],
   [/^Pick up to (\d+) genres/, "srv.maxGenres", "n"],
+  [/^Too many failed login attempts\. Try again in (\d+) minute/, "srv.tooManyLogins", "n"],
   [/^Sync failed: (.*)$/s, "srv.syncFailed", "e"],
-  [/No space left on device|ENOSPC/, "srv.noSpace", "_"],
+  [/No space left on device|ENOSPC|ran out of disk space/, "srv.noSpace", "_"],
 ];
 
-/** El mensaje del server en el idioma de la interfaz (o tal cual, si no se conoce). */
-export function serverText(msg: string): string {
-  const k = EXACT[msg];
-  if (k) return t(k);
+/** El mensaje del server en el idioma de la interfaz: por `code` si viene (y se conoce), si no por
+ *  el texto, y si tampoco, tal cual. */
+export function serverText(msg: string, code?: string | null, params?: Record<string, unknown> | null): string {
+  const k = code ? codeKey(code) : null;
+  if (k) {
+    const p: Params = {};
+    for (const [name, v] of Object.entries(params ?? {})) if (typeof v === "string" || typeof v === "number") p[name] = v;
+    return t(k, p);
+  }
+  const exact = EXACT[msg];
+  if (exact) return t(exact);
   for (const [re, key, param] of PATTERNS) {
     const m = re.exec(msg);
     if (m) return t(key, { [param]: m[1] ?? "" });

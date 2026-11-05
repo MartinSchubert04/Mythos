@@ -4,6 +4,7 @@
   // La logica esta en lib/local.svelte.ts; ver docs/local-mode.md.
   import { Cloud, HardDrive, LoaderCircle, RefreshCw } from "@lucide/svelte";
   import { ApiError, errText } from "../lib/api";
+  import { serverText } from "../lib/i18n/server";
   import { relTime } from "../lib/format";
   import { conn, connDetail, loginLocal, refreshStatus, setMode, syncNow, type ConnMode } from "../lib/local.svelte";
   import { isAndroid } from "../lib/platform";
@@ -129,7 +130,7 @@
           <span class="faint small">
             {s.last_sync_at ? t("account.conn.lastSync", { when: relTime(new Date(s.last_sync_at).toISOString()) }) : t("account.conn.notSynced")}{s.pending_changes
               ? ` · ${t("account.conn.waiting", { n: s.pending_changes })}`
-              : ""}{s.last_sync_error && s.remote_reachable ? ` · ${s.last_sync_error}` : ""}
+              : ""}{s.last_sync_error && s.remote_reachable ? ` · ${serverText(s.last_sync_error, s.last_sync_error_code, { e: s.last_sync_error })}` : ""}
           </span>
         {/if}
         {#if conn.needsSignIn}

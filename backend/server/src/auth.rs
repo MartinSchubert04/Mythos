@@ -252,11 +252,11 @@ impl Auth {
         let name_for_log: String = username.trim().chars().take(64).collect();
         let Some(user) = self.verify(username, password).await? else {
             self.record_fail(ip, &name_for_log, None);
-            return Err(ApiError::unauthorized("Invalid username or password"));
+            return Err(ApiError::unauthorized("Invalid username or password").with_code("bad_login"));
         };
         if user.disabled {
             self.record_fail(ip, &name_for_log, Some("disabled"));
-            return Err(ApiError::unauthorized("This account is disabled"));
+            return Err(ApiError::unauthorized("This account is disabled").with_code("disabled"));
         }
         self.inner.fails.lock().unwrap().remove(&ip);
         let token = self.open_session(&user, ip, meta).await?;
@@ -271,7 +271,9 @@ impl Auth {
                 Err(ApiError::new(
                     StatusCode::TOO_MANY_REQUESTS,
                     format!("Too many failed login attempts. Try again in {mins} minute(s)."),
-                ))
+                )
+                .with_code("too_many_logins")
+                .with_param("n", mins))
             }
             None => Ok(()),
         }
@@ -389,15 +391,15 @@ pub fn validate_username(u: &str) -> ApiResult<()> {
     if ok {
         Ok(())
     } else {
-        Err(ApiError::bad_request("Username must be 1-32 characters: letters, numbers, '_', '-' or '.'"))
+        Err(ApiError::bad_request("Username must be 1-32 characters: letters, numbers, '_', '-' or '.'").with_code("bad_username"))
     }
 }
 
 pub fn validate_password(p: &str) -> ApiResult<()> {
     match p.chars().count() {
-        0..6 => Err(ApiError::bad_request("Password must be at least 6 characters")),
+        0..6 => Err(ApiError::bad_request("Password must be at least 6 characters").with_code("pw_short")),
         6..=256 => Ok(()),
-        _ => Err(ApiError::bad_request("Password is too long")),
+        _ => Err(ApiError::bad_request("Password is too long").with_code("pw_long")),
     }
 }
 
@@ -410,12 +412,12 @@ pub fn rename_user(c: &Connection, id: i64, new_name: &str) -> ApiResult<(String
     let old: String = c
         .query_row("SELECT username FROM users WHERE id = ?1", [id], |r| r.get(0))
         .optional()?
-        .ok_or_else(|| ApiError::not_found("User not found"))?;
+        .ok_or_else(|| ApiError::not_found("User not found").with_code("user_not_found"))?;
     if old != name {
         match c.execute("UPDATE users SET username = ?2 WHERE id = ?1", params![id, name]) {
             Ok(_) => {}
             Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
-                return Err(ApiError::conflict("Username already exists"));
+                return Err(ApiError::conflict("Username already exists").with_code("user_exists"));
             }
             Err(e) => return Err(e.into()),
         }
@@ -438,7 +440,7 @@ pub fn create_user(c: &Connection, username: &str, password: &str, is_admin: boo
     match res {
         Ok(u) => Ok(u),
         Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
-            Err(ApiError::conflict("Username already exists"))
+            Err(ApiError::conflict("Username already exists").with_code("user_exists"))
         }
         Err(e) => Err(e.into()),
     }
@@ -470,10 +472,10 @@ fn query_token(parts_query: Option<&str>) -> Option<String> {
 }
 
 async fn resolve(auth: &Auth, token: Option<String>, ip: Option<IpAddr>) -> Result<AuthUser, ApiError> {
-    let token = token.ok_or_else(|| ApiError::unauthorized("Missing session token"))?;
+    let token = token.ok_or_else(|| ApiError::unauthorized("Missing session token").with_code("no_token"))?;
     match auth.authenticate(&token, ip).await? {
         Some(user) => Ok(AuthUser { user, token_hash: token_hash(&token) }),
-        None => Err(ApiError::unauthorized("Session expired, please log in again")),
+        None => Err(ApiError::unauthorized("Session expired, please log in again").with_code("expired")),
     }
 }
 
@@ -513,7 +515,7 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let u = AuthUser::from_request_parts(parts, state).await?;
         if !u.user.is_admin {
-            return Err(ApiError::forbidden("Admin access required"));
+            return Err(ApiError::forbidden("Admin access required").with_code("admin_only"));
         }
         Ok(AdminUser(u))
     }
@@ -686,7 +688,7 @@ async fn revoke_session(State(auth): State<Auth>, ClientIp(ip): ClientIp, u: Aut
         .call(move |c| Ok(c.execute("DELETE FROM sessions WHERE rowid = ?1 AND user_id = ?2", params![id, uid])?))
         .await?;
     if n == 0 {
-        return Err(ApiError::not_found("Session not found"));
+        return Err(ApiError::not_found("Session not found").with_code("session_not_found"));
     }
     auth.clear_cache();
     auth.recorder.audit("session_revoked", Some(uid), Some(&u.user.username), Some(ip), Some(format!("session {id}")));
@@ -725,7 +727,7 @@ async fn change_password(State(auth): State<Auth>, ClientIp(ip): ClientIp, u: Au
         .call(move |c| {
             let stored: String = c.query_row("SELECT password_hash FROM users WHERE id = ?1", [uid], |r| r.get(0))?;
             if !verify_password(&b.current, &stored) {
-                return Err(ApiError::bad_request("Current password is incorrect"));
+                return Err(ApiError::bad_request("Current password is incorrect").with_code("pw_wrong"));
             }
             let hash = hash_password(&b.new)?;
             c.execute("UPDATE users SET password_hash = ?2 WHERE id = ?1", params![uid, hash])?;
@@ -822,6 +824,8 @@ mod tests {
         let (st, v) = call(&app, "POST", "/api/auth/login", None, Some(r#"{"username":"bob","password":"nope"}"#)).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
         assert_eq!(v["error"], "Invalid username or password");
+        assert_eq!(v["code"], "bad_login", "la UI traduce por el código");
+        assert!(v.get("params").is_none(), "sin datos no va `params`: {v}");
         let (st, _) = call(&app, "POST", "/api/auth/login", None, Some(r#"{"username":"ghost","password":"nope"}"#)).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
 
@@ -835,7 +839,9 @@ mod tests {
         let (st, v) = call(&app, "GET", "/api/me", None, None).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
         assert!(v["error"].is_string());
-        let (st, _) = call(&app, "GET", "/api/me", Some("garbage"), None).await;
+        assert_eq!(v["code"], "no_token");
+        let (st, v) = call(&app, "GET", "/api/me", Some("garbage"), None).await;
+        assert_eq!(v["code"], "expired");
         assert_eq!(st, StatusCode::UNAUTHORIZED);
 
         let (st, _) = call(&app, "POST", "/api/auth/logout", Some(&token), None).await;
@@ -863,6 +869,7 @@ mod tests {
         let (st, v) = call(&app, "POST", "/api/auth/login", None, Some(r#"{"username":"bob","password":"hunter22"}"#)).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED);
         assert_eq!(v["error"], "This account is disabled");
+        assert_eq!(v["code"], "disabled");
     }
 
     #[tokio::test]
@@ -872,6 +879,7 @@ mod tests {
         let t2 = login_ok(&app, "bob", "hunter22").await;
         let (st, v) = call(&app, "PUT", "/api/me/password", Some(&t1), Some(r#"{"current":"bad","new":"newpass1"}"#)).await;
         assert_eq!(st, StatusCode::BAD_REQUEST, "{v}");
+        assert_eq!(v["code"], "pw_wrong");
         let (st, _) = call(&app, "PUT", "/api/me/password", Some(&t1), Some(r#"{"current":"hunter22","new":"newpass1"}"#)).await;
         assert_eq!(st, StatusCode::NO_CONTENT);
         assert_eq!(call(&app, "GET", "/api/me", Some(&t1), None).await.0, StatusCode::OK);
@@ -888,6 +896,8 @@ mod tests {
         }
         let (st, v) = call(&app, "POST", "/api/auth/login", None, Some(r#"{"username":"bob","password":"hunter22"}"#)).await;
         assert_eq!(st, StatusCode::TOO_MANY_REQUESTS, "{v}");
+        assert_eq!(v["code"], "too_many_logins");
+        assert!(v["params"]["n"].as_u64().is_some_and(|n| n >= 1), "los minutos van como dato: {v}");
     }
 
     #[tokio::test]
@@ -896,6 +906,7 @@ mod tests {
         let (st, v) = call(&app, "POST", "/api/auth/login", None, Some("{nope")).await;
         assert_eq!(st, StatusCode::BAD_REQUEST);
         assert!(v["error"].as_str().unwrap().starts_with("Invalid JSON body"));
+        assert!(v.get("code").is_none(), "los de validación van solo con el texto: {v}");
     }
 
     #[test]

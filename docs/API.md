@@ -13,7 +13,8 @@ acá primero.
 ## Generalidades
 
 - Todo JSON, `snake_case`. Errores: status HTTP + `{"error": "texto legible en inglés"}` (también
-  para JSON mal formado y rutas `/api` inexistentes). 502 = falló un servicio externo (Cinemeta,
+  para JSON mal formado y rutas `/api` inexistentes) y, en los que la UI muestra, `code` y
+  `params` (ver "Errores", abajo). 502 = falló un servicio externo (Cinemeta,
   Torrentio, OpenSubtitles) o media; si hay una respuesta vieja en caché, el server la usa en vez de
   fallar.
 - Auth: `Authorization: Bearer <token>`. Las rutas bajo `/api/media/**` aceptan además `?t=<token>`
@@ -44,6 +45,45 @@ acá primero.
   mismas sesiones sirven en todas (`docs/local-mode.md`, "Varias direcciones del server"). Un server
   viejo no la manda: la app lo acepta sin poder comparar. El server embebido (modo local) tiene la
   suya, distinta.
+
+### Errores
+
+```jsonc
+{ "error": "Torrentio answered 503 Service Unavailable, try again in a moment",  // siempre, en inglés
+  "code": "torrentio_status",          // estable, snake_case; falta en los de validación
+  "params": { "status": 503 } }        // solo si el texto lleva datos
+```
+
+- `error` no cambia de forma (los clientes viejos lo siguen mostrando). La UI traduce por `code`
+  (`apps/web/src/lib/i18n/server.ts`: la clave es `srv.` + el código en camelCase) con `params`
+  para los datos; si no viene código (un server viejo) o no lo conoce, reconoce el texto, y si
+  tampoco, lo muestra tal cual. **Cambiar una frase no rompe nada; cambiar un código, sí**: un
+  código nuevo necesita su clave `srv.*` en `lib/i18n/es` y `lib/i18n/en`.
+- Los de validación de la API (JSON mal formado, un campo inválido, `range` de métricas) van sin
+  código: no los ve el usuario.
+- Códigos y sus `params`:
+  - Login y cuenta: `bad_login`, `bad_login_offline` (modo local sin server), `disabled`,
+    `too_many_logins` (`n`: minutos), `no_token`, `expired`, `bad_token`, `admin_only`,
+    `admin_local`, `user_exists`, `user_not_found`, `bad_username`, `pw_short`, `pw_long`,
+    `pw_wrong`, `pw_on_server`, `rename_on_server`, `other_account`, `session_not_found`.
+  - Admin: `self_admin`, `self_disable`, `self_delete`, `last_admin`, `need_admin`; avatares:
+    `avatar_not_found`, `avatar_too_big`, `avatar_type`, `gallery_full` (`n`).
+  - Servicios de afuera: `torrentio_down`, `torrentio_bad`, `torrentio_status` (`status`),
+    `cinemeta_down`, `cinemeta_bad`, `cinemeta_status` (`status`), `title_not_found`,
+    `subs_down`, `subs_bad`, `subs_status` (`status`), `sub_download`, `sub_too_large`,
+    `sub_corrupt`, `img_download`, `img_too_large`, `query_long`, `max_genres` (`n`).
+  - Streams y reproducción: `unknown_stream`, `rd_missing`, `rd_invalid`, `only_torrentio`,
+    `media_session`, `play_failed` (`e`: el detalle, en inglés), `no_peers` (`s`: segundos que
+    esperó), `no_space`, `torrent_error` (`e`), `no_ffmpeg`, `buffering`, `sub_not_found`.
+  - Modo local: `bad_server_url`, `server_url`, `sync_not_linked`, `sync_signed_out`,
+    `sync_unreachable`, `sync_unsupported`, `sync_failed` (`e`). El modo local pasa tal cual el
+    código que mande el server de casa (p. ej. `bad_login` en el login online).
+  - `internal` (500): el detalle queda en el log del server.
+- `GET /api/media/{session}/status` lleva lo mismo para el error de la sesión: `error`,
+  `error_code` (`no_space`, `torrent_error`) y `error_params`. `GET /api/local/status`:
+  `last_sync_error` y `last_sync_error_code`.
+- En el crate de media: `mythos_media::Coded { code, message, params }`, que viaja dentro del
+  `anyhow::Error` de `Media::open` (el server lo saca con `downcast_ref`).
 
 ## Tipos
 
@@ -144,6 +184,8 @@ type PlayInfo = {
 type MediaStatus = {
   state: "metadata" | "probing" | "buffering" | "ready" | "error";
   error?: string;
+  error_code?: string;         // ver "Errores": no_space, torrent_error
+  error_params?: object;       // {"e": "..."} en torrent_error
   down_bps: number; up_bps: number;
   peers: number;               // conectados
   downloaded_bytes: number; total_bytes: number;   // del archivo elegido
@@ -324,6 +366,7 @@ type LocalStatus = {
                                    // GET /api/health del remoto, 3 s, cacheado 15 s)
   last_sync_at: number | null;     // ms unix de la última sincronización buena
   last_sync_error: string | null;
+  last_sync_error_code: string | null; // ver "Errores": sync_unreachable, sync_failed...
   pending_changes: number;         // cambios locales sin subir
   transcode_available: boolean;    // hay ffmpeg en el dispositivo
   sync_interval_s: number | null;  // null = solo a pedido

@@ -31,7 +31,7 @@ pub enum Backing {
 
 struct BufState {
     state: MediaState,
-    error: Option<String>,
+    error: Option<crate::Coded>,
     target_s: Option<f64>,
     ever_ready: bool,
     /// Desde cuándo se está esperando colchón (para relajar el objetivo si tarda mucho).
@@ -210,7 +210,7 @@ impl PlaySession {
         }
     }
 
-    pub fn set_error(&self, e: String) {
+    pub fn set_error(&self, e: crate::Coded) {
         let mut b = self.buf.lock().unwrap();
         b.state = MediaState::Error;
         b.error = Some(e);
@@ -327,6 +327,9 @@ impl PlaySession {
             let b = self.buf.lock().unwrap();
             (b.state, b.error.clone(), b.ahead_s, b.target_s)
         };
+        let error_code = error.as_ref().map(|e| e.code);
+        let error_params = error.as_ref().map(|e| e.params.clone()).filter(|p| !p.is_empty());
+        let error = error.map(|e| e.message);
         let down_bps = self.down_bps();
         match &self.backing {
             Backing::Torrent(t) => {
@@ -344,6 +347,8 @@ impl PlaySession {
                 MediaStatus {
                     state,
                     error,
+                    error_code,
+                    error_params: error_params.clone(),
                     down_bps,
                     up_bps: up,
                     peers,
@@ -360,6 +365,8 @@ impl PlaySession {
                 MediaStatus {
                     state,
                     error,
+                    error_code,
+                    error_params: error_params.clone(),
                     down_bps,
                     up_bps: 0,
                     peers: 0,

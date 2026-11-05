@@ -32,7 +32,7 @@
 use crate::engine::Engine;
 use crate::probe::{self, Probe};
 use crate::session::PlaySession;
-use crate::stream::{json_error, Role};
+use crate::stream::{coded_error, json_error, Role};
 use crate::{ClientCaps, HwAccel, PlayMode};
 use axum::body::Body;
 use axum::http::{header, HeaderValue, StatusCode};
@@ -642,7 +642,7 @@ pub async fn index(e: &Engine, s: Arc<PlaySession>, q: &HashMap<String, String>)
             }
         }
         if t0.elapsed() > PLAYLIST_WAIT {
-            return json_error(StatusCode::GATEWAY_TIMEOUT, "stream is still buffering, try again");
+            return coded_error(StatusCode::GATEWAY_TIMEOUT, crate::Coded::new("buffering", "stream is still buffering, try again"));
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }

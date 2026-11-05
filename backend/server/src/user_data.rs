@@ -140,7 +140,7 @@ async fn put_settings(State(st): State<AppState>, u: AuthUser, Json(b): Json<Set
     if let Some(k) = b.rd_key {
         let k = k.trim().to_string();
         if k.len() > 200 || !k.bytes().all(|b| b.is_ascii_alphanumeric()) {
-            return Err(ApiError::bad_request("Invalid Real-Debrid API key"));
+            return Err(ApiError::bad_request("Invalid Real-Debrid API key").with_code("rd_invalid"));
         }
         p.rd_key = (!k.is_empty()).then_some(k);
     }

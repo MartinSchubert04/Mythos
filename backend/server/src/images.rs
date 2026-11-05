@@ -118,17 +118,17 @@ async fn resized(State(st): State<AppState>, Query(q): Query<ImgQuery>) -> ApiRe
     }
     let res = img.http.get(&q.u).send().await.map_err(|e| {
         tracing::warn!("imagen {}: {e}", q.u);
-        ApiError::bad_gateway("Could not download the image")
+        ApiError::bad_gateway("Could not download the image").with_code("img_download")
     })?;
     if !res.status().is_success() {
-        return Err(ApiError::bad_gateway(format!("Image download failed ({})", res.status())));
+        return Err(ApiError::bad_gateway(format!("Image download failed ({})", res.status())).with_code("img_download"));
     }
     if res.content_length().is_some_and(|l| l as usize > MAX_SOURCE_BYTES) {
-        return Err(ApiError::bad_gateway("Image is too large"));
+        return Err(ApiError::bad_gateway("Image is too large").with_code("img_too_large"));
     }
-    let raw = res.bytes().await.map_err(|_| ApiError::bad_gateway("Could not download the image"))?;
+    let raw = res.bytes().await.map_err(|_| ApiError::bad_gateway("Could not download the image").with_code("img_download"))?;
     if raw.len() > MAX_SOURCE_BYTES {
-        return Err(ApiError::bad_gateway("Image is too large"));
+        return Err(ApiError::bad_gateway("Image is too large").with_code("img_too_large"));
     }
     let _permit = img.work.acquire().await.map_err(ApiError::internal)?;
     let out = {

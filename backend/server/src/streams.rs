@@ -74,16 +74,18 @@ impl StreamCtx {
         let res = self.http.get(&url).timeout(Duration::from_secs(20)).send().await.map_err(|e| {
             // Sin la URL: con Real-Debrid lleva la clave adentro.
             tracing::warn!("torrentio {kind}/{id}: {}", e.without_url());
-            ApiError::bad_gateway("Torrentio is unreachable right now, try again in a moment")
+            ApiError::bad_gateway("Torrentio is unreachable right now, try again in a moment").with_code("torrentio_down")
         })?;
         if !res.status().is_success() {
             tracing::warn!("torrentio {kind}/{id}: HTTP {}", res.status());
-            return Err(ApiError::bad_gateway(format!("Torrentio answered {}, try again in a moment", res.status())));
+            return Err(ApiError::bad_gateway(format!("Torrentio answered {}, try again in a moment", res.status()))
+            .with_code("torrentio_status")
+            .with_param("status", res.status().as_u16()));
         }
         let v: serde_json::Value = res
             .json()
             .await
-            .map_err(|_| ApiError::bad_gateway("Torrentio sent an invalid response"))?;
+            .map_err(|_| ApiError::bad_gateway("Torrentio sent an invalid response").with_code("torrentio_bad"))?;
         Ok(torrentio::parse_response(&v, rd_key))
     }
 
@@ -228,14 +230,14 @@ fn resolve_source(
         .filter(|u| !u.is_empty());
     if let Some(u) = url {
         let real = if u.contains(RD_PLACEHOLDER) {
-            let key = prefs.rd_key.as_deref().ok_or_else(|| ApiError::bad_request("Real-Debrid key is not set"))?;
+            let key = prefs.rd_key.as_deref().ok_or_else(|| ApiError::bad_request("Real-Debrid key is not set").with_code("rd_missing"))?;
             u.replace(RD_PLACEHOLDER, key)
         } else {
             u
         };
         // Solo links que vienen de Torrentio: el server no es un proxy abierto.
         if !real.starts_with(&format!("{}/", ctx.base)) {
-            return Err(ApiError::bad_request("Only Torrentio / Real-Debrid links can be played"));
+            return Err(ApiError::bad_request("Only Torrentio / Real-Debrid links can be played").with_code("only_torrentio"));
         }
         return Ok(Source::Url(real));
     }
@@ -243,7 +245,7 @@ fn resolve_source(
         .map(str::to_ascii_lowercase)
         .or_else(|| cached.as_ref().and_then(|c| c.info_hash.clone()))
         .or_else(|| from_key.as_ref().map(|(h, _)| h.clone()))
-        .ok_or_else(|| ApiError::bad_request("Unknown stream, reload the stream list"))?;
+        .ok_or_else(|| ApiError::bad_request("Unknown stream, reload the stream list").with_code("unknown_stream"))?;
     if !is_info_hash(&hash) {
         return Err(ApiError::bad_request("info_hash must be 40 hex characters"));
     }
@@ -279,7 +281,7 @@ async fn prefetch(State(st): State<AppState>, u: AuthUser, Json(b): Json<Prefetc
         // Sin la sesión (venció o se cerró) no hay a quién atar la precarga: 404 como las rutas
         // de media.
         if st.media.status(sid).is_none() {
-            return Err(ApiError::not_found("unknown or expired media session"));
+            return Err(ApiError::not_found("unknown or expired media session").with_code("media_session"));
         }
         st.media.prefetch_next(sid, src).map_err(|e| ApiError::bad_gateway(redact(&format!("Could not prefetch: {e}"), &prefs)))?;
         return Ok(StatusCode::ACCEPTED);
@@ -316,7 +318,18 @@ async fn play(State(st): State<AppState>, u: AuthUser, Json(b): Json<PlayBody>) 
     let src = resolve_source(&st.streams, &prefs, Some(&b.stream_key), b.info_hash.as_deref(), b.file_idx, b.url.as_deref())?;
     let info = st.media.open(src, b.caps).await.map_err(|e| {
         tracing::warn!(user = %u.user.username, key = %b.stream_key, "play: {}", redact(&format!("{e:#}"), &prefs));
-        ApiError::bad_gateway(redact(&format!("Could not start playback: {e}"), &prefs))
+        let detail = redact(&format!("{e}"), &prefs);
+        let err = ApiError::bad_gateway(format!("Could not start playback: {detail}"));
+        // Los de media que la UI conoce (sin peers, sin espacio) llevan su código; el resto, el
+        // genérico con el detalle (en inglés) como dato.
+        match e.downcast_ref::<mythos_media::Coded>() {
+            Some(c) => {
+                let mut err = err.with_code(c.code);
+                err.params = c.params.clone();
+                err
+            }
+            None => err.with_code("play_failed").with_param("e", detail),
+        }
     })?;
     tracing::info!(user = %u.user.username, meta = ?b.meta_id, key = %b.stream_key, mode = ?info.mode, "play");
     if let Some(meta_id) = b.meta_id.filter(|m| !m.is_empty() && m.len() <= 64) {

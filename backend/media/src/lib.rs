@@ -34,6 +34,34 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// Error con un código estable para la UI (docs/API.md, "Errores"): el texto sigue en inglés y la
+/// UI traduce por `code` (con `params` para los datos variables). Viaja dentro de `anyhow::Error`
+/// (el server lo saca con `downcast_ref`) y en `MediaStatus::error_code`.
+#[derive(Clone, Debug)]
+pub struct Coded {
+    pub code: &'static str,
+    pub message: String,
+    pub params: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Coded {
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self { code, message: message.into(), params: Default::default() }
+    }
+    pub fn param(mut self, name: &str, v: impl Into<serde_json::Value>) -> Self {
+        self.params.insert(name.into(), v.into());
+        self
+    }
+}
+
+impl std::fmt::Display for Coded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Coded {}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum HwAccel {
@@ -204,6 +232,12 @@ pub struct MediaStatus {
     pub state: MediaState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Código estable de `error` (docs/API.md, "Errores"): `no_space`, `torrent_error`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<&'static str>,
+    /// Datos variables de `error` (p. ej. `{"e": "..."}` en `torrent_error`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_params: Option<serde_json::Map<String, serde_json::Value>>,
     pub down_bps: u64,
     pub up_bps: u64,
     /// Peers conectados.

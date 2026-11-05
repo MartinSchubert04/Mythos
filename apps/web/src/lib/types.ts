@@ -112,6 +112,9 @@ export type PlayInfo = {
 export type MediaStatus = {
   state: "metadata" | "probing" | "buffering" | "ready" | "error";
   error?: string | null;
+  /** Codigo estable de `error` (docs/API.md, "Errores"). */
+  error_code?: string | null;
+  error_params?: Record<string, unknown> | null;
   down_bps: number;
   up_bps: number;
   peers: number;
@@ -300,6 +303,8 @@ export type LocalStatus = {
   remote_reachable: boolean | null;
   last_sync_at: number | null;
   last_sync_error: string | null;
+  /** Codigo de `last_sync_error` (servers sin codigos: no viene). */
+  last_sync_error_code?: string | null;
   pending_changes: number;
   transcode_available: boolean;
   sync_interval_s: number | null;

@@ -184,7 +184,7 @@ async fn read_upload(req: Request) -> ApiResult<(Bytes, Option<String>)> {
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.to_ascii_lowercase().starts_with("multipart/form-data"));
-    let too_big = || ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "Images can be up to 2 MB");
+    let too_big = || ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "Images can be up to 2 MB").with_code("avatar_too_big");
     if !multipart {
         return Bytes::from_request(req, &()).await.map(|b| (b, None)).map_err(|_| too_big());
     }
@@ -211,10 +211,10 @@ async fn upload(State(av): State<Avatars>, State(auth): State<Auth>, ClientIp(ip
         return Err(ApiError::bad_request("Send the image in the request body"));
     }
     if body.len() > MAX_BYTES {
-        return Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "Images can be up to 2 MB"));
+        return Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "Images can be up to 2 MB").with_code("avatar_too_big"));
     }
     let Some((mime, ext)) = sniff(&body) else {
-        return Err(ApiError::new(StatusCode::UNSUPPORTED_MEDIA_TYPE, "Use a PNG, JPEG, WebP or GIF image"));
+        return Err(ApiError::new(StatusCode::UNSUPPORTED_MEDIA_TYPE, "Use a PNG, JPEG, WebP or GIF image").with_code("avatar_type"));
     };
     let name = clean_name(form_name.as_deref().or(q.name.as_deref()).unwrap_or(""));
     let dir = av.dir.clone();
@@ -223,7 +223,9 @@ async fn upload(State(av): State<Avatars>, State(auth): State<Auth>, ClientIp(ip
         .call(move |c| {
             let n: i64 = c.query_row("SELECT COUNT(*) FROM avatars", [], |r| r.get(0))?;
             if n >= MAX_AVATARS {
-                return Err(ApiError::conflict(format!("The gallery is full ({MAX_AVATARS} images). Delete some first.")));
+                return Err(ApiError::conflict(format!("The gallery is full ({MAX_AVATARS} images). Delete some first."))
+                    .with_code("gallery_full")
+                    .with_param("n", MAX_AVATARS));
             }
             std::fs::create_dir_all(&dir).map_err(ApiError::internal)?;
             let tx = c.transaction()?;
@@ -247,7 +249,7 @@ async fn remove(State(av): State<Avatars>, State(auth): State<Auth>, ClientIp(ip
     av.db
         .call(move |c| {
             let ext: Option<String> = c.query_row("SELECT ext FROM avatars WHERE id = ?1", [id], |r| r.get(0)).optional()?;
-            let Some(ext) = ext else { return Err(ApiError::not_found("Avatar not found")) };
+            let Some(ext) = ext else { return Err(ApiError::not_found("Avatar not found").with_code("avatar_not_found")) };
             c.execute("DELETE FROM avatars WHERE id = ?1", [id])?;
             let _ = std::fs::remove_file(dir.join(format!("{id}.{ext}")));
             Ok(())
@@ -265,8 +267,8 @@ async fn image(State(av): State<Avatars>, _u: AuthUser, Path(id): Path<i64>) -> 
         .db
         .call(move |c| Ok(c.query_row("SELECT mime, ext FROM avatars WHERE id = ?1", [id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).optional()?))
         .await?;
-    let Some((mime, ext)) = found else { return Err(ApiError::not_found("Avatar not found")) };
-    let bytes = tokio::fs::read(dir.join(format!("{id}.{ext}"))).await.map_err(|_| ApiError::not_found("Avatar not found"))?;
+    let Some((mime, ext)) = found else { return Err(ApiError::not_found("Avatar not found").with_code("avatar_not_found")) };
+    let bytes = tokio::fs::read(dir.join(format!("{id}.{ext}"))).await.map_err(|_| ApiError::not_found("Avatar not found").with_code("avatar_not_found"))?;
     let mut res = bytes.into_response();
     let h = res.headers_mut();
     h.insert(header::CONTENT_TYPE, HeaderValue::from_str(&mime).unwrap_or(HeaderValue::from_static("application/octet-stream")));
@@ -297,7 +299,7 @@ pub async fn update_me(State(auth): State<Auth>, u: AuthUser, Json(b): Json<Upda
                 if let Some(id) = avatar {
                     let ok = c.query_row("SELECT 1 FROM avatars WHERE id = ?1", [id], |_| Ok(())).optional()?.is_some();
                     if !ok {
-                        return Err(ApiError::not_found("Avatar not found"));
+                        return Err(ApiError::not_found("Avatar not found").with_code("avatar_not_found"));
                     }
                 }
                 c.execute("UPDATE users SET avatar_id = ?1 WHERE id = ?2", params![avatar, uid])?;

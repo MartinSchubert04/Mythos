@@ -607,7 +607,9 @@ fn parse_genres(s: Option<&str>) -> ApiResult<u32> {
         mask |= bit;
     }
     if n > MAX_GENRES {
-        return Err(ApiError::bad_request(format!("Pick up to {MAX_GENRES} genres (IMDb lists at most {MAX_GENRES} per title)")));
+        return Err(ApiError::bad_request(format!("Pick up to {MAX_GENRES} genres (IMDb lists at most {MAX_GENRES} per title)"))
+            .with_code("max_genres")
+            .with_param("n", MAX_GENRES));
     }
     Ok(mask)
 }
@@ -837,6 +839,9 @@ mod tests {
         let (st, v) = get(&app, "/api/top/movie?genres=Nope", t).await;
         assert_eq!(st, StatusCode::BAD_REQUEST);
         assert_eq!(v["error"], "Unknown genre \"Nope\"");
+        let (st, v) = get(&app, "/api/top/movie?genres=Drama,Comedy,Action,Horror", t).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        assert_eq!((v["code"].as_str(), v["params"]["n"].as_u64()), (Some("max_genres"), Some(MAX_GENRES as u64)), "{v}");
         let (st, _) = get(&app, "/api/top/anime", t).await;
         assert_eq!(st, StatusCode::BAD_REQUEST);
 

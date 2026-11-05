@@ -85,6 +85,7 @@ async fn local_mode_end_to_end() {
     // --- login online a través del local: enrola la cuenta y devuelve las dos sesiones ---
     let (st, v) = l.call("POST", "/api/auth/login", None, Some(json!({"username": "ana", "password": "nope"}))).await;
     assert_eq!(st, 401, "{v}");
+    assert_eq!(v["code"], "bad_login", "el código del server de casa pasa tal cual: {v}");
     let (st, v) = l.call("POST", "/api/auth/login", None, Some(json!({"username": "ANA", "password": "secret123", "device": "Test phone"}))).await;
     assert_eq!(st, 200, "{v}");
     assert_eq!(v["offline"], false);
@@ -210,8 +211,12 @@ async fn local_mode_end_to_end() {
     let (_, s) = l.call("GET", "/api/local/status", Some(&ltok2), None).await;
     assert_eq!(s["remote_reachable"], false);
     assert_eq!(s["pending_changes"], 1);
-    let (st, _) = l.call("POST", "/api/local/sync", Some(&ltok2), None).await;
+    let (st, v) = l.call("POST", "/api/local/sync", Some(&ltok2), None).await;
     assert_eq!(st, 502, "sin server la sincronización falla con un error claro");
+    assert_eq!(v["code"], "sync_unreachable", "{v}");
+    assert!(v["error"].as_str().unwrap().starts_with("Sync failed: "), "el texto de siempre: {v}");
+    let (_, s) = l.call("GET", "/api/local/status", Some(&ltok2), None).await;
+    assert_eq!(s["last_sync_error_code"], "sync_unreachable", "{s}");
 
     // --- apagado del local: el puerto queda libre ---
     let addr = local.addr();
@@ -246,6 +251,7 @@ async fn embedded_run_and_shutdown_on_port_zero() {
     let (st, v) = api.call("POST", "/api/auth/login", None, Some(json!({"username": "ana", "password": "secret123"}))).await;
     assert_eq!(st, 401);
     assert!(v["error"].as_str().unwrap().contains("offline"), "{v}");
+    assert_eq!(v["code"], "bad_login_offline");
     assert_eq!(api.call("GET", "/api/library", None, None).await.0, 401, "nada sin login");
     let addr = h.addr();
     h.shutdown().await.unwrap();

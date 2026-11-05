@@ -203,7 +203,7 @@
       if (!stream) return tr("player.load.findingStreams");
       return status?.state === "metadata" || !status ? tr("player.load.connecting") : tr("player.load.opening");
     }
-    if (status?.state === "error") return status.error ? serverText(status.error) : tr("player.load.serverCantRead");
+    if (status?.state === "error") return status.error ? serverText(status.error, status.error_code, status.error_params) : tr("player.load.serverCantRead");
     if (status?.state === "metadata") return tr("player.load.connecting");
     if (status?.state === "probing") return tr("player.load.reading");
     const p = ringPct();
@@ -645,7 +645,7 @@
     if (stuck || fatal || askResume || !stream) return;
     if (status?.state === "error") {
       stuck = "error";
-      stuckMsg = status.error ? serverText(status.error) : tr("player.err.serverCantRead");
+      stuckMsg = status.error ? serverText(status.error, status.error_code, status.error_params) : tr("player.err.serverCantRead");
       return;
     }
     const now = Date.now();

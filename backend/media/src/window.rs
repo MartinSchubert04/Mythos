@@ -275,13 +275,13 @@ impl Phantom {
 }
 
 /// Mensaje legible para un torrent en error (el de librqbit es un `Debug` largo).
-pub fn friendly_error(err: &str) -> String {
+pub fn friendly_error(err: &str) -> crate::Coded {
     let e = err.to_ascii_lowercase();
     if e.contains("no space") || e.contains("enospc") || e.contains("os error 28") || e.contains("os error 112") {
-        crate::engine::DISK_FULL_MSG.to_string()
+        crate::Coded::new("no_space", crate::engine::DISK_FULL_MSG)
     } else {
-        let first = err.lines().next().unwrap_or(err);
-        format!("torrent error: {}", first.chars().take(200).collect::<String>())
+        let first: String = err.lines().next().unwrap_or(err).chars().take(200).collect();
+        crate::Coded::new("torrent_error", format!("torrent error: {first}")).param("e", first)
     }
 }
 
@@ -532,10 +532,15 @@ mod tests {
 
     #[test]
     fn errors_are_readable() {
-        assert!(friendly_error("FATAL: error writing chunk: pwritev: ENOSPC").contains("disk space"));
-        assert!(friendly_error("No space left on device (os error 28)").contains("disk space"));
-        assert_eq!(friendly_error("boom
-details"), "torrent error: boom");
+        let full = friendly_error("FATAL: error writing chunk: pwritev: ENOSPC");
+        assert!(full.message.contains("disk space"));
+        assert_eq!(full.code, "no_space");
+        assert_eq!(friendly_error("No space left on device (os error 28)").code, "no_space");
+        let other = friendly_error("boom
+details");
+        assert_eq!(other.message, "torrent error: boom");
+        assert_eq!(other.code, "torrent_error");
+        assert_eq!(other.params["e"], "boom");
     }
 
     #[test]

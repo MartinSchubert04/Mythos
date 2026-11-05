@@ -98,18 +98,20 @@ impl Cinemeta {
         let url = format!("{CINEMETA}{path}");
         let res = self.http.get(&url).timeout(Duration::from_secs(12)).send().await.map_err(|e| {
             tracing::warn!("cinemeta {url}: {e}");
-            ApiError::bad_gateway("The catalog service (Cinemeta) is unreachable, try again in a moment")
+            ApiError::bad_gateway("The catalog service (Cinemeta) is unreachable, try again in a moment").with_code("cinemeta_down")
         })?;
         if res.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(ApiError::not_found("Title not found"));
+            return Err(ApiError::not_found("Title not found").with_code("title_not_found"));
         }
         if !res.status().is_success() {
             tracing::warn!("cinemeta {url}: HTTP {}", res.status());
-            return Err(ApiError::bad_gateway(format!("The catalog service (Cinemeta) answered {}", res.status())));
+            return Err(ApiError::bad_gateway(format!("The catalog service (Cinemeta) answered {}", res.status()))
+                .with_code("cinemeta_status")
+                .with_param("status", res.status().as_u16()));
         }
         res.json().await.map_err(|e| {
             tracing::warn!("cinemeta {url}: JSON inválido: {e}");
-            ApiError::bad_gateway("The catalog service (Cinemeta) sent an invalid response")
+            ApiError::bad_gateway("The catalog service (Cinemeta) sent an invalid response").with_code("cinemeta_bad")
         })
     }
 
@@ -203,7 +205,7 @@ impl Cinemeta {
             Ok(v) => v,
             Err(e) => return self.metas.get_stale(&key).ok_or(e),
         };
-        let meta = meta_from(&v["meta"], kind).ok_or_else(|| ApiError::not_found("Title not found"))?;
+        let meta = meta_from(&v["meta"], kind).ok_or_else(|| ApiError::not_found("Title not found").with_code("title_not_found"))?;
         let meta = Arc::new(meta);
         self.metas.insert(key, meta.clone());
         Ok(meta)
@@ -389,7 +391,7 @@ async fn search(State(st): State<AppState>, _u: AuthUser, Query(q): Query<Search
         return Ok(json_bytes(Bytes::from_static(br#"{"movies":[],"series":[]}"#)));
     }
     if q.chars().count() > 100 {
-        return Err(ApiError::bad_request("Search query is too long"));
+        return Err(ApiError::bad_request("Search query is too long").with_code("query_long"));
     }
     Ok(json_bytes(st.cinemeta.search(q).await?))
 }

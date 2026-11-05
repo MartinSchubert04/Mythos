@@ -56,6 +56,15 @@ pub fn json_error(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, axum::Json(serde_json::json!({ "error": msg.into() }))).into_response()
 }
 
+/// Como `json_error`, con el código estable que traduce la UI (docs/API.md, "Errores").
+pub fn coded_error(status: StatusCode, e: crate::Coded) -> Response {
+    let mut body = serde_json::json!({ "error": e.message, "code": e.code });
+    if !e.params.is_empty() {
+        body["params"] = serde_json::Value::Object(e.params);
+    }
+    (status, axum::Json(body)).into_response()
+}
+
 /// Lector que avisa a la sesión dónde va (para la ventana de prioridad).
 /// Para diagnóstico deja un `debug` si espera una pieza más de 5 s (y si la pieza figuraba como
 /// presente, que sería un aviso perdido de librqbit; no se vio en las pruebas).

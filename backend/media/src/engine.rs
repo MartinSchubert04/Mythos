@@ -396,7 +396,13 @@ impl Engine {
             async move {
                 let r = tokio::time::timeout(METADATA_TIMEOUT, rq.add_torrent(add, Some(opts)))
                     .await
-                    .map_err(|_| anyhow::anyhow!("no peers found for this torrent (gave up after {} s); try another stream", METADATA_TIMEOUT.as_secs()))??;
+                    .map_err(|_| {
+                        let s = METADATA_TIMEOUT.as_secs();
+                        anyhow::Error::new(
+                            crate::Coded::new("no_peers", format!("no peers found for this torrent (gave up after {s} s); try another stream"))
+                                .param("s", s),
+                        )
+                    })??;
                 Ok::<_, anyhow::Error>(r)
             }
         };
@@ -816,7 +822,7 @@ impl Engine {
             let _ = self.rq.pause(&h).await;
             for s in self.sessions.lock().unwrap().values() {
                 if s.torrent().is_some_and(|t| t.hash == hash) {
-                    s.set_error(DISK_FULL_MSG.into());
+                    s.set_error(crate::Coded::new("no_space", DISK_FULL_MSG));
                 }
             }
         }

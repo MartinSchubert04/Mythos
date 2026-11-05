@@ -46,7 +46,7 @@ async fn revoke_user_session(State(st): State<AppState>, ClientIp(ip): ClientIp,
         })
         .await?;
     if n == 0 {
-        return Err(ApiError::not_found("Session not found"));
+        return Err(ApiError::not_found("Session not found").with_code("session_not_found"));
     }
     st.auth.clear_cache();
     st.recorder.audit("session_revoked", Some(a.0.user.id), Some(&a.0.user.username), Some(ip), Some(format!("{name}: session {sid}")));
@@ -98,7 +98,7 @@ struct EditUser {
 fn get_user(c: &Connection, id: i64) -> ApiResult<User> {
     c.query_row(&format!("SELECT {USER_COLS} FROM users WHERE id = ?1"), [id], user_from_row)
         .optional()?
-        .ok_or_else(|| ApiError::not_found("User not found"))
+        .ok_or_else(|| ApiError::not_found("User not found").with_code("user_not_found"))
 }
 
 /// Admins habilitados que quedarían si `id` dejara de serlo.
@@ -139,13 +139,13 @@ async fn edit_user(
             let current = get_user(c, id)?;
             let loses_admin = (b.is_admin == Some(false) && current.is_admin) || (b.disabled == Some(true) && current.is_admin);
             if id == me && b.disabled == Some(true) {
-                return Err(ApiError::bad_request("You can't disable your own account"));
+                return Err(ApiError::bad_request("You can't disable your own account").with_code("self_disable"));
             }
             if id == me && b.is_admin == Some(false) {
-                return Err(ApiError::bad_request("You can't remove your own admin rights"));
+                return Err(ApiError::bad_request("You can't remove your own admin rights").with_code("self_admin"));
             }
             if loses_admin && other_active_admins(c, id)? == 0 {
-                return Err(ApiError::bad_request("There must be at least one active admin"));
+                return Err(ApiError::bad_request("There must be at least one active admin").with_code("need_admin"));
             }
             let tx = c.transaction()?;
             let mut renamed = None;
@@ -194,14 +194,14 @@ async fn edit_user(
 
 async fn remove_user(State(st): State<AppState>, ClientIp(ip): ClientIp, a: AdminUser, Path(id): Path<i64>) -> ApiResult<StatusCode> {
     if id == a.0.user.id {
-        return Err(ApiError::bad_request("You can't delete your own account"));
+        return Err(ApiError::bad_request("You can't delete your own account").with_code("self_delete"));
     }
     let user = st
         .db
         .call(move |c| {
             let u = get_user(c, id)?;
             if u.is_admin && !u.disabled && other_active_admins(c, id)? == 0 {
-                return Err(ApiError::bad_request("You can't delete the last admin"));
+                return Err(ApiError::bad_request("You can't delete the last admin").with_code("last_admin"));
             }
             c.execute("DELETE FROM users WHERE id = ?1", [id])?;
             Ok(u)

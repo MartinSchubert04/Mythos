@@ -290,7 +290,7 @@ fn app(state: AppState) -> Router {
 
     let api = api
         .nest("/media", media)
-        .fallback(|| async { ApiError::not_found("Unknown API route") });
+        .fallback(|| async { ApiError::not_found("Unknown API route").with_code("unknown_route") });
 
     let mut root = Router::new()
         .nest("/api", api)
@@ -409,7 +409,7 @@ pub async fn cli(cfg: &Config, args: &[String]) -> anyhow::Result<()> {
                 let hash = auth::hash_password(&p)?;
                 let n = c.execute("UPDATE users SET password_hash = ?2, disabled = 0 WHERE username = ?1", params![u, hash])?;
                 if n == 0 {
-                    return Err(ApiError::not_found("User not found"));
+                    return Err(ApiError::not_found("User not found").with_code("user_not_found"));
                 }
                 c.execute("DELETE FROM sessions WHERE user_id = (SELECT id FROM users WHERE username = ?1)", [u])?;
                 Ok(())

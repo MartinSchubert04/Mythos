@@ -56,7 +56,10 @@
       await login(username.trim(), password);
     } catch (err) {
       // Sin server (login contra la copia del dispositivo): solo cuentas que ya entraron aca.
-      if (err instanceof ApiError && err.status === 401 && err.message.includes("offline")) error = t("account.login.wrongOffline");
+      // (Por el codigo; los servers sin codigos, por el texto.)
+      const offline = err instanceof ApiError && (err.code === "bad_login_offline" || (!err.code && err.message.includes("offline")));
+      if (err instanceof ApiError && err.status === 401 && offline) error = t("account.login.wrongOffline");
+      else if (err instanceof ApiError && err.status === 401 && (err.code === "disabled" || err.message === "This account is disabled")) error = errText(err);
       else if (err instanceof ApiError && err.status === 401) error = t("account.login.wrong");
       else if (err instanceof ApiError && err.status === 429) error = t("account.login.tooMany");
       else {

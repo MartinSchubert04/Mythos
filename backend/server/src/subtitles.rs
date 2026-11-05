@@ -82,12 +82,14 @@ async fn list(State(st): State<AppState>, _u: AuthUser, Path((kind, id)): Path<(
     let url = format!("{OPENSUBS}/subtitles/{kind}/{id}.json");
     let res = st.subs.http.get(&url).timeout(Duration::from_secs(12)).send().await.map_err(|e| {
         tracing::warn!("opensubtitles {key}: {e}");
-        ApiError::bad_gateway("The subtitles service (OpenSubtitles) is unreachable")
+        ApiError::bad_gateway("The subtitles service (OpenSubtitles) is unreachable").with_code("subs_down")
     })?;
     if !res.status().is_success() {
-        return Err(ApiError::bad_gateway(format!("The subtitles service answered {}", res.status())));
+        return Err(ApiError::bad_gateway(format!("The subtitles service answered {}", res.status()))
+            .with_code("subs_status")
+            .with_param("status", res.status().as_u16()));
     }
-    let v: Value = res.json().await.map_err(|_| ApiError::bad_gateway("The subtitles service sent an invalid response"))?;
+    let v: Value = res.json().await.map_err(|_| ApiError::bad_gateway("The subtitles service sent an invalid response").with_code("subs_bad"))?;
     let subs: Vec<ExternalSub> = v["subtitles"]
         .as_array()
         .into_iter()
@@ -131,15 +133,15 @@ async fn external(State(st): State<AppState>, Query(q): Query<ExternalQuery>) ->
         None => {
             let res = st.subs.http.get(&q.u).send().await.map_err(|e| {
                 tracing::warn!("subtítulo {}: {e}", q.u);
-                ApiError::bad_gateway("Could not download the subtitle")
+                ApiError::bad_gateway("Could not download the subtitle").with_code("sub_download")
             })?;
             if !res.status().is_success() {
-                return Err(ApiError::bad_gateway(format!("Subtitle download failed ({})", res.status())));
+                return Err(ApiError::bad_gateway(format!("Subtitle download failed ({})", res.status())).with_code("sub_download"));
             }
             if res.content_length().is_some_and(|l| l as usize > MAX_SUB_BYTES) {
-                return Err(ApiError::bad_gateway("Subtitle file is too large"));
+                return Err(ApiError::bad_gateway("Subtitle file is too large").with_code("sub_too_large"));
             }
-            let raw = res.bytes().await.map_err(|_| ApiError::bad_gateway("Could not download the subtitle"))?;
+            let raw = res.bytes().await.map_err(|_| ApiError::bad_gateway("Could not download the subtitle").with_code("sub_download"))?;
             let text = decode(&raw)?;
             let vtt = Bytes::from(srt_to_vtt(&text));
             st.subs.files.insert(q.u.clone(), vtt.clone());
@@ -161,9 +163,9 @@ fn decode(raw: &[u8]) -> ApiResult<String> {
         flate2::read::GzDecoder::new(raw)
             .take(MAX_SUB_BYTES as u64 + 1)
             .read_to_end(&mut out)
-            .map_err(|_| ApiError::bad_gateway("Subtitle file is corrupted"))?;
+            .map_err(|_| ApiError::bad_gateway("Subtitle file is corrupted").with_code("sub_corrupt"))?;
         if out.len() > MAX_SUB_BYTES {
-            return Err(ApiError::bad_gateway("Subtitle file is too large"));
+            return Err(ApiError::bad_gateway("Subtitle file is too large").with_code("sub_too_large"));
         }
         out
     } else {

@@ -5,7 +5,7 @@
 //!   lean el archivo con la misma priorización de piezas que el reproductor.
 
 use crate::engine::Engine;
-use crate::stream::{self, json_error, Role};
+use crate::stream::{self, coded_error, Role};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -34,7 +34,7 @@ pub fn internal_router(engine: Arc<Engine>) -> Router {
 }
 
 fn not_found() -> Response {
-    json_error(StatusCode::NOT_FOUND, "unknown or expired media session")
+    coded_error(StatusCode::NOT_FOUND, crate::Coded::new("media_session", "unknown or expired media session"))
 }
 
 fn range_of(h: &HeaderMap) -> Option<&str> {
@@ -66,7 +66,10 @@ async fn delete_session(State(e): St, Path(id): Path<String>) -> Response {
 
 /// HLS y subtítulos internos necesitan ffmpeg: sin él, 501 con un mensaje claro.
 fn no_ffmpeg() -> Response {
-    json_error(StatusCode::NOT_IMPLEMENTED, "transcoding is not available on this device (ffmpeg not found); use direct play")
+    coded_error(
+        StatusCode::NOT_IMPLEMENTED,
+        crate::Coded::new("no_ffmpeg", "transcoding is not available on this device (ffmpeg not found); use direct play"),
+    )
 }
 
 async fn hls_index(State(e): St, Path(id): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
@@ -92,7 +95,7 @@ async fn subs(State(e): St, Path((id, file)): Path<(String, String)>) -> Respons
     let Some(s)
  = e.session(&id) else { return not_found() };
     let Some(idx) = file.strip_suffix(".vtt").and_then(|x| x.parse::<usize>().ok()) else {
-        return json_error(StatusCode::NOT_FOUND, "subtitle not found");
+        return coded_error(StatusCode::NOT_FOUND, crate::Coded::new("sub_not_found", "subtitle not found"));
     };
     crate::subs::serve(&e, s, idx).await
 }
