@@ -82,6 +82,7 @@ pub struct PlaySession {
     pub haves: Mutex<Arc<Vec<bool>>>,
     pub hls: tokio::sync::Mutex<Option<crate::hls::HlsJob>>,
     pub subs: crate::subs::SubsState,
+    pub thumbs: crate::thumbs::ThumbsState,
     pub tmp_dir: PathBuf,
 }
 
@@ -119,6 +120,7 @@ impl PlaySession {
             haves: Mutex::new(Arc::new(Vec::new())),
             hls: tokio::sync::Mutex::new(None),
             subs: Default::default(),
+            thumbs: Default::default(),
             tmp_dir,
         }
     }
@@ -195,6 +197,10 @@ impl PlaySession {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Relaxed)
+    }
+
+    pub fn state(&self) -> MediaState {
+        self.buf.lock().unwrap().state
     }
 
     pub fn set_state(&self, s: MediaState) {

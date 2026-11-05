@@ -93,6 +93,8 @@ type Stream = {
   languages: string[];         // banderas/idiomas que trae Torrentio ("🇪🇸", "multi"...)
   cached?: boolean;            // en caché de Real-Debrid o ya descargado en el server
   score: number;               // mayor = mejor. La lista viene ordenada por score desc.
+  reasons?: string[];          // por qué lo sube lo aprendido del usuario ("Preferencias aprendidas"):
+                               // "same_group" | "liked_group" | "subs:<idioma>" | "dual_audio"
 };
 
 type TopRated = {              // GET /api/top/{type} (ver "Top rated" más abajo)
@@ -218,7 +220,7 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 | GET | `/api/streams/{type}/{id}` | id con episodio para series (`tt…:1:2`). `?caps=` opcional: `ClientCaps` en JSON o lista `h264,hevc,aac,mkv,…`; da bonus a lo que el cliente reproduce directo | `Stream[]` |
 | GET | `/api/subtitles/{type}/{id}` | | `{id, lang, url}[]` (OpenSubtitles v3 addon; `url` = `/api/media/subs/external?u=…`, devuelve VTT) |
 | POST | `/api/prefetch` | `{info_hash?, file_idx?, url?, stream_key?, session_id?}` (alcanza con `stream_key` de un listado reciente) | 202. Sin `session_id`: arranca el torrent y baja principio y final del archivo sin abrir sesión (la UI lo llama al abrir la lista de streams, para el primero). Con `session_id` (la sesión de media que se está viendo; mandarlo al server de esa sesión): **precarga del próximo episodio** atada a esa sesión, con las reglas de abajo; 404 si la sesión no existe |
-| POST | `/api/play` | `{stream_key, info_hash?, file_idx?, url?, caps: ClientCaps, meta_id?}` (si `stream_key` salió de `/api/streams` en las últimas 6 h, el resto es opcional; así el server usa los trackers que trajo Torrentio). Tarda unos segundos (metadata + ffprobe) | `PlayInfo`; 502 con mensaje si no se pudo abrir |
+| POST | `/api/play` | `{stream_key, info_hash?, file_idx?, url?, caps: ClientCaps, meta_id?, manual?, top_key?, after_stall?}` (`manual`: elegido a mano; `top_key`: el que la app ponía primero; `after_stall`: elegido desde el cartel de "trabado"; ver "Preferencias aprendidas") (si `stream_key` salió de `/api/streams` en las últimas 6 h, el resto es opcional; así el server usa los trackers que trajo Torrentio). Tarda unos segundos (metadata + ffprobe) | `PlayInfo`; 502 con mensaje si no se pudo abrir |
 | GET | `/api/progress/continue` | | `Progress[]` (últimos 20, sin terminados > 92 %) |
 | GET | `/api/progress/recent` | | `Progress[]` (últimos 30, terminados incluidos, uno por serie: "Recently watched" en la Library; si falta, la UI usa `/continue`) |
 | GET | `/api/progress` | `?series_id=tt…` | `Progress[]` de todos los episodios de esa serie, terminados incluidos (la UI marca vistos y el progreso de cada episodio; si falta, usa `/continue`) |
@@ -341,9 +343,58 @@ Rutas montadas desde el crate de media, con auth (Bearer o `?t=`):
 | GET | `/api/media/{session}/hls/{segment}` | segmentos `.ts` o `.m4s` |
 | GET | `/api/media/{session}/subs/{index}.vtt` | subtítulo interno en WebVTT. Si la extracción no terminó en ~20 s (o antes, si el archivo está a medio bajar y ffmpeg lleva ~3 s esperando piezas) devuelve lo que hay (VTT válido desde el principio) con el header `X-Mythos-Partial: true`; la UI vuelve a pedirlo cada 5 s para completarlo. Se guarda como completo solo si terminó con el archivo entero bajado y la sesión abierta |
 | GET | `/api/media/{session}/status` | `MediaStatus` |
+| GET | `/api/media/{session}/thumbs` | `ThumbsIndex` (abajo): las miniaturas para la vista previa al adelantar. La primera vez lanza la generación de fondo. 404 si todavía no se sabe la duración (volver a pedir), 501 sin ffmpeg (la barra sin miniatura) |
+| GET | `/api/media/{session}/thumbs/{i}.jpg` | la miniatura `i` (JPEG, `Cache-Control: private, max-age=86400`); 404 si todavía no está |
 | DELETE | `/api/media/{session}` | 204 (para ffmpeg; el torrent queda en caché) |
 | GET | `/api/media/subs/external` | `?u=<url de OpenSubtitles>` → VTT (gz/srt → vtt) — lo hace el server |
 | GET | `/api/media/img` | `?u=<url https de *.metahub.space>&w=<ancho>` → la imagen achicada a 320/480/640/960/1280 px de ancho (el primero ≥ `w`, JPEG), o la original si ya es chica o tiene transparencia. Cacheada en disco (`<data>/img-cache`, tope 512 MB en server y 96 MB en local, se borran las menos usadas) con `Cache-Control: private, max-age=2592000, immutable`. 400 si no es de metahub, 502 si metahub falla |
+
+**Preferencias aprendidas** (`server/src/taste.rs`, tabla `plays`): cada `/api/play` con `meta_id`
+guarda el grupo del release (`[Grupo] ...` o `...-GRUPO`, y el `bingeGroup` de Torrentio), calidad,
+tamaño, audio dual, los idiomas de audio y subtítulos reales del archivo (ffprobe), si se eligió a
+mano (`manual`) y cuál ofrecía la app (`top_key`). Cómo salió se completa solo: `finished` (el
+progreso pasó el 90 %), `switched` (antes de 15 min y con menos de 5 vistos se abrió otro stream
+del mismo episodio) o `stalled` (`after_stall`). Se guardan las últimas 600 por usuario.
+
+En `/api/streams` se infiere (de las últimas 300): el grupo de la última reproducción buena de esa
+serie (confianza 0,6 / 0,8 / 1 con 1 / 2 / 3+ que lo confirman; el que se trabó o se cambió
+enseguida no se prefiere y resta), los grupos que se repiten en otras series, los idiomas de
+subtítulos buscados (el `subLang` de Settings, o el que tienen de verdad al menos dos elecciones a
+mano buenas, sin contar inglés) y el audio dual (dos elecciones a mano). Los subtítulos de un stream
+que no se abrió se adivinan por su nombre y por los que tuvo su grupo. El score suma: mismo grupo
+de la serie +60 × confianza, grupo que repite +15, grupo malo −40, subtítulos buscados +50, audio
+dual +25, en total entre −60 y +110: la salud del torrent sigue mandando (un preferido con 2
+seeders no le gana a uno sano). Sin historial no cambia nada.
+
+**Vista previa al adelantar (`/api/media/{session}/thumbs`)**, `media/src/thumbs.rs`:
+
+```
+ThumbsIndex { interval_s: number, count: number, width: number, height: number,
+              ready: string,   // un carácter por miniatura: "1" lista, "0" todavía no
+              done: boolean }  // no van a aparecer más (todas listas o se dejó de intentar)
+```
+
+- La miniatura `i` es del momento `i * interval_s + interval_s / 2` y representa el tramo
+  `[i * interval_s, (i + 1) * interval_s)`: para el segundo `x`, `i = floor(x / interval_s)`.
+- `interval_s` = duración / 300 redondeado para arriba, nunca menos de 5 s (un episodio de 20 min:
+  cada 5 s; una película de 2 h: cada 24 s, 300 miniaturas). `width` 240 px; `height` según la
+  relación de aspecto (par). ~5-10 KB cada una.
+- Generación (de fondo, por sesión, empieza con el primer pedido del índice): solo con la sesión
+  reproduciendo (no mientras arranca o tras un salto; un link directo además sin `starving`,
+  porque leer el archivo es bajarlo del origen), un ffmpeg a la vez en todo el server, con un hilo,
+  sin NVENC, prioridad más baja del sistema y 15 s de tope (si se queda esperando piezas no cuenta
+  como fallo: se reintenta en la pasada siguiente); cada una decodifica solo el cuadro
+  clave más cercano (`-skip_frame nokey -noaccurate_seek`). ffmpeg lee con el rol pasivo y solo para
+  momentos cuyo tramo del archivo (estimado por el bitrate medio: 8 s antes y 12 s después, entre
+  2 y 24 MB) ya está bajado: con el
+  archivo a medio bajar hay miniaturas de lo que está y las demás aparecen en las pasadas
+  siguientes (cada 5-20 s). Orden por pasadas (una cada 16, después cada 8, 4, 2, 1). 8 fallos
+  seguidos con el tramo bajado: se abandona (`done: true`).
+- Cache: `<data>/thumbs/{hash}_{archivo}_{ancho}x{alto}_{intervalo}/` para torrents (para siempre;
+  se borra con el torrent), la carpeta temporal de la sesión para links directos.
+- La UI pide el índice al empezar a reproducir y cada 15 s hasta `done`; muestra la miniatura del
+  tramo si está lista y si no solo el tiempo. Un server viejo (404) o sin ffmpeg (501): sin
+  miniatura.
 
 **Top rated (`/api/top`)**: lo mejor calificado de IMDb, de los datasets públicos
 (`datasets.imdbws.com`: `title.ratings.tsv.gz` ~9 MB + `title.basics.tsv.gz` ~230 MB, uso
@@ -523,7 +574,7 @@ pub enum Source { Torrent { info_hash: String, file_idx: Option<usize>, trackers
 Sin ffprobe, el sondeo lo hace un lector propio de cabeceras MP4 (`moov`) y Matroska/WebM
 (`Info`/`Tracks`, con SeekHead) por el mismo endpoint interno (así las piezas que lee se bajan con
 prioridad); si falla, se adivina por el nombre. Sin ffmpeg: `PlayInfo.mode` siempre `direct`,
-`hls_url` null, sin subtítulos internos, y `/hls/*` y `/subs/*` responden 501 con un mensaje
+`hls_url` null, sin subtítulos internos ni miniaturas, y `/hls/*`, `/subs/*` y `/thumbs*` responden 501 con un mensaje
 claro. `/api/streams` además hunde en la lista lo que según `caps` no se reproduce directo.
 
 Los tipos `ClientCaps`, `PlayInfo`, `Track`, `MediaStatus`, `TorrentStat`, `MediaStats`, `MediaTools`, `ProbeSource` viven en

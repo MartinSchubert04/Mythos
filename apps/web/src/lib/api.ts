@@ -12,6 +12,7 @@ import type {
   LogFilters,
   LogRow,
   MediaStatus,
+  ThumbsIndex,
   Metrics,
   MetricsRange,
   Page,
@@ -259,6 +260,12 @@ export type PlayRequest = {
   url?: string | null;
   caps: ClientCaps;
   meta_id?: string;
+  /** Elegido a mano (Choose stream, el panel de streams): para aprender que release prefiere. */
+  manual?: boolean;
+  /** El que la app ponia primero. */
+  top_key?: string;
+  /** Elegido desde el cartel de "trabado". */
+  after_stall?: boolean;
 };
 
 export const api = {
@@ -382,6 +389,9 @@ export const api = {
 
   status: (session: string, signal?: AbortSignal) =>
     req<MediaStatus>("GET", `/api/media/${session}/status`, undefined, { signal, ...pinned(session) }),
+  /** Miniaturas para la vista previa al adelantar. 404: todavia no (o un server viejo); 501: sin ffmpeg. */
+  thumbs: (session: string, signal?: AbortSignal) =>
+    req<ThumbsIndex>("GET", `/api/media/${session}/thumbs`, undefined, { signal, ...pinned(session) }),
   closeSession: (session: string) =>
     req<void>("DELETE", `/api/media/${session}`, undefined, { keepalive: true, ...pinned(session) }).catch(() => {}),
 

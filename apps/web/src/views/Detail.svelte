@@ -126,10 +126,12 @@
   );
 
   /** Al reproductor. Con `resume`, sigue donde quedo sin preguntar (o arranca de cero). */
-  function play(target = playTarget, key?: string, resume?: boolean) {
+  function play(target = playTarget, key?: string, resume?: boolean, pick = false) {
     if (!target) return;
     const q = new URLSearchParams();
     if (key) q.set("s", key);
+    // Elegido a mano en "Choose stream" (el server aprende que release prefiere).
+    if (pick) q.set("pick", "1");
     if (resume !== undefined) q.set("resume", resume ? "1" : "0");
     const qs = q.toString();
     go(`/watch/${type}/${target}${qs ? `?${qs}` : ""}`);
@@ -509,7 +511,7 @@
     {:else if !streams}
       {#each Array(6) as _, i (i)}<div class="skel" style="height: 66px; border-radius: var(--radius)"></div>{/each}
     {:else}
-      <StreamList {streams} onpick={(s) => play(panel!.target, s.key)} linkFor={(s) => streamLink(s)} />
+      <StreamList {streams} onpick={(s) => play(panel!.target, s.key, undefined, true)} linkFor={(s) => streamLink(s)} />
     {/if}
   </Drawer>
 {/if}

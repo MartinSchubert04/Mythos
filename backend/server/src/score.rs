@@ -31,8 +31,12 @@
 //! 8. **Otra película con el mismo nombre** (remake, parodia): si el release o su archivo traen
 //!    años y ninguno cae en el de Cinemeta (±1; en series, su rango), −600. No se descarta del
 //!    todo por si el año del release está mal, pero queda al fondo.
+//! 9. **Lo aprendido del usuario** (`taste.rs`): el grupo que eligió en esta serie, los que repite,
+//!    los subtítulos que busca y el audio dual, acotado entre −60 y +110: la salud del torrent
+//!    sigue mandando (un grupo preferido casi muerto no le gana a uno sano).
 use mythos_media::ClientCaps;
 
+use crate::taste::{self, Personal};
 use crate::torrentio::{Quality, Stream};
 
 #[derive(Clone, Debug)]
@@ -48,11 +52,13 @@ pub struct Prefs {
     /// El server no tiene ffmpeg (modo local sin ffmpeg): lo que no se reproduce directo no se
     /// puede convertir, así que se hunde en la lista.
     pub direct_only: bool,
+    /// Lo aprendido de las reproducciones del usuario (`taste.rs`): un bonus acotado.
+    pub personal: Option<Personal>,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { preferred: Quality::P1080, max_size_bytes: None, duration_s: 7200.0, caps: None, years: None, direct_only: false }
+        Self { preferred: Quality::P1080, max_size_bytes: None, duration_s: 7200.0, caps: None, years: None, direct_only: false, personal: None }
     }
 }
 
@@ -137,6 +143,19 @@ fn language_score(s: &Stream) -> f64 {
     score
 }
 
+/// El score con lo aprendido del usuario (9.) y los motivos para la UI.
+pub fn score_with(s: &Stream, downloaded: bool, p: &Prefs) -> (f64, Vec<String>) {
+    let base = score(s, downloaded, p);
+    match &p.personal {
+        Some(me) => {
+            let (b, why) = taste::bonus(s, me);
+            (((base + b) * 10.0).round() / 10.0, why)
+        }
+        None => (base, Vec::new()),
+    }
+}
+
+/// El score sin lo aprendido del usuario (1. a 8.).
 pub fn score(s: &Stream, downloaded: bool, p: &Prefs) -> f64 {
     let has = |t: &str| s.tags.iter().any(|x| x == t);
     let mut score = 0.0;
@@ -241,7 +260,7 @@ pub fn rank(streams: &mut [Stream], downloaded: impl Fn(&Stream) -> bool, p: &Pr
         } else if s.cached.is_none() && s.info_hash.is_some() && s.url.is_none() {
             s.cached = Some(false);
         }
-        s.score = score(s, d, p);
+        (s.score, s.reasons) = score_with(s, d, p);
     }
     streams.sort_by(|a, b| b.score.total_cmp(&a.score).then(b.seeders.cmp(&a.seeders)));
 }
@@ -317,6 +336,9 @@ mod tests {
             media: MediaGuess::default(),
             cyrillic: false,
             years: vec![],
+            group: None,
+            binge: None,
+            reasons: vec![],
         }
     }
 
@@ -453,6 +475,70 @@ mod tests {
         assert!(sc(&st(Quality::Cam, 3000, 1.5, &[])) < sc(&st(Quality::P720, 20, 1.0, &[])));
         let p = Prefs { max_size_bytes: Some(4 * GB), ..Prefs::default() };
         assert!(score(&st(Quality::P1080, 500, 6.0, &[]), false, &p) < score(&st(Quality::P720, 30, 1.0, &[]), false, &p));
+    }
+
+    /// Un episodio de anime: release con grupo y nombre.
+    fn anime(title: &str, seeders: u32) -> Stream {
+        let mut s = st(Quality::P1080, seeders, 1.4, &[]);
+        s.key = title.into();
+        s.title = title.into();
+        s.group = taste::release_group(title);
+        s
+    }
+
+    fn ranked(list: &[Stream], p: &Prefs) -> Vec<Stream> {
+        let mut v = list.to_vec();
+        rank(&mut v, |_| false, p);
+        v
+    }
+
+    /// Caso real (Demon Slayer): el usuario elegía a mano Erai-raws (trae subtítulos en español).
+    #[test]
+    fn learns_the_preferred_release() {
+        use crate::taste::{infer, PlayRow};
+        let erai = |series: &str, manual: bool, outcome: Option<&str>| PlayRow {
+            series_id: series.into(),
+            group: Some("erai-raws".into()),
+            sub_langs: vec!["eng".into(), "spa".into()],
+            manual,
+            outcome: outcome.map(str::to_string),
+            watched_s: 1400.0,
+            ..Default::default()
+        };
+        let subsplease = PlayRow { series_id: "tt9335498".into(), group: Some("subsplease".into()), outcome: Some("switched".into()), ..Default::default() };
+        let history = vec![erai("tt9335498", true, Some("finished")), subsplease, erai("tt9335498", true, Some("finished"))];
+        let me = infer(&history, "tt9335498", None);
+        let p = Prefs { duration_s: 1440.0, personal: Some(me.clone()), ..Prefs::default() };
+
+        // Sin historial, todo como antes: gana el más sano.
+        let list = [anime("[SubsPlease] Kimetsu no Yaiba - 06 (1080p)", 250), anime("[Erai-raws] Kimetsu no Yaiba - 06 [1080p]", 60)];
+        let none = Prefs { duration_s: 1440.0, ..Prefs::default() };
+        let v = ranked(&list, &none);
+        assert_eq!(v[0].group.as_deref(), Some("subsplease"));
+        assert!(v[0].reasons.is_empty());
+        assert!(infer(&[], "tt9335498", None).is_empty());
+
+        // Con historial: el preferido sano gana, y dice por qué.
+        let v = ranked(&list, &p);
+        assert_eq!(v[0].group.as_deref(), Some("erai-raws"), "{v:?}");
+        assert_eq!(v[0].reasons, ["same_group", "subs:spa"]);
+        assert!(me.sub_langs.contains(&"spa".to_string()));
+
+        // El preferido casi muerto pierde contra uno sano con subtítulos en español.
+        let list = [anime("[Erai-raws] Kimetsu no Yaiba - 07 [1080p]", 2), anime("Kimetsu no Yaiba 07 1080p Sub Esp-Cytox", 180)];
+        let v = ranked(&list, &p);
+        assert_eq!(v[0].group.as_deref(), Some("cytox"), "{v:?}");
+        assert_eq!(v[0].reasons, ["subs:spa"]);
+
+        // Lo de una serie pesa poco en otra: en otra serie el grupo solo no da vuelta la salud.
+        let other = Prefs { duration_s: 1440.0, personal: Some(infer(&history, "tt0388629", None)), ..Prefs::default() };
+        let list = [anime("[Erai-raws] One Piece - 1100 [1080p]", 40), anime("[SubsPlease] One Piece - 1100 (1080p)", 400)];
+        let v = ranked(&list, &other);
+        assert_eq!(v[0].group.as_deref(), Some("subsplease"));
+
+        // El bonus está acotado.
+        let (b, _) = taste::bonus(&anime("[Erai-raws] Kimetsu no Yaiba - 08 Dual Audio Sub Esp", 50), &me);
+        assert!(b <= taste::MAX_BONUS);
     }
 
     #[test]

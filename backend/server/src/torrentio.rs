@@ -104,6 +104,16 @@ pub struct Stream {
     /// con el mismo nombre: remakes, parodias...).
     #[serde(skip)]
     pub years: Vec<u16>,
+    /// Grupo del release en minúsculas (`[Erai-raws] ...`, `...-NTb`; ver `taste::release_group`).
+    #[serde(skip)]
+    pub group: Option<String>,
+    /// `behaviorHints.bingeGroup` de Torrentio: el mismo release en los distintos episodios.
+    #[serde(skip)]
+    pub binge: Option<String>,
+    /// Por qué lo recomienda lo aprendido del usuario (`taste::bonus`): `same_group`,
+    /// `liked_group`, `subs:<idioma>`, `dual_audio`. Vacío sin historial.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasons: Vec<String>,
 }
 
 /// Números de 4 cifras entre 1900 y 2099 que estén sueltos ("1920x800" no cuenta).
@@ -312,6 +322,7 @@ pub fn parse_stream(raw: &Value, rd_key: Option<&str>) -> Option<Stream> {
     }
     tags_from_text(&hay, &mut tags);
 
+    let group = crate::taste::release_group(&release).or_else(|| file_name.as_deref().and_then(crate::taste::release_group));
     Some(Stream {
         key,
         info_hash,
@@ -332,6 +343,9 @@ pub fn parse_stream(raw: &Value, rd_key: Option<&str>) -> Option<Stream> {
         media,
         cyrillic,
         years,
+        group,
+        binge: hints["bingeGroup"].as_str().map(str::trim).filter(|b| b.matches('|').count() >= 2).map(str::to_string),
+        reasons: Vec::new(),
     })
 }
 

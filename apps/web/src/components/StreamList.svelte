@@ -3,11 +3,14 @@
   // idiomas. Los que estan en cache (instantaneos) van destacados. Con `linkFor`, un menu chico
   // (⋯ al pasar el mouse, clic derecho o mantener apretado) para copiar el link directo o abrirlo
   // en VLC (desktop). En TV no hay menu: copiar un link o abrir VLC no tiene sentido ahi.
+  // Si el server lo recomienda por lo que aprendio del usuario (`reasons`, server/src/taste.rs),
+  // una linea dice por que ("Same group as last time · Spanish subs").
   import { Check, Copy, Ellipsis, ExternalLink, HardDrive, Users, Zap } from "@lucide/svelte";
   import { errText } from "../lib/api";
   import { canVlc, copyText, openInVlc } from "../lib/external";
   import { bytes, seedTone } from "../lib/format";
   import { press } from "../lib/press";
+  import { langName } from "../lib/prefs.svelte";
   import { toast } from "../lib/toast.svelte";
   import { tv } from "../lib/tv.svelte";
   import type { Stream } from "../lib/types";
@@ -73,6 +76,24 @@
     else openAt(s, r.right - 200, r.bottom + 4);
   }
 
+  /** Los motivos del server en palabras. */
+  function why(rs: string[] | undefined): string {
+    return (rs ?? [])
+      .map((r) =>
+        r === "same_group"
+          ? "Same group as last time"
+          : r === "liked_group"
+            ? "A group you often pick"
+            : r === "dual_audio"
+              ? "Dual audio"
+              : r.startsWith("subs:")
+                ? `${langName(r.slice(5))} subs`
+                : "",
+      )
+      .filter(Boolean)
+      .join(" · ");
+  }
+
   const qClass = (q: string) => (q === "2160p" ? "uhd" : q === "1080p" ? "fhd" : q === "720p" ? "hd" : "sd");
 </script>
 
@@ -98,6 +119,7 @@
             {#if s.source}<span class="fact src">{s.source}</span>{/if}
             {#if s.languages.length}<span class="fact langs">{s.languages.join(" ")}</span>{/if}
           </span>
+          {#if why(s.reasons)}<span class="why">{why(s.reasons)}</span>{/if}
           {#if s.tags.length}
             <span class="tags">
               {#each s.tags as t (t)}<span class="chip" class:accent={t === "HDR" || t === "DV" || t === "REMUX"}>{t}</span>{/each}
@@ -295,6 +317,11 @@
     height: 18px;
     font-size: 10.5px;
     border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  }
+  .why {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
   }
   .cur {
     color: var(--accent);

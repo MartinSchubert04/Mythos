@@ -116,6 +116,11 @@ export function moveFocus(d: Dir, root: HTMLElement = scope()): boolean {
     focusEl(lastMain);
     return true;
   }
+  // Arriba desde algo que lleva un boton propio adentro (la X de "Continue watching"): a ese boton.
+  if (d === "up") {
+    const inner = cur.querySelector<HTMLElement>("[data-nav-inner]");
+    if (inner && hasBox(inner) && usable(inner)) return focusEl(inner), true;
+  }
   const a = cur.getBoundingClientRect();
   const side = d === "left" || d === "right";
   // A los costados dentro de una fila: solo sus tarjetas (en una tele, medir todo lo enfocable
@@ -312,6 +317,19 @@ function onKey(e: KeyboardEvent) {
     const r = el.getBoundingClientRect();
     el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
     e.preventDefault();
+    return;
+  }
+
+  // Samsung: "Done" del teclado de la tele (lib/tizen.ts). En un formulario pasa al campo
+  // siguiente; en el ultimo, lo envia (el login: usuario → contraseña → entrar).
+  if (key === "ImeDone" && t.matches?.(TEXT)) {
+    e.preventDefault();
+    const form = (t as HTMLInputElement).form;
+    if (!form) return;
+    const fields = [...form.querySelectorAll<HTMLElement>(TEXT)].filter(hasBox);
+    const next = fields[fields.indexOf(t) + 1];
+    if (next) focusEl(next);
+    else form.requestSubmit();
     return;
   }
 

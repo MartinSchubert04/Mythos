@@ -55,8 +55,11 @@
     <div class="shade"></div>
     <span class="play"><Play size={20} fill="currentColor" /></span>
     {#if onremove}
+      <!-- data-nav-inner: con el control remoto se llega con la flecha arriba (lib/spatial). -->
       <button
         class="rm"
+        data-nav-inner
+        aria-label={removeLabel}
         title={removeLabel}
         onclick={(e) => {
           e.preventDefault();
@@ -190,5 +193,14 @@
   }
   :global([data-lite]) .cw {
     animation: none;
+  }
+  /* TV: con el foco en la tarjeta se ve la X (arriba la enfoca, lib/spatial); mas grande. */
+  :global(html[data-tv]) .cw:focus-visible .rm,
+  :global(html[data-tv]) .rm:focus-visible {
+    opacity: 1;
+  }
+  :global(html[data-tv]) .rm {
+    width: 30px;
+    height: 30px;
   }
 </style>
