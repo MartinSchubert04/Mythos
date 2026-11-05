@@ -100,6 +100,8 @@ Android: `docs/mobile.md`).
 
 ## Reglas
 
+- **Pendientes en `PENDIENTES.md`** (si existe): leerlo al empezar. Cada tarea se borra apenas se
+  completa, en el mismo commit que la resuelve; cuando no queda ninguna, se borra el archivo.
 - **Temas solo con variables** (igual que Ethereon): colores en `apps/web/src/styles/themes.css`,
   nunca fijos en componentes.
 - **Animaciones solo por `apps/web/src/lib/motion.ts`** (respetan "reducir animaciones").
