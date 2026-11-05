@@ -41,8 +41,8 @@
   {#if !bare}
     <!-- Server de casa o el del dispositivo (modo local). -->
     <ConnBadge />
-    <button class="find" onclick={() => go("/search")} title={t("browse.titlebar.searchTip")}>
-      <Search size={14} /><span>{t("nav.search")}</span><kbd>/</kbd>
+    <button class="find" onclick={() => go("/search")} title={t("nav.search")}>
+      <Search size={14} /><span>{t("nav.search")}</span>
     </button>
   {/if}
   <WindowControls />
@@ -156,8 +156,7 @@
     .find {
       width: auto;
     }
-    .find span,
-    .find kbd {
+    .find span {
       display: none;
     }
   }

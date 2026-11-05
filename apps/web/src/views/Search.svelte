@@ -140,7 +140,6 @@
         {#each Array(12) as _, i (i)}<div class="skel ph"></div>{/each}
       </div>
     {:else}
-      <div class="hint-line faint" in:rise>{t("browse.search.hintA")} <kbd>/</kbd> {t("browse.search.hintOr")} <kbd>Ctrl K</kbd> {t("browse.search.hintB")}</div>
       <div class="browse" in:rise>
         <button class="btn sm" onclick={() => go("/top")}><Trophy size={14} />{t("browse.home.topMovies")}</button>
         <button class="btn sm" onclick={() => go("/top?type=series")}><Trophy size={14} />{t("browse.home.topSeries")}</button>
@@ -231,10 +230,6 @@
     color: var(--text-3);
     font-weight: 500;
     margin-left: 4px;
-  }
-  .hint-line {
-    font-size: 12.5px;
-    margin: -2px 0 6px;
   }
   .browse {
     display: flex;
