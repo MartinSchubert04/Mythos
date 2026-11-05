@@ -1,6 +1,9 @@
 <script lang="ts">
   // Barra de progreso del reproductor: lo visto, lo bufferizado (en tramos), y al pasar el mouse
   // el tiempo de ese punto. Se arrastra (la posicion se aplica al soltar) y anda con flechas.
+  // En TV, con el foco encima se nota de lejos (mas gruesa, con el anillo del acento y un punto
+  // grande) y el tiempo queda arriba del punto: izquierda/derecha lo mueven (el reproductor
+  // arma el salto y lo pasa en `time`).
   import { clock } from "../lib/format";
   import { tv } from "../lib/tv.svelte";
 
@@ -26,8 +29,12 @@
   let el = $state<HTMLDivElement>();
   let hover = $state<number | null>(null);
   let drag = $state<number | null>(null);
+  /** TV: el foco del control esta en la barra. */
+  let focused = $state(false);
 
   const shown = $derived(drag ?? time);
+  /** Donde va el tiempo de arriba: el mouse, el arrastre o (TV, con el foco) la posicion. */
+  const tipAt = $derived(drag ?? hover ?? (tv.on && focused ? shown : null));
   const pct = (t: number) => (duration > 0 ? Math.max(0, Math.min(100, (t / duration) * 100)) : 0);
 
   function at(e: PointerEvent) {
@@ -84,6 +91,8 @@
   onpointercancel={up}
   onpointerleave={() => drag === null && (hover = null)}
   onkeydown={key}
+  onfocus={() => (focused = true)}
+  onblur={() => (focused = false)}
 >
   <div class="rail">
     {#each downloaded as [a, b], i (i)}
@@ -97,8 +106,8 @@
     <div class="played" style="transform: scaleX({pct(shown) / 100})"></div>
   </div>
   <div class="thumb-track" style="transform: translateX({pct(shown)}%)"><div class="thumb"></div></div>
-  {#if hover !== null || drag !== null}
-    <div class="tip" style="left: clamp(28px, {pct(drag ?? hover ?? 0)}%, calc(100% - 28px))">{clock(drag ?? hover ?? 0)}</div>
+  {#if tipAt !== null}
+    <div class="tip" style="left: clamp(28px, {pct(tipAt)}%, calc(100% - 28px))">{clock(tipAt)}</div>
   {/if}
 </div>
 
@@ -192,6 +201,29 @@
     border: 1px solid var(--media-line);
     pointer-events: none;
     white-space: nowrap;
+  }
+  /* TV: con el foco, a 3 m tiene que saltar a la vista. Sin animar (modo liviano de la tele). */
+  :global(html[data-tv]) .seek {
+    height: 34px;
+  }
+  :global(html[data-tv]) .seek:focus-visible .rail {
+    height: 10px;
+    border-radius: 5px;
+    box-shadow: 0 0 0 2px var(--accent);
+    transition: none;
+  }
+  :global(html[data-tv]) .seek:focus-visible .thumb {
+    width: 22px;
+    height: 22px;
+    border-width: 3px;
+    box-shadow: 0 0 0 3px var(--accent);
+    transition: none;
+  }
+  :global(html[data-tv]) .tip {
+    bottom: 32px;
+    padding: 4px 10px;
+    font-size: 15px;
+    border-color: var(--accent);
   }
   :global([data-theme="athanor"]) .rail,
   :global([data-theme="athanor"]) .thumb {

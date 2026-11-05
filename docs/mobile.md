@@ -193,7 +193,9 @@ de cada tema.
 - Liviano siempre (`data-lite`) y desplazamiento de un salto: ver `docs/tizen.md`, "Rendimiento".
 - Reproductor: sin volumen (es el de la tele; además la barra se quedaba con las flechas) ni
   pantalla completa. Los controles se esconden a los 5 s. Los carteles (trabado, error, terminó)
-  se llevan el foco; los menús de audio y velocidad también. centro = play/pausa; izquierda/derecha = -10/+10 s (manteniendo, el salto crece:
+  se llevan el foco; los menús de audio y velocidad también. Izquierda/derecha llevan el foco a la
+  barra de progreso, que con el foco se ve más gruesa, con el anillo del acento, un punto grande y el
+  tiempo encima (`components/SeekBar.svelte`). centro = play/pausa; izquierda/derecha = -10/+10 s (manteniendo, el salto crece:
   10, 30 y 60 s por paso, y se aplica una sola vez al soltar); arriba/abajo muestran los controles
   y se mueven entre ellos (subtitulos, audio, velocidad, streams); abajo de todo los esconde; atras
   sale. Las teclas multimedia del control (play/pausa, adelantar, retroceder) tambien andan.

@@ -1826,8 +1826,12 @@
     const slider = !!el?.matches('[role="slider"]');
     if (!ui || !focused || (slider && (d === "left" || d === "right"))) {
       if (k === "Enter") return slider ? (toggle(), "done") : focused && ui ? "native" : (toggle(), "done");
-      if (d === "left" || d === "right") tvSeek(d === "right" ? 1 : -1, e.repeat);
-      else if (slider && d === "down") showControls();
+      if (d === "left" || d === "right") {
+        tvSeek(d === "right" ? 1 : -1, e.repeat);
+        // El foco va a la barra: se ve bien marcada con el tiempo arriba (components/SeekBar).
+        const bar = slider ? null : root?.querySelector<HTMLElement>(".seek");
+        if (bar) focusEl(bar);
+      } else if (slider && d === "down") showControls();
       else if (slider) moveFocus(d!, root);
       else showControls();
       return "done";
