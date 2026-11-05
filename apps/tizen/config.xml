@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- App de Samsung (Tizen): la pagina local (index.html) pide la direccion del server y despues
+     navega a la interfaz que sirve el server. Ver docs/tizen.md. El id del paquete tiene que tener
+     10 caracteres; la version es la del repo (CLAUDE.md, "Versiones"). -->
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets"
+        id="https://github.com/MartinSchubert04/Mythos" version="0.17.0" viewmodes="maximized">
+    <tizen:application id="MythosTV01.Mythos" package="MythosTV01" required_version="2.3"/>
+    <content src="index.html"/>
+    <name>Mythos</name>
+    <description>Mythos for Samsung TVs</description>
+    <icon src="icon.png"/>
+    <!-- La direccion del server la elige el usuario: cualquier origen. -->
+    <access origin="*" subdomains="true"/>
+    <tizen:allow-navigation>*</tizen:allow-navigation>
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+    <tizen:profile name="tv-samsung"/>
+    <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable"
+                   encryption="disable" install-location="auto" hwkey-event="enable"/>
+</widget>

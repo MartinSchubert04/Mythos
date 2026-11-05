@@ -15,6 +15,14 @@ html[data-tv] main * {
   scroll-margin-block: 56px 28px;
 }
 
+/* Sin barras de desplazamiento: no hay con que agarrarlas y a 3 m son una raya que distrae. */
+html[data-tv] * {
+  scrollbar-width: none;
+}
+html[data-tv] ::-webkit-scrollbar {
+  display: none;
+}
+
 /* Las flechas de las filas son para el mouse: con el control la fila se desplaza sola. */
 html[data-tv] .shelf .arrow {
   display: none;
@@ -28,4 +36,20 @@ html[data-tv] *::before,
 html[data-tv] *::after {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
+}
+
+/* ---- Rendimiento en la tele (docs/tizen.md, "Rendimiento"). La pagina se dibuja al doble (960 px
+   en una pantalla de 1920) y en una Samsung el raster es por CPU: lo que cuesta es redibujar.
+   Ademas de lo de los equipos flojos (data-lite, lib/perf.ts, que en TV va siempre):
+   - Desplazar de un salto (lib/motion.ts scrollBehavior; aca el de CSS de cada vista).
+   - Las tarjetas crecen al tomar el foco sin animar: animado, cada tarjeta pasa a ser una capa
+     del compositor mientras dura y al terminar se redibuja la pagina debajo (dos por flecha). */
+html[data-tv] .page,
+html[data-tv] .track {
+  scroll-behavior: auto;
+}
+html[data-tv] .poster-frame,
+html[data-tv] .cw .frame,
+html[data-tv] .ne .frame {
+  transition: none;
 }

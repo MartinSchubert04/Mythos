@@ -58,8 +58,9 @@
   import { isDesktop, isFullscreen, setFullscreen } from "../lib/platform";
   import { langName, nativeLangName, normLang, prefs, savePrefs } from "../lib/prefs.svelte";
   import { back, go, setQuery } from "../lib/router.svelte";
-  import { focusEl, moveFocus, type Dir } from "../lib/spatial.svelte";
+  import { focusEl, focusFirst, moveFocus, type Dir } from "../lib/spatial.svelte";
   import { tv } from "../lib/tv.svelte";
+  import { keyName } from "../lib/tizen";
   import { keyParts, PLAYER_KEYS, PLAYER_TOUCH } from "../lib/shortcuts";
   import { preferredAudio, sortByLang } from "../lib/streamlang";
   import { streamLink } from "../lib/external";
@@ -482,6 +483,9 @@
       return;
     }
     if (!d.fatal) return;
+    // El navegador no acepta los codecs de los segmentos (p. ej. E-AC-3 mezclado con el video en
+    // una tele Samsung): reintentar no sirve; se le pide al server que convierta el audio (o el video).
+    if (d.details === Hls.ErrorDetails.BUFFER_ADD_CODEC_ERROR && (fallback("audio") || fallback("video"))) return;
     if (d.type === Hls.ErrorTypes.NETWORK_ERROR && attempts.net < 6) {
       attempts.net++;
       const h = hls;
@@ -893,7 +897,8 @@
     holdTimer = window.setTimeout(startHold, 300);
   }
   function onKeyUp(e: KeyboardEvent) {
-    if (tv.on && (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "MediaFastForward" || e.key === "MediaRewind")) commitSeek();
+    const tk = keyName(e);
+    if (tv.on && (tk === "ArrowLeft" || tk === "ArrowRight" || tk === "MediaFastForward" || tk === "MediaRewind")) commitSeek();
     if (e.key !== " " || !spaceHeld) return;
     spaceHeld = false;
     e.preventDefault();
@@ -1520,6 +1525,16 @@
       return true;
     }
     if (k === "ArrowLeft" || k === "ArrowRight") {
+      // En las filas de abajo del menu de subtitulos (retraso, tamaño, posicion, fondo): de un
+      // boton al de al lado (con el control remoto no hay otra forma de llegar).
+      const row = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(".sv-foot .row");
+      if (row) {
+        const bs = [...row.querySelectorAll<HTMLElement>("button:not(:disabled)")];
+        const i = bs.indexOf(document.activeElement as HTMLElement);
+        bs[i + (k === "ArrowRight" ? 1 : -1)]?.focus();
+        e.preventDefault();
+        return true;
+      }
       if (menu === "subs") {
         const name = (document.activeElement as HTMLElement | null)?.dataset.group;
         const g = name ? subGroups.find((x) => x.name === name) : undefined;
@@ -1709,7 +1724,8 @@
     clearTimeout(hideTimer);
     hideTimer = window.setTimeout(() => {
       if (!paused && !menu && !dragging && started && !stuck) ui = false;
-    }, 2800);
+      // TV: un poco mas (con el control se lee y se apunta mas despacio que con el mouse).
+    }, tv.on ? 5000 : 2800);
   }
   $effect(() => {
     if (paused || menu || stuck) ui = true;
@@ -1770,13 +1786,13 @@
 
   /** "done": usada; "native": la aprieta el boton enfocado; "pass": sigue el teclado de siempre. */
   function tvKey(e: KeyboardEvent): "done" | "native" | "pass" {
-    const k = e.key;
+    const k = keyName(e);
     const d = ARROWS[k];
     const el = document.activeElement as HTMLElement | null;
     const focused = !!el && el !== root && !!root?.contains(el);
     if (k === "MediaPlayPause") return toggle(), "done";
     if (k === "MediaPlay") return video?.paused && toggle(), "done";
-    if (k === "MediaPause") return video && !video.paused && toggle(), "done";
+    if (k === "MediaPause" || k === "MediaStop") return video && !video.paused && toggle(), "done";
     if (k === "MediaFastForward" || k === "MediaRewind") return tvSeek(k === "MediaFastForward" ? 1 : -1, e.repeat), "done";
     if (k === "Escape" || (!d && k !== "Enter")) return "pass";
     // El panel de streams: las flechas adentro de el.
@@ -1787,6 +1803,16 @@
         const b = side.querySelector<HTMLElement>("[aria-current='true'], button");
         if (b) focusEl(b);
       } else moveFocus(d, side);
+      return "done";
+    }
+    // Un cartel con botones encima de todo (trabado, error, termino, atajos): las flechas adentro
+    // de el; si el foco estaba afuera, cualquier tecla lo trae (antes quedaba sin foco y las
+    // flechas no llegaban a "Try another stream" ni a Back).
+    const dlg = [...(root?.querySelectorAll<HTMLElement>(".modal-wrap .dialog-card") ?? [])].find((x) => x.getClientRects().length > 0);
+    if (dlg) {
+      if (!el || !dlg.contains(el)) focusFirst(dlg);
+      else if (!d) return "native";
+      else moveFocus(d, dlg);
       return "done";
     }
     // Retomar o empezar de nuevo.
@@ -1815,11 +1841,50 @@
     return "done";
   }
 
+  // TV: un cartel con botones que aparece (trabado, error, termino) se lleva el foco, asi el anillo
+  // se ve y el centro aprieta lo que corresponde.
+  $effect(() => {
+    if (!tv.on || !(stuck || fatal || ended)) return;
+    const id = setTimeout(() => {
+      const dlg = [...(root?.querySelectorAll<HTMLElement>(".modal-wrap .dialog-card, .next-card") ?? [])].find((x) => x.getClientRects().length > 0);
+      if (dlg && !dlg.contains(document.activeElement)) focusFirst(dlg);
+    }, 250);
+    return () => clearTimeout(id);
+  });
+
   // Al esconderse los controles se suelta el foco: las flechas vuelven a ser saltos.
   $effect(() => {
     if (!tv.on || ui) return;
     const el = document.activeElement as HTMLElement | null;
-    if (el && el !== root && root?.contains(el) && !el.closest(".resume-card")) el.blur();
+    if (el && el !== root && root?.contains(el) && !el.closest(".resume-card, .modal-wrap, .next-card")) el.blur();
+  });
+
+  // TV: al abrir el menu de audio o de velocidad, el foco entra (el de subtitulos ya lo hace,
+  // focusMenu); si no, las flechas seguian moviendose por los controles de abajo.
+  $effect(() => {
+    const m = menu;
+    if (!tv.on || (m !== "audio" && m !== "speed")) return;
+    tick().then(() => {
+      const p = root?.querySelector<HTMLElement>(`[data-menu="${m}"]`)?.parentElement?.querySelector<HTMLElement>(".pmenu");
+      const el = p?.querySelector<HTMLElement>(".mi.sel") ?? p?.querySelector<HTMLElement>("button");
+      el?.focus({ preventScroll: true });
+    });
+  });
+
+  // TV: al cerrarse un menu por elegir algo (velocidad, audio, otro stream), el foco quedaba en la
+  // nada: vuelve al boton que lo abrio.
+  let prevMenu = "";
+  $effect(() => {
+    const m = menu;
+    const was = prevMenu;
+    prevMenu = m;
+    if (!tv.on || m || !was) return;
+    tick().then(() => {
+      // (El menu puede seguir en pantalla mientras se va, con el foco adentro.)
+      const cur = document.activeElement;
+      if (cur && cur !== document.body && cur.isConnected && !cur.closest(".pmenu, .side")) return;
+      root?.querySelector<HTMLElement>(`[data-menu="${was}"]`)?.focus({ preventScroll: true });
+    });
   });
 
   // ---- teclado
@@ -1872,8 +1937,10 @@
     else if (k === "?") showKeys = !showKeys;
     else if (k === "escape") {
       if (menu) {
-        // Si el foco estaba en el menu, vuelve al boton que lo abrio.
-        const opener = panel ? root?.querySelector<HTMLElement>(`[data-menu="${menu}"]`) : null;
+        // Si el foco estaba en el menu (o en ningun lado), vuelve al boton que lo abrio.
+        const cur = document.activeElement;
+        const inMenu = !!panel || !cur || cur === document.body || !!cur.closest(".side, .pmenu");
+        const opener = inMenu ? root?.querySelector<HTMLElement>(`[data-menu="${menu}"]`) : null;
         menu = "";
         opener?.focus();
       } else if (showKeys) showKeys = false;
@@ -2107,7 +2174,9 @@
         </button>
         <button class="pbtn narrow-hide" onclick={() => skip(-10)} title="Back 10 s (J)"><RotateCcw size={21} /></button>
         <button class="pbtn narrow-hide" onclick={() => skip(10)} title="Forward 10 s (L)"><RotateCw size={21} /></button>
-        <!-- La rueda del mouse sobre el parlante o la barra tambien cambia el volumen. -->
+        <!-- La rueda del mouse sobre el parlante o la barra tambien cambia el volumen. En TV no
+             va: el volumen es el de la tele (y la barra se quedaba con las flechas). -->
+        {#if !tv.on}
         <div class="vol" onwheel={volWheel}>
           <button class="pbtn" onclick={volButton} title="Mute (M)" aria-expanded={menu === "vol"}><VolIcon size={22} /></button>
           {#if menu === "vol"}
@@ -2150,6 +2219,7 @@
             </div>
           </div>
         </div>
+        {/if}
         <span class="time" class:noted={!!subNote}>{clock(t)} <span class="dim">/ {clock(duration)}</span></span>
         <div class="grow"></div>
         {#if subNote}
@@ -2254,7 +2324,7 @@
         </div>
         {#if canAudio}
           <div class="menu-anchor">
-            <button class="pbtn" onclick={() => (menu = menu === "audio" ? "" : "audio")} title="Audio"><AudioLines size={22} /></button>
+            <button class="pbtn" data-menu="audio" onclick={() => (menu = menu === "audio" ? "" : "audio")} title="Audio"><AudioLines size={22} /></button>
             {#if menu === "audio"}
               <div class="pmenu" transition:pop={{ start: 0.94 }}>
                 <div class="mh">Audio</div>
@@ -2270,7 +2340,7 @@
           </div>
         {/if}
         <div class="menu-anchor narrow-hide">
-          <button class="pbtn" onclick={() => (menu = menu === "speed" ? "" : "speed")} title="Speed">
+          <button class="pbtn" data-menu="speed" onclick={() => (menu = menu === "speed" ? "" : "speed")} title="Speed">
             {#if rate !== 1}<span class="rate">{rate}×</span>{:else}<Gauge size={21} />{/if}
           </button>
           {#if menu === "speed"}
@@ -2284,10 +2354,13 @@
             </div>
           {/if}
         </div>
-        <button class="pbtn" onclick={() => (menu = menu === "streams" ? "" : "streams")} title="Streams"><ListVideo size={21} /></button>
-        <button class="pbtn" onclick={toggleFs} title="Full screen (F)">
-          {#if fs}<Minimize size={21} />{:else}<Maximize size={21} />{/if}
-        </button>
+        <button class="pbtn" data-menu="streams" onclick={() => (menu = menu === "streams" ? "" : "streams")} title="Streams"><ListVideo size={21} /></button>
+        <!-- En TV ya es pantalla completa. -->
+        {#if !tv.on}
+          <button class="pbtn" onclick={toggleFs} title="Full screen (F)">
+            {#if fs}<Minimize size={21} />{:else}<Maximize size={21} />{/if}
+          </button>
+        {/if}
       </div>
     </div>
   {/if}

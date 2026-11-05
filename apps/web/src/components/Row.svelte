@@ -83,7 +83,9 @@
 
   $effect(() => {
     void items;
-    if (!track) return;
+    // En TV las flechas no se muestran (styles/tv.css): medir la fila seria un layout forzado de
+    // mas cada vez que llega una.
+    if (!track || tv.on) return;
     sync();
     const ro = new ResizeObserver(sync);
     ro.observe(track);
@@ -176,7 +178,7 @@
       <button class="arrow left" class:show={canLeft} onclick={() => page(-1)} aria-label="Scroll left" tabindex="-1">
         <ChevronLeft size={22} />
       </button>
-      <div class="track" bind:this={track} onscroll={onScroll}>
+      <div class="track" bind:this={track} onscroll={tv.on ? undefined : onScroll}>
         {#if visible}
           {#each visible as it, i (i)}
             {@render card(it, i)}

@@ -17,6 +17,7 @@ import { applyLite } from "./lib/perf";
 import { isDesktop } from "./lib/platform";
 import { initShell } from "./lib/shell.svelte";
 import { initSpatial } from "./lib/spatial.svelte";
+import { initTizen } from "./lib/tizen";
 import { initTv } from "./lib/tv.svelte";
 import { installTooltips } from "./lib/tooltip";
 
@@ -31,6 +32,8 @@ async function boot() {
   // Modo TV (control remoto): se averigua de fondo; la navegacion con flechas espera a saberlo.
   initTv();
   initSpatial();
+  // Samsung: las teclas multimedia del control (dentro de la app de la tele).
+  initTizen();
   initGlass();
   mount(App, { target: document.getElementById("app")! });
   installTooltips();

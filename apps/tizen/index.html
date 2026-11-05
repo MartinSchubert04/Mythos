@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- La pagina local de la app de Samsung (docs/tizen.md): elige el server y abre su interfaz. -->
+    <meta name="viewport" content="width=960" />
+    <title>Mythos</title>
+    <link rel="stylesheet" href="shell.css" />
+  </head>
+  <body>
+    <main class="box">
+      <img class="logo" src="icon.png" alt="" />
+      <h1>Mythos</h1>
+
+      <section id="connecting" hidden>
+        <p class="lead" id="connecting-text">Connecting…</p>
+        <button class="btn" id="change">Change server</button>
+      </section>
+
+      <section id="setup" hidden>
+        <p class="lead">Enter the address of your Mythos server on your home network.</p>
+        <label class="field">
+          <span>Server address</span>
+          <input id="addr" type="text" inputmode="url" autocomplete="off" spellcheck="false"
+                 placeholder="http://192.168.x.x:7700" />
+        </label>
+        <p class="hint">Without <b>http://</b> and a port it uses <b>http://</b> and <b>:7700</b>. The TV can't use Tailscale: use the server's address at home.</p>
+        <p class="error" id="error" role="alert"></p>
+        <div class="row">
+          <button class="btn primary" id="connect">Connect</button>
+          <button class="btn" id="find">Find on this network</button>
+        </div>
+        <div class="found" id="found"></div>
+      </section>
+
+      <section id="old" hidden>
+        <p class="lead" id="old-text"></p>
+      </section>
+    </main>
+    <script src="shell.js"></script>
+  </body>
+</html>

@@ -16,6 +16,16 @@ export function detectCaps(): ClientCaps {
         return false;
       }
     });
+  // Mezclado con el video en el mismo SourceBuffer (los segmentos HLS del server llevan las dos
+  // pistas juntas). Las teles Samsung (Tizen) aceptan AC-3 y E-AC-3 solos pero no mezclados: si
+  // se dice que si, el server los copia y hls.js no puede ni crear el buffer (no se veia nada).
+  const muxed = (codec: string) => {
+    try {
+      return !ms?.isTypeSupported || ms.isTypeSupported(`video/mp4; codecs="avc1.640028,${codec}"`);
+    } catch {
+      return false;
+    }
+  };
   memo = {
     h264: can('video/mp4; codecs="avc1.640028"', 'video/mp4; codecs="avc1.42E01E"'),
     hevc: can('video/mp4; codecs="hvc1.1.6.L120.90"', 'video/mp4; codecs="hev1.1.6.L120.90"'),
@@ -24,8 +34,8 @@ export function detectCaps(): ClientCaps {
     // Solo si el navegador lo dice: si no, el server remuxea (barato) y no hay sorpresas.
     mkv: v.canPlayType("video/x-matroska") !== "" || v.canPlayType("video/mkv") !== "",
     aac: can('audio/mp4; codecs="mp4a.40.2"'),
-    ac3: can('audio/mp4; codecs="ac-3"'),
-    eac3: can('audio/mp4; codecs="ec-3"'),
+    ac3: can('audio/mp4; codecs="ac-3"') && muxed("ac-3"),
+    eac3: can('audio/mp4; codecs="ec-3"') && muxed("ec-3"),
     dts: can('audio/mp4; codecs="dtsc"', 'audio/mp4; codecs="dtse"'),
     opus: can('audio/webm; codecs="opus"', 'audio/mp4; codecs="opus"'),
     flac: can('audio/mp4; codecs="flac"', "audio/flac"),

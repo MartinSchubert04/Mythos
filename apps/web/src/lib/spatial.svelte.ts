@@ -21,7 +21,8 @@
 import { scrollBehavior } from "./motion";
 import { isAndroid } from "./platform";
 import { profiles } from "./profiles.svelte";
-import { route, setBackGuard } from "./router.svelte";
+import { back, route, setBackGuard } from "./router.svelte";
+import { exitTizenApp, isTizen, keyName } from "./tizen";
 import { tv } from "./tv.svelte";
 
 export type Dir = "up" | "down" | "left" | "right";
@@ -81,6 +82,17 @@ function score(a: DOMRect, b: DOMRect, d: Dir): { s: number; aligned: boolean } 
   return { s: main + cross * 3 + center * 0.05, aligned: cross === 0 };
 }
 
+/** El mejor de `list` para ir desde `cur` (dibujado en `a`) para ese lado. */
+function pick(list: HTMLElement[], cur: HTMLElement, a: DOMRect, d: Dir): HTMLElement | undefined {
+  const side = d === "left" || d === "right";
+  return list
+    .filter((el) => el !== cur && !cur.contains(el))
+    .map((el) => ({ el, r: score(a, el.getBoundingClientRect(), d) }))
+    .filter((x): x is { el: HTMLElement; r: { s: number; aligned: boolean } } => x.r !== null && (!side || x.r.aligned))
+    .sort((x, y) => x.r.s - y.r.s)
+    .find((x) => usable(x.el))?.el;
+}
+
 /** Lo ultimo enfocado adentro del contenido (para volver desde la barra lateral). */
 let lastMain: HTMLElement | null = null;
 
@@ -88,7 +100,10 @@ let lastMain: HTMLElement | null = null;
 export function focusEl(el: HTMLElement) {
   if (el.matches(TEXT)) quiet(el as HTMLInputElement);
   el.focus({ preventScroll: true });
-  el.scrollIntoView({ behavior: scrollBehavior(), block: "nearest", inline: "nearest" });
+  // El destacado del inicio se ve entero: la pagina vuelve arriba de todo.
+  const page = el.closest(".hero") ? el.closest<HTMLElement>(".page") : null;
+  if (page) page.scrollTo({ top: 0, behavior: scrollBehavior() });
+  else el.scrollIntoView({ behavior: scrollBehavior(), block: "nearest", inline: "nearest" });
 }
 
 /** Mueve el foco para ese lado. `false` si no habia nada (y no se movio). */
@@ -103,16 +118,23 @@ export function moveFocus(d: Dir, root: HTMLElement = scope()): boolean {
   }
   const a = cur.getBoundingClientRect();
   const side = d === "left" || d === "right";
+  // A los costados dentro de una fila: solo sus tarjetas (en una tele, medir todo lo enfocable
+  // de la pagina en cada flecha se nota). Al principio o al final de la fila, lo de siempre.
+  const track = side ? cur.closest<HTMLElement>(".shelf .track") : null;
+  if (track && root.contains(track)) {
+    const near = pick(candidates(track), cur, a, d);
+    if (near) return focusEl(near), true;
+  }
   // Arriba/abajo no se cruza entre la barra lateral y el contenido (eso es con los costados): sin
   // nada mas abajo en el contenido, se desplaza la pagina.
   const region = (el: Element) => el.closest(".sidebar, main");
   const mine = region(cur);
-  const ranked = candidates(root)
-    .filter((el) => el !== cur && !cur.contains(el) && (side || region(el) === mine))
-    .map((el) => ({ el, r: score(a, el.getBoundingClientRect(), d) }))
-    .filter((x): x is { el: HTMLElement; r: { s: number; aligned: boolean } } => x.r !== null && (!side || x.r.aligned))
-    .sort((x, y) => x.r.s - y.r.s);
-  let next = ranked.find((x) => usable(x.el))?.el;
+  let next = pick(
+    candidates(root).filter((el) => side || region(el) === mine),
+    cur,
+    a,
+    d,
+  );
   // Del contenido a la barra lateral: siempre a la seccion activa (no a lo que quede a la altura).
   const activeNav = () => document.querySelector<HTMLElement>(".sidebar .nav.on") ?? document.querySelector<HTMLElement>(".sidebar .nav");
   if (next && d === "left" && cur.closest("main") && next.closest(".sidebar")) next = activeNav() ?? next;
@@ -129,6 +151,9 @@ export function moveFocus(d: Dir, root: HTMLElement = scope()): boolean {
   focusEl(next);
   return true;
 }
+
+/** Lo que focusFirst prefiere (si no hay nada de esto, lo primero del contenido). */
+const PREFERRED = "[data-autofocus], [autofocus], [aria-current='true'], [aria-checked='true'], .sel, .btn.primary";
 
 /** El primer foco de una pantalla: lo marcado con data-autofocus, el boton primario o lo primero
  *  del contenido. */
@@ -216,6 +241,9 @@ function settle(key: string, fresh = false) {
   const until = start + 8000;
   // `fresh`: otra pantalla en la misma ruta (login, "Who's watching?"): lo guardado no esta.
   const want = fresh ? undefined : memory.get(key);
+  /** El foco quedo en "lo primero que habia" porque lo principal todavia no estaba. */
+  let stopgap = false;
+  let lastLook = 0;
   // Se sigue mirando hasta el final: la vista puede volver a armarse (cambia la sesion, llegan
   // los datos) y llevarse el elemento enfocado.
   const step = () => {
@@ -228,7 +256,16 @@ function settle(key: string, fresh = false) {
       // Lo guardado puede tardar (filas que cargan): se espera un poco antes de ir a lo primero.
       // Al principio solo lo principal (el boton Play del hero llega con los datos); despues,
       // lo primero que haya.
-      else if (!want || performance.now() - start > 1000) focusFirst(scope(), performance.now() - start < 1200);
+      else if (!want || performance.now() - start > 1000) {
+        const early = performance.now() - start < 1200;
+        if (focusFirst(scope(), early) && !early) stopgap = !document.activeElement?.matches(PREFERRED);
+      }
+    } else if (stopgap && performance.now() - lastLook > 250) {
+      // Llego lo principal (en una tele el hero puede tardar mas que las filas): ahi, si nadie
+      // toco nada todavia (una tecla corta esta espera). Cada 250 ms: mirar toda la pantalla
+      // en cada cuadro es caro en una tele.
+      lastLook = performance.now();
+      if (focusFirst(scope(), true)) stopgap = false;
     }
     if (performance.now() < until) restoring = requestAnimationFrame(step);
   };
@@ -255,10 +292,13 @@ function onKey(e: KeyboardEvent) {
   // Ya se esta usando el control: lo que buscaba el foco al cambiar de vista deja de buscarlo
   // (si no, podria llevarselo despues de que la persona se movio o abrio algo).
   if (e.isTrusted) cancelAnimationFrame(restoring);
-  // Algunos controles mandan "atras" como tecla (BrowserBack / GoBack) en vez de navegar el
-  // historial: lo mismo que el atras del navegador.
-  if ((e.key === "BrowserBack" || e.key === "GoBack") && !isAndroid) {
+  // Algunos controles mandan "atras" como tecla (BrowserBack / GoBack; en Samsung, 10009) en vez
+  // de navegar el historial: lo mismo que el atras del navegador.
+  const key = keyName(e);
+  if ((key === "BrowserBack" || key === "GoBack") && !isAndroid) {
     e.preventDefault();
+    // Samsung: la tecla no navega el historial por su cuenta (abajo).
+    if (isTizen) return tizenBack();
     if (!onBrowserBack()) history.back();
     return;
   }
@@ -356,6 +396,37 @@ function onBrowserBack(): boolean {
   const t = (document.activeElement as HTMLElement | null) ?? document.body;
   t.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }));
   return true;
+}
+
+/** Samsung (lib/tizen.ts): el atras del control llega como tecla y no navega solo. Igual que el
+ *  boton atras de Android (lib/shell.svelte.ts): primero el Esc de siempre a lo enfocado (cierra
+ *  menus, cajones, dialogos, el trailer, los menus del reproductor; en el reproductor sin nada
+ *  abierto, sale). Si nadie lo usa, la vista anterior. En el inicio: si se estaba recorriendo las
+ *  filas, vuelve arriba (al Play del destacado); arriba de todo, cierra la app. */
+function tizenBack() {
+  if (profiles.adding && profiles.list.length) {
+    profiles.adding = false;
+    profiles.picking = true;
+    return;
+  }
+  const t = (document.activeElement as HTMLElement | null) ?? document.body;
+  const esc = new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true });
+  t.dispatchEvent(esc);
+  if (esc.defaultPrevented || route.view === "player") return;
+  // Algo flotando que no se cierra con Esc: no se cambia de vista por debajo.
+  if (scope() !== document.body) return;
+  if (route.view !== "home" || profiles.picking) return back("/");
+  const page = document.querySelector<HTMLElement>("main .page");
+  const cur = document.activeElement;
+  const top = (page?.scrollTop ?? 0) < 8 && (!cur || !cur.closest("main") || !!cur.closest(".hero"));
+  if (!top) {
+    page?.scrollTo({ top: 0 });
+    const play = document.querySelector<HTMLElement>("main .hero .btn.primary");
+    if (play) focusEl(play);
+    else focusFirst();
+    return;
+  }
+  exitTizenApp();
 }
 
 let started = false;

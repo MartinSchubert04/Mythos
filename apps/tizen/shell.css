@@ -1,0 +1,134 @@
+/* Los colores del tema por defecto de la interfaz (apps/web/src/styles/themes.css), solo como
+   variables. Esta pagina se ve un momento al abrir la app y al elegir el server. */
+:root {
+  color-scheme: dark;
+  --bg: #0d0f14;
+  --panel: #161a21;
+  --panel-2: #1c212a;
+  --line: #242a35;
+  --line-strong: #323a48;
+  --text: #e7e9ee;
+  --text-2: #9aa3b2;
+  --accent: #6ee7b7;
+  --accent-ink: #052419;
+  --danger: #f87171;
+  --radius: 10px;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, "Samsung One", "SamsungOneUI", sans-serif;
+}
+
+.box {
+  box-sizing: border-box;
+  width: 600px;
+  margin: 0 auto;
+  padding-top: 56px;
+  text-align: center;
+}
+
+.logo {
+  width: 72px;
+  height: 72px;
+}
+
+h1 {
+  margin: 8px 0 20px;
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.lead {
+  margin: 0 0 18px;
+  color: var(--text-2);
+  font-size: 18px;
+}
+
+.field {
+  display: block;
+  text-align: left;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 18px;
+}
+
+.hint {
+  margin: 8px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+}
+
+.error {
+  min-height: 20px;
+  margin: 10px 0;
+  color: var(--danger);
+  font-size: 14px;
+  text-align: left;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.btn {
+  padding: 10px 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+
+.btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+}
+
+/* El foco del control remoto: el mismo anillo de la interfaz (3 px del acento, separado). */
+.btn:focus,
+input:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.found {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.found .btn {
+  text-align: left;
+}

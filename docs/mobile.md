@@ -111,6 +111,8 @@ Settings → Connection) con la carpeta privada de la app, y la interfaz le preg
 
 ## TV (Android TV y TV box)
 
+(Las teles Samsung no son Android: tienen su propia app, ver `docs/tizen.md`.)
+
 El mismo APK sirve para un TV box o un Android TV: aparece en el launcher de TV con su banner
 (`res/drawable-xhdpi/banner.png`, 320x180, hecho con el logo) y se maneja con el control remoto.
 En el celular no cambia nada.
@@ -185,7 +187,13 @@ de cada tema.
 - Menu del control: el menu contextual del elemento (el de clic derecho / mantener apretado).
 - Foco: anillo de 3 px del acento separado del borde, y las tarjetas crecen un poco (con "reducir
   animaciones", sin animar).
-- Reproductor: centro = play/pausa; izquierda/derecha = -10/+10 s (manteniendo, el salto crece:
+- Sin mouse: lo que en la PC aparece al pasar el mouse aparece con el foco (los botones de cada
+  episodio: marcar visto y elegir stream). Sin barras de desplazamiento. No hay menú de copiar link
+  / abrir en VLC en los streams.
+- Liviano siempre (`data-lite`) y desplazamiento de un salto: ver `docs/tizen.md`, "Rendimiento".
+- Reproductor: sin volumen (es el de la tele; además la barra se quedaba con las flechas) ni
+  pantalla completa. Los controles se esconden a los 5 s. Los carteles (trabado, error, terminó)
+  se llevan el foco; los menús de audio y velocidad también. centro = play/pausa; izquierda/derecha = -10/+10 s (manteniendo, el salto crece:
   10, 30 y 60 s por paso, y se aplica una sola vez al soltar); arriba/abajo muestran los controles
   y se mueven entre ellos (subtitulos, audio, velocidad, streams); abajo de todo los esconde; atras
   sale. Las teclas multimedia del control (play/pausa, adelantar, retroceder) tambien andan.

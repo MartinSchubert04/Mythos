@@ -1,0 +1,4 @@
+# Lo arma build.ps1 (copia firmada y el .wgt). Las claves viven en ~/.mythos-signing/tizen.
+build/
+*.wgt
+__pycache__/

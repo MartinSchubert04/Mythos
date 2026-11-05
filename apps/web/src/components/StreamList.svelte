@@ -2,13 +2,14 @@
   // Lista de streams: calidad, tamaño, seeders (con color segun cuantos), fuente, tags como chips,
   // idiomas. Los que estan en cache (instantaneos) van destacados. Con `linkFor`, un menu chico
   // (⋯ al pasar el mouse, clic derecho o mantener apretado) para copiar el link directo o abrirlo
-  // en VLC (desktop).
+  // en VLC (desktop). En TV no hay menu: copiar un link o abrir VLC no tiene sentido ahi.
   import { Check, Copy, Ellipsis, ExternalLink, HardDrive, Users, Zap } from "@lucide/svelte";
   import { errText } from "../lib/api";
   import { canVlc, copyText, openInVlc } from "../lib/external";
   import { bytes, seedTone } from "../lib/format";
   import { press } from "../lib/press";
   import { toast } from "../lib/toast.svelte";
+  import { tv } from "../lib/tv.svelte";
   import type { Stream } from "../lib/types";
   import PopMenu, { type PopItem } from "./PopMenu.svelte";
 
@@ -28,6 +29,7 @@
   } = $props();
 
   let menu = $state<{ s: Stream; x: number; y: number } | null>(null);
+  const withMenu = $derived(!!linkFor && !tv.on);
   const WARN = "The link includes your session: anyone who has it can watch as you. Don't share it.";
   const items = (s: Stream): PopItem[] => [
     ...(canVlc
@@ -81,10 +83,10 @@
         class="stream"
         class:cached={s.cached}
         class:on={s.key === current}
-        class:has-more={!!linkFor}
+        class:has-more={withMenu}
         style="--i: {i}"
         onclick={() => onpick(s)}
-        use:press={linkFor ? (x, y) => openAt(s, x, y) : undefined}
+        use:press={withMenu ? (x, y) => openAt(s, x, y) : undefined}
       >
         <span class="q {qClass(s.quality)}">{s.quality === "unknown" ? "?" : s.quality.replace("p", "")}<small>{s.quality.endsWith("p") ? "p" : ""}</small></span>
         <span class="main">
@@ -104,7 +106,7 @@
         </span>
         {#if s.key === current}<span class="cur"><Check size={16} /></span>{:else if i === 0}<span class="best">Best</span>{/if}
       </button>
-      {#if linkFor}
+      {#if withMenu}
         <button class="more" class:open={menu?.s.key === s.key} title="More" aria-label="More options" aria-haspopup="menu" onclick={(e) => fromButton(e, s)}>
           <Ellipsis size={16} />
         </button>

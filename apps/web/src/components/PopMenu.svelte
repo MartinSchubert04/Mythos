@@ -30,6 +30,14 @@
   // svelte-ignore state_referenced_locally
   let pos = $state({ left: x, top: y });
   let busy = $state(-1);
+  // Al cerrarse, el foco vuelve a lo que lo abrio si quedo en la nada (con el control remoto de
+  // la TV, la proxima flecha seguiria desde ahi y no desde cualquier lado).
+  const opener = document.activeElement as HTMLElement | null;
+  $effect(() => () => {
+    const cur = document.activeElement;
+    const lost = !cur || cur === document.body || !cur.isConnected || !!el?.contains(cur);
+    if (lost && opener?.isConnected && opener !== document.body) opener.focus({ preventScroll: true });
+  });
 
   function portal(node: HTMLElement) {
     document.body.appendChild(node);

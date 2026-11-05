@@ -16,6 +16,7 @@ iguales.
 | App de Android: shell, interfaz del server opcional, actualizaciones, publicar | `docs/mobile.md` |
 | Modo local (server embebido en desktop y Android, sincronización, Auto/Solo server/Solo local) | `docs/local-mode.md` |
 | Android TV / TV box: 32 y 64 bits, control remoto, escala de 10 pies, perfiles, WebView mínimo | `docs/mobile.md` ("TV") |
+| Samsung (Tizen): la app de la tele, certificados de Samsung, compilar, instalar por WiFi | `docs/tizen.md` |
 | Desktop: actualizaciones desde los Releases (cuándo se instala, relanzar) | `apps/desktop/src-tauri/src/updater.rs` |
 | Desktop: vidrio esmerilado (Acrylic + opacidad sobre cualquier tema) | `apps/web/src/lib/glass.svelte.ts` |
 | "Top rated": de dónde sale (datasets de IMDb), cada cuánto se baja, dónde se guarda | `backend/server/src/imdb.rs`, `docs/API.md` ("Top rated") |
@@ -35,6 +36,8 @@ apps/mobile/              Tauri 2 para Android: carga el build de apps/web; plug
                           con pantalla completa, atras, actualizaciones del APK
 apps/local-server/        plugin de Tauri `mythos-local` (desktop y Android): el server embebido del
                           modo local (docs/local-mode.md)
+apps/tizen/               app web de Tizen (.wgt) para las teles Samsung: elige el server y abre su
+                          interfaz (docs/tizen.md)
 deploy/                   Dockerfile, docker-compose.yml, README de despliegue
 ```
 
@@ -85,7 +88,7 @@ Android: `docs/mobile.md`).
   `apps/desktop/src-tauri/Cargo.toml`, `apps/desktop/src-tauri/tauri.conf.json`,
   `apps/mobile/package.json`, `apps/mobile/src-tauri/Cargo.toml`,
   `apps/mobile/src-tauri/tauri.conf.json`, `apps/mobile/plugin/Cargo.toml`,
-  `apps/local-server/Cargo.toml`, y las entradas de esos paquetes en los `Cargo.lock` y
+  `apps/local-server/Cargo.toml`, `apps/tizen/config.xml` (`version` del `<widget>`), y las entradas de esos paquetes en los `Cargo.lock` y
   `package-lock.json` (ojo con reemplazar a ciegas: otras dependencias pueden tener el mismo
   número).
 - **Commit**: `vX.Y.Z: <resumen>` y en el cuerpo una línea por cambio, en español, terminando

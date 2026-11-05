@@ -1,6 +1,8 @@
 <script lang="ts">
   // El destacado del inicio: fondo grande, logo o titulo, datos y Play / More info. Rota cada
-  // 8 s con un fundido cruzado (y un zoom lento del fondo); se pausa con la pestaña oculta.
+  // 8 s con un fundido cruzado (y un zoom lento del fondo); se pausa con la pestaña oculta. En TV
+  // rota solo si el control lleva un rato quieto: mientras se recorren las filas, cambiar un fondo
+  // de pantalla entera le cuesta a la tele los cuadros de las filas.
   import { Info, Play, Star } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { sized } from "../lib/format";
@@ -8,6 +10,7 @@
   import { coverWidth, fit, retryOriginal } from "../lib/images";
   import { fadeQuick, fadeSlow, rise } from "../lib/motion";
   import { go, loadView } from "../lib/router.svelte";
+  import { tv } from "../lib/tv.svelte";
   import type { MetaPreview } from "../lib/types";
 
   let { items, playHref }: { items: MetaPreview[] | null; playHref: (m: MetaPreview) => string } = $props();
@@ -23,12 +26,14 @@
   const bgSrc = (m: MetaPreview) => fit(sized(m.background, "medium"), bgWidth);
   /** Con el mouse (o el foco) sobre el texto o los botones no rota (se esta por apretar algo). */
   let holding = false;
+  /** TV: la ultima tecla del control. */
+  let lastKey = 0;
 
   function schedule() {
     clearTimeout(timer);
     if (!items || items.length < 2) return;
     timer = window.setTimeout(() => {
-      if (document.hidden || holding) return schedule();
+      if (document.hidden || holding || (tv.on && performance.now() - lastKey < 8000)) return schedule();
       // La siguiente imagen ya tiene que estar bajada: si no, se espera un poco mas.
       const n = items![(index + 1) % items!.length];
       if (n.background && !bgReady[n.id]) {
@@ -76,6 +81,8 @@
     loadView("detail").catch(() => {});
   });
 </script>
+
+<svelte:window onkeydown={() => (lastKey = performance.now())} />
 
 <section class="hero" aria-roledescription="carousel">
   {#if cur}

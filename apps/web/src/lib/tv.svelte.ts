@@ -17,6 +17,7 @@
 // - La navegacion con las flechas esta en lib/spatial.svelte.ts; el reproductor tiene la suya.
 //
 // El resultado queda en localStorage: el script de index.html lo aplica al abrir, antes de pintar.
+import { liteForTv } from "./perf";
 import { isAndroid, shellInvoke } from "./platform";
 import { read, write } from "./store";
 
@@ -60,6 +61,7 @@ function apply(on: boolean) {
   document.documentElement.toggleAttribute("data-tv", on);
   viewport(on);
   write(KEY, on ? "1" : "0");
+  if (on) liteForTv();
 }
 
 /** Web: un navegador en un TV (Android sin pantalla tactil, o el navegador de un Smart TV). */

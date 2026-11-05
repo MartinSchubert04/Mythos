@@ -37,5 +37,8 @@ export const flipMs = () => ms(200);
 /** Abrir o cerrar una seccion desplegable. */
 export const expand = (node: Element) => slide(node, { duration: ms(240), easing: cubicOut });
 
-/** Desplazamiento suave (o salto, con reducir animaciones). */
-export const scrollBehavior = (): ScrollBehavior => (reduceMotion() ? "auto" : "smooth");
+/** Desplazamiento suave (o salto, con reducir animaciones). En TV (data-tv), salto: el
+ *  desplazamiento suave de una fila o de la pagina redibuja en cada cuadro y en una tele (pagina
+ *  al doble, raster por CPU) eran la mayoria de los cuadros perdidos al moverse con el control. */
+export const scrollBehavior = (): ScrollBehavior =>
+  reduceMotion() || (typeof document !== "undefined" && document.documentElement.hasAttribute("data-tv")) ? "auto" : "smooth";

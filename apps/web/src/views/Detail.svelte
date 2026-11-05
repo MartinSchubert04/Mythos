@@ -520,7 +520,7 @@
 
 {#if trailer && meta?.trailer_youtube_id}
   <div class="scrim" role="presentation" onclick={() => (trailer = false)} transition:fadeQuick></div>
-  <div class="trailer" transition:pop>
+  <div class="trailer" role="dialog" aria-modal="true" aria-label="Trailer" transition:pop>
     <button class="icon-btn close" onclick={() => (trailer = false)} aria-label="Close trailer"><X size={18} /></button>
     <iframe
       src="https://www.youtube-nocookie.com/embed/{meta.trailer_youtube_id}?autoplay=1&rel=0"
@@ -907,6 +907,13 @@
   }
   .ep-watch {
     opacity: 0;
+  }
+  /* TV (sin mouse): con el foco en el episodio aparecen sus botones, y la flecha derecha llega a
+     ellos (marcar visto, elegir stream). */
+  :global(html[data-tv]) .ep:focus-within .ep-streams,
+  :global(html[data-tv]) .ep:focus-within .ep-watch,
+  :global(html[data-tv]) .ep-main:not(:disabled):focus-visible .ep-play {
+    opacity: 1;
   }
   .seen-on {
     color: var(--accent);
