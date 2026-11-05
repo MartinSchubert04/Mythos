@@ -49,6 +49,24 @@ apps/web/src/lib/tizen.ts   lo de Samsung en la interfaz: nombres de teclas, tec
   Cerrar: con `tizen.application` si la página del server lo tiene; si no, `history.back()` vuelve a
   la página local, que al verse con `#away` se cierra. Probado con el control real en inicio,
   ficha, cajón de streams, menú ⋯, tráiler, reproductor (con y sin menú) y salida.
+- **Modo TV siempre.** En Samsung no hay opción (Settings no muestra "Modo TV"): apagado, el
+  control no movía nada y no había cómo volver a prenderlo (quedaba guardado).
+- **El teclado de la tele.** Se abre con el centro sobre un campo (la búsqueda lo abre sola al
+  entrar desde la barra lateral). "Done" pasa al campo siguiente y en el último envía. Atrás con el
+  teclado abierto lo cierra y no cambia de vista; a veces el primer atrás se lo queda el teclado y
+  hace falta un segundo. Mientras está abierto la página mide la mitad de alto (`resize`): nada que
+  esté abierto debe cerrarse por eso (el `Select` con buscador se cerraba: en TV ya no tiene).
+- **Teclas multimedia mantenidas.** La tele no repite adelantar/retroceder (un keydown al apretar y
+  un keyup al soltar, a diferencia de las flechas): el salto crece con un reloj hasta el keyup.
+- **Server caído.** Si el server no contesta ni rechaza (apagado, o la red descarta los paquetes),
+  el navegador espera minutos: un pedido o una vista que tardan más de 8 s prueban `/api/health`
+  (5 s) y, si tampoco contesta, aparece la barra "No se puede conectar con el servidor" y se
+  reintenta sola (`lib/net.svelte.ts`). En el reproductor espera sin "probar otro stream" y sigue
+  solo al volver. Si el server ya no contestaba al abrir la app, la página local lo dice ("No hay
+  un servidor de Mythos en ...", con la dirección para corregir).
+- **Tráiler.** Reproduce en la tele (iframe de youtube-nocookie) y se maneja con el control desde
+  afuera del iframe (`lib/trailer.ts`, docs/mobile.md "TV"). Algunos no se pueden embeber (lo decide
+  el dueño en YouTube): cartel propio.
 
 ## Reproducir: AC-3 / E-AC-3
 
@@ -58,6 +76,14 @@ las dos pistas juntas. Antes la interfaz decía que sí (`ClientCaps`), el serve
 hls.js no podía ni crear el buffer: "The stream stopped responding" con casi cualquier release
 WEB-DL (DDP5.1). Ahora `lib/caps.ts` pide también la combinación mezclada (el server convierte el
 audio) y, si igual pasa (`bufferAddCodecError`), el reproductor degrada el audio y sigue.
+
+## Chromium 120: lo que cambia con la PC
+
+- Los `<button>` traen `align-items: flex-start` en el estilo del navegador (el Chrome de ahora,
+  `normal`): un botón con `display: flex` en columna dejaba a sus hijos con el ancho del contenido
+  (la vista previa de cada tema en Settings medía 2 px). `styles/base.css` lo pone en `normal`.
+- `Intl` en es-AR: el formato compacto da "1 K" pero "10 k" (la lista de votos de Calificadas ahora
+  va en miles a mano: "25 mil+ votos").
 
 ## Rendimiento
 
@@ -135,6 +161,21 @@ cd apps/tizen
 `tizen package -t wgt -s Mythos`, `tizen install` y `tizen run -p MythosTV01.Mythos`. Para
 depurar: `sdb -s <ip>:26101 shell 0 debug MythosTV01.Mythos` da un puerto del inspector
 (`sdb forward tcp:<puerto> tcp:<puerto>` y `chrome://inspect`).
+
+## Probar con el control por red
+
+El control por red de la tele (wss `:8002`, `samsung.remote.control`) sirve para probar con las
+teclas de verdad, con algunas mañas:
+
+- `Click` manda apretar y soltar juntos: con un campo de texto enfocado, el centro a veces abre el
+  teclado y además escribe la letra marcada. `Press` y `Release` separados se comportan como el
+  control físico.
+- `Press` solo, sin repetirlo, se suelta solo a ~1 s; para mantener más, mandar `Press` cada
+  ~0,5 s y `Release` al final.
+- Una conexión quieta más de un minuto pierde teclas sin avisar: conectar de nuevo antes de una
+  tecla importante.
+- `SendInputString` escribe en el teclado abierto y `SendInputEnd` es su "Done" (keyCode 65376).
+- Las capturas de DevTools no muestran el video (sí los iframes): verlo por el estado del `<video>`.
 
 ## Actualizar
 

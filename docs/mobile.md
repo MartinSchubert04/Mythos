@@ -179,7 +179,12 @@ de cada tema.
   lateral y el contenido; si no hay nada, la pagina se desplaza (y las filas que cargan al
   acercarse aparecen). La fila se corre sola para que lo enfocado se vea.
 - Centro (Enter): aprieta lo enfocado. En un campo de texto abre el teclado del sistema (pasar por
-  encima no lo abre: `inputmode="none"` mientras se navega).
+  encima no lo abre: `inputmode="none"` mientras se navega). La busqueda lo abre sola al entrar
+  desde la barra lateral; al volver con atras (de un resultado) no, y el foco vuelve a la tarjeta
+  (`route.pop` de `lib/router.svelte.ts`).
+- Al entrar a una vista el foco va a lo principal: lo marcado con `data-autofocus` o, si no, lo
+  primero de la pagina entre lo elegido (pestaña u opcion actual) y el boton primario (en la ficha
+  de una serie, el Play y no la pestaña "Temporada 1").
 - Atras: el Esc de siempre (cierra menus y dialogos, sale del reproductor, vuelve a la vista
   anterior) y al volver el foco queda en la tarjeta de donde se salio. Al cerrar un cajon el foco
   vuelve a lo que lo abrio; si lo enfocado desaparece (un boton que se deshabilita mientras
@@ -188,7 +193,17 @@ de cada tema.
 - Lo que tiene un boton propio adentro (la X de "Continue watching", `data-nav-inner`): con el
   foco en la tarjeta se ve, y arriba lo enfoca.
 - Samsung: "Done" del teclado en pantalla pasa al campo siguiente del formulario y en el ultimo lo
-  envia (login: usuario → contraseña → entrar).
+  envia (login: usuario → contraseña → entrar); en un dialogo con un campo (Admin: renombrar,
+  contraseña) confirma.
+- Los desplegables (`components/Select.svelte`) no tienen buscador en TV: las flechas son de la
+  lista y enfocarlo abria el teclado, que achicaba la pagina y cerraba la lista.
+- Settings: sin "Atajos de teclado" (con el control no sirven y las flechas del reproductor hacen
+  otra cosa).
+- Tráiler (YouTube): centro = play/pausa, izquierda/derecha = -10/+10 s (y las teclas
+  multimedia), atras lo cierra; abajo lo dice. El iframe no recibe el foco: se lo maneja con la API
+  de `postMessage` del reproductor de YouTube (`lib/trailer.ts`). Si el dueño no deja verlo fuera
+  de YouTube (errores 101/150), un cartel propio en vez del "Mirar en YouTube" que no se puede
+  apretar.
 - Foco: anillo de 3 px del acento separado del borde, y las tarjetas crecen un poco (con "reducir
   animaciones", sin animar).
 - Sin mouse: lo que en la PC aparece al pasar el mouse aparece con el foco (los botones de cada
@@ -202,10 +217,16 @@ de cada tema.
   multimedia andan también con un menú abierto. Con la vista previa al adelantar (docs/API.md), la
   miniatura va encima del tiempo. Izquierda/derecha llevan el foco a la
   barra de progreso, que con el foco se ve más gruesa, con el anillo del acento, un punto grande y el
-  tiempo encima (`components/SeekBar.svelte`). centro = play/pausa; izquierda/derecha = -10/+10 s (manteniendo, el salto crece:
-  10, 30 y 60 s por paso, y se aplica una sola vez al soltar); arriba/abajo muestran los controles
-  y se mueven entre ellos (subtitulos, audio, velocidad, streams); abajo de todo los esconde; atras
-  sale. Las teclas multimedia del control (play/pausa, adelantar, retroceder) tambien andan.
+  tiempo encima (`components/SeekBar.svelte`). centro = play/pausa (tambien con el foco en la
+  barra); izquierda/derecha = -10/+10 s (manteniendo, el salto crece: 10, 30 y 60 s por paso; el
+  salto, de un toque o mantenido, se aplica una sola vez al soltar: un pedido al server);
+  arriba/abajo muestran los controles y se mueven entre ellos (subtitulos, audio, velocidad,
+  streams); abajo de todo los esconde; atras sale. Las teclas multimedia del control (play/pausa,
+  adelantar, retroceder) tambien andan; adelantar/retroceder mantenidas crecen igual aunque el
+  control no las repita (la Samsung no lo hace: un reloj hasta el keyup). Mientras carga, play/pausa
+  no pausa (quedaba "Cargando 99%" para siempre, sin nada que dijera que estaba en pausa). Con el
+  server caido no aparece "probar otro stream": espera con la barra de arriba y al volver sigue
+  solo.
 
 **Perfiles.** En la TV cada cuenta queda guardada como un perfil (`lib/profiles.svelte.ts`): se
 entra una sola vez con la contraseña y la sesion no vence (`persistent`, `docs/API.md`). Al abrir,

@@ -53,6 +53,7 @@
   import { api, ApiError, dropCache, errText, mediaUrl, movedAway, withToken } from "../lib/api";
   import { degrade, detectCaps } from "../lib/caps";
   import { fit } from "../lib/images";
+  import { net } from "../lib/net.svelte";
   import { bytes, clock, epCode, sized, speed } from "../lib/format";
   import { fadeQuick, pop, rise, step } from "../lib/motion";
   import { date as fmtDate, num, t as tr } from "../lib/i18n.svelte";
@@ -229,6 +230,8 @@
 
   onDestroy(() => {
     destroyed = true;
+    clearInterval(seekHold);
+    clearTimeout(seekTimer);
     leave(false);
     mediaHandlers(false);
     if (msess) {
@@ -643,6 +646,15 @@
       return;
     }
     if (stuck || fatal || askResume || !stream) return;
+    // Server caido (lib/net.svelte.ts: la barra de arriba lo avisa y reintenta): no es el stream ni
+    // la descarga. Sin el cartel de "trabado" ni "probar otro stream" (todos salen del mismo
+    // server): se espera, con los relojes en cero, y al volver se retoma solo (abajo). Antes, con el
+    // ultimo estado diciendo "todo bajado", terminaba en "se sigue trabando aunque el video ya esta
+    // bajado" (probado en la tele cortando el server).
+    if (net.down) {
+      waitSince = loadSince = Date.now();
+      return;
+    }
     if (status?.state === "error") {
       stuck = "error";
       stuckMsg = status.error ? serverText(status.error, status.error_code, status.error_params) : tr("player.err.serverCantRead");
@@ -680,6 +692,22 @@
     if (status.total_bytes > 0 && status.progress >= 0.999) return true;
     return status.state === "ready" && (status.buffered_ahead_s ?? 0) >= 3;
   }
+
+  // Volvio la conexion con el server (net.epoch): si el video quedo esperando, se retoma desde
+  // donde estaba (una playlist nueva: la vieja pudo quedar a medias).
+  let netEpoch = net.epoch;
+  $effect(() => {
+    const e = net.epoch;
+    if (e === netEpoch) return;
+    netEpoch = e;
+    untrack(() => {
+      if (!destroyed && stream && started && !fatal && (waiting || stuck === "error")) {
+        stuck = "";
+        stallFixes = [];
+        attach(t, true);
+      }
+    });
+  });
 
   let lastWatchPos = -1;
   let stallFixes: number[] = [];
@@ -869,6 +897,10 @@
     if (video.paused) {
       tryPlay();
       bump("play");
+    } else if (!started) {
+      // Todavia cargando: pausar ahi dejaba el "Cargando 99%" para siempre, sin nada que dijera
+      // que estaba en pausa (en la tele, el centro apretado mientras carga).
+      return;
     } else {
       video.pause();
       bump("pause");
@@ -1810,19 +1842,35 @@
   let seekSince = 0;
   let seekLast = 0;
   let seekTimer = 0;
-  function tvSeek(dir: 1 | -1, repeat: boolean) {
+  /** Adelantar/retroceder del control: la Samsung no repite esas teclas al mantenerlas (llegan un
+   *  keydown y, al soltar, un keyup), asi que el salto crece con este reloj hasta el keyup. */
+  let seekHold = 0;
+  /** `timed`: la tecla no se repite sola (adelantar/retroceder); el salto crece mientras no llegue
+   *  el keyup (onKeyUp → commitSeek), con un tope de 20 s por si no llega nunca. */
+  function tvSeek(dir: 1 | -1, repeat: boolean, timed = false) {
     if (!started || !duration) return;
-    if (!repeat) {
-      commitSeek();
-      skip(10 * dir);
-      return;
+    if (timed) {
+      if (repeat) return;
+      clearInterval(seekHold);
+      const since = performance.now();
+      seekHold = window.setInterval(() => {
+        const held = performance.now() - since;
+        if (held > 20000) clearInterval(seekHold);
+        else if (held >= 400) tvSeekStep(dir, true);
+      }, 200);
     }
+    tvSeekStep(dir, repeat);
+  }
+  function tvSeekStep(dir: 1 | -1, repeat: boolean) {
     const now = performance.now();
-    if (seekTarget === null) {
-      seekTarget = t;
-      seekSince = now;
-    } else if (now - seekLast < 120) return; // el control repite ~20 veces por segundo
+    // Apretar tambien arma el salto (10 s) y se aplica al soltar (onKeyUp) o a los 600 ms: antes
+    // saltaba en el momento y, manteniendo, ese primer salto y el final eran dos pedidos al server
+    // (y el "cargando" del primero quedaba encimado con el tiempo del que se armaba). Otro toque
+    // con uno armado (sin soltar, o el control no manda keyup) lo agranda.
+    if (!repeat && seekTarget === null) seekSince = now;
+    else if (repeat && seekTarget !== null && now - seekLast < 120) return; // el control repite ~5–20 veces por segundo
     seekLast = now;
+    if (seekTarget === null) seekTarget = t;
     const held = now - seekSince;
     const step = held < 1000 ? 10 : held < 3000 ? 30 : 60;
     seekTarget = Math.max(0, Math.min(duration - 1, seekTarget + dir * step));
@@ -1832,6 +1880,7 @@
   }
   function commitSeek() {
     clearTimeout(seekTimer);
+    clearInterval(seekHold);
     if (seekTarget === null) return;
     const to = seekTarget;
     seekTarget = null;
@@ -1850,9 +1899,12 @@
   /** Donde entra el foco en el panel de streams o de episodios: el actual, o lo primero de la
    *  lista (no la X de cerrar, que va antes en el DOM). */
   function sideStart(side: HTMLElement): HTMLElement | null {
+    // De a uno: con "a, b" querySelector da el primero del DOM que cumpla cualquiera (el primer
+    // stream de la lista aunque el actual este mas abajo).
     return (
       side.querySelector<HTMLElement>("[aria-current='true']:not(:disabled)") ??
-      side.querySelector<HTMLElement>(".side-body .stream.on, .side-body button:not(:disabled)") ??
+      side.querySelector<HTMLElement>(".side-body .stream.on") ??
+      side.querySelector<HTMLElement>(".side-body button:not(:disabled)") ??
       side.querySelector<HTMLElement>("button")
     );
   }
@@ -1866,7 +1918,7 @@
     if (k === "MediaPlayPause") return toggle(), "done";
     if (k === "MediaPlay") return video?.paused && toggle(), "done";
     if (k === "MediaPause" || k === "MediaStop") return video && !video.paused && toggle(), "done";
-    if (k === "MediaFastForward" || k === "MediaRewind") return tvSeek(k === "MediaFastForward" ? 1 : -1, e.repeat), "done";
+    if (k === "MediaFastForward" || k === "MediaRewind") return tvSeek(k === "MediaFastForward" ? 1 : -1, e.repeat, true), "done";
     if (k === "Escape" || (!d && k !== "Enter")) return "pass";
     // El panel de streams: las flechas adentro de el.
     const side = menu === "streams" || menu === "eps" ? root?.querySelector<HTMLElement>(".side") : null;
@@ -1897,6 +1949,9 @@
       return "done";
     }
     const slider = !!el?.matches('[role="slider"]');
+    // Centro en la barra: play/pausa tambien con los controles a la vista (no es un boton: el
+    // "native" de abajo no hacia nada).
+    if (slider && focused && k === "Enter") return toggle(), "done";
     if (!ui || !focused || (slider && (d === "left" || d === "right"))) {
       if (k === "Enter") return slider ? (toggle(), "done") : focused && ui ? "native" : (toggle(), "done");
       if (d === "left" || d === "right") {
@@ -2311,7 +2366,7 @@
           </div>
         </div>
         {/if}
-        <span class="time" class:noted={!!subNote}>{clock(t)} <span class="dim">/ {clock(duration)}</span></span>
+        <span class="time" class:noted={!!subNote}>{clock(duration ? Math.min(t, duration) : t)} <span class="dim">/ {clock(duration)}</span></span>
         <div class="grow"></div>
         {#if subNote}
           <span class="sub-note" role="status" title={subPartial ? tr("player.sub.partialTip") : subNote} transition:fadeQuick>

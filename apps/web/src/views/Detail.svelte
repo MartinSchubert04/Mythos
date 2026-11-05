@@ -26,6 +26,9 @@
   import { keepScroll } from "../lib/scroll";
   import { sortByLang } from "../lib/streamlang";
   import { attempt, toast } from "../lib/toast.svelte";
+  import { keyName } from "../lib/tizen";
+  import { trailerCtl, trailerUrl, type TrailerCtl } from "../lib/trailer";
+  import { tv } from "../lib/tv.svelte";
   import type { Episode, MediaType, Meta, MetaPreview, Progress, Stream } from "../lib/types";
 
   let { params }: { params: string[] } = $props();
@@ -42,6 +45,38 @@
   let progress = $state<Record<string, Progress>>({});
   let season = $state(1);
   let trailer = $state(false);
+  // TV: el trailer con el control remoto (lib/trailer.ts).
+  let ytFrame = $state<HTMLIFrameElement>();
+  let yt: TrailerCtl | null = null;
+  let ytBlocked = $state(false);
+  $effect(() => {
+    if (!ytFrame) return;
+    const c = trailerCtl(ytFrame, () => (ytBlocked = c.blocked));
+    yt = c;
+    return () => {
+      c.destroy();
+      yt = null;
+      ytBlocked = false;
+    };
+  });
+  // Antes que lib/spatial.svelte.ts (captura): centro, flechas y teclas multimedia son del
+  // trailer; atras sigue cerrandolo (el Esc de abajo).
+  $effect(() => {
+    if (!trailer || !tv.on) return;
+    const onKey = (e: KeyboardEvent) => {
+      const k = keyName(e);
+      if (ytBlocked && (k === "Enter" || k === "MediaStop")) trailer = false;
+      else if (k === "Enter" || k === "MediaPlayPause" || k === "MediaPlay" || k === "MediaPause") yt?.toggle();
+      else if (k === "ArrowLeft" || k === "MediaRewind") yt?.skip(-10);
+      else if (k === "ArrowRight" || k === "MediaFastForward") yt?.skip(10);
+      else if (k === "MediaStop") trailer = false;
+      else if (k !== "ArrowUp" && k !== "ArrowDown") return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  });
 
   // El panel de streams: de la pelicula o de un episodio.
   let panel = $state<{ target: string; label: string } | null>(null);
@@ -525,14 +560,18 @@
 {#if trailer && meta?.trailer_youtube_id}
   <div class="scrim" role="presentation" onclick={() => (trailer = false)} transition:fadeQuick></div>
   <div class="trailer" role="dialog" aria-modal="true" aria-label={t("browse.detail.trailer")} transition:pop>
-    <button class="icon-btn close" onclick={() => (trailer = false)} aria-label={t("browse.detail.closeTrailer")}><X size={18} /></button>
+    <!-- En la TV sin la X: el centro es play/pausa y atras cierra (abajo lo dice). -->
+    {#if !tv.on}<button class="icon-btn close" onclick={() => (trailer = false)} aria-label={t("browse.detail.closeTrailer")}><X size={18} /></button>{/if}
     <iframe
-      src="https://www.youtube-nocookie.com/embed/{meta.trailer_youtube_id}?autoplay=1&rel=0"
+      bind:this={ytFrame}
+      src={trailerUrl(meta.trailer_youtube_id)}
       title={t("browse.detail.trailer")}
       allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
       allowfullscreen
     ></iframe>
+    {#if tv.on && ytBlocked}<div class="yt-blocked">{t("browse.detail.trailerBlocked")}</div>{/if}
   </div>
+  {#if tv.on}<div class="trailer-keys" transition:fadeQuick>{ytBlocked ? t("browse.detail.trailerClose") : t("browse.detail.trailerKeys")}</div>{/if}
 {/if}
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && trailer && (e.preventDefault(), (trailer = false))} />
@@ -982,6 +1021,32 @@
     width: 100%;
     height: 100%;
     border: 0;
+  }
+  /* TV: un poco mas chico para que entre la ayuda del control abajo. */
+  :global(html[data-tv]) .trailer {
+    width: min(92vw, calc((100vh - 72px) * 16 / 9));
+    translate: -50% calc(-50% - 16px);
+  }
+  .trailer-keys {
+    position: fixed;
+    z-index: 71;
+    left: 50%;
+    bottom: 12px;
+    translate: -50% 0;
+    color: var(--on-media);
+    font-size: 15px;
+    white-space: nowrap;
+  }
+  .yt-blocked {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    text-align: center;
+    font-size: 20px;
+    color: var(--on-media);
+    background: var(--media-bg);
   }
   .trailer .close {
     position: absolute;

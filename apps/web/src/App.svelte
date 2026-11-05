@@ -128,7 +128,9 @@
       <WifiOff size={36} />
       <h2>{t("common.unreachable")}</h2>
       <p class="muted">{t("browse.offline.body")}</p>
-      <button class="btn primary" disabled={net.checking} onclick={() => (check(), start())}>
+      <!-- Sin disabled mientras prueba: deshabilitado perdia el foco y en la TV el centro dejaba de
+           andar hasta tocar una flecha. -->
+      <button class="btn primary" aria-busy={net.checking} onclick={() => !net.checking && (check(), start())}>
         {#if net.checking}<LoaderCircle size={15} class="spin" />{:else}<RefreshCw size={15} />{/if}
         {t("browse.offline.retryNow")}
       </button>
@@ -227,7 +229,7 @@
   <div class="netbar" role="status" transition:fade={{ duration: ms(160) }}>
     <WifiOff size={14} />
     <span>{t("browse.offline.bar")}</span>
-    <button class="btn sm" disabled={net.checking} onclick={check}>
+    <button class="btn sm" aria-busy={net.checking} onclick={() => !net.checking && check()}>
       {#if net.checking}<LoaderCircle size={13} class="spin" />{/if}{t("common.retry")}
     </button>
   </div>

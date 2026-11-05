@@ -37,7 +37,7 @@
     { value: "movie", label: t("browse.filter.movies") },
     { value: "series", label: t("browse.filter.series") },
   ]);
-  const VOTES = $derived([1000, 10000, 25000, 100000, 500000].map((v) => ({ value: v, label: t("browse.top.votesOpt", { n: num(v, { notation: "compact" }) }) })));
+  const VOTES = $derived([1000, 10000, 25000, 100000, 500000].map((v) => ({ value: v, label: t("browse.top.votesK", { n: num(v / 1000) }) })));
 
   const type = $derived<MediaType>(route.query.get("type") === "series" ? "series" : "movie");
   const picked = $derived(

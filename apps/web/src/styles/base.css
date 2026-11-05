@@ -63,6 +63,10 @@ button {
   border: 0;
   padding: 0;
   cursor: pointer;
+  /* Chromium viejo (la tele Samsung, Chrome 120) trae align-items: flex-start en los botones: un
+     boton con display: flex en columna dejaba a sus hijos con el ancho del contenido (la vista
+     previa de cada tema en Ajustes quedaba de 2 px). El de ahora ya no. */
+  align-items: normal;
 }
 
 input,

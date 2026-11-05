@@ -14,6 +14,7 @@
   import { api, ApiError, errText } from "../lib/api";
   import { ask } from "../lib/confirm.svelte";
   import { isAndroid, isDesktop, isRemoteShell, pickServer, remoteBase } from "../lib/platform";
+  import { isTizen } from "../lib/tizen";
   import ServerAddresses from "../components/ServerAddresses.svelte";
   import { LANGS, prefs, savePrefs, setUiLang } from "../lib/prefs.svelte";
   import { i18n, t, UI_LANGS } from "../lib/i18n.svelte";
@@ -65,8 +66,9 @@
   ];
 
   // Los atajos viven en lib/shortcuts.ts (el "?" del reproductor muestra los mismos). En el celular
-  // (pantalla tactil, sin modo TV) no hay teclado: la seccion no se muestra.
-  const touchOnly = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches && !tv.on;
+  // (pantalla tactil) y en la TV (el control: las flechas del reproductor hacen otra cosa) no hay
+  // teclado: la seccion no se muestra.
+  const noKeyboard = tv.on || (typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches);
 
   const SIZES = [
     { value: 80, get label() { return t("account.subs.small"); } },
@@ -192,8 +194,8 @@
         {/each}
       </div>
       <Switch bind:checked={prefs.reduceMotion} onchange={() => savePrefs()}>{t("account.look.reduceMotion")}</Switch>
-      {#if !isAndroid}
-        <!-- Modo TV en la web (lib/tv.svelte.ts): en la app de Android es automatico. -->
+      {#if !isAndroid && !isTizen}
+        <!-- Modo TV en la web (lib/tv.svelte.ts): en la app de Android y en Samsung es automatico. -->
         <Switch checked={tv.on} onchange={(v) => setTvPref(v ? "on" : "off")}>{t("account.look.tv")}</Switch>
         <span class="app-hint">
           {t("account.look.tvHint")}
@@ -304,7 +306,7 @@
       </div>
     </Section>
 
-    {#if !touchOnly}
+    {#if !noKeyboard}
       <Section id="keys" title={t("account.keys.title")} icon={Keyboard} summary={t("account.keys.summary")}>
         <div class="keys">
           {#each KEYS as [k, what] (k + what)}

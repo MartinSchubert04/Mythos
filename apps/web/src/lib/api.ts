@@ -2,7 +2,7 @@
 import { detectCaps } from "./caps";
 import { t } from "./i18n.svelte";
 import { serverText } from "./i18n/server";
-import { markDown, markUp } from "./net.svelte";
+import { markDown, markUp, watchSlow } from "./net.svelte";
 import { deviceLabel, serverBase, setActiveServer } from "./platform";
 import { read, write } from "./store";
 import type {
@@ -129,13 +129,15 @@ async function req<T>(method: string, path: string, body?: unknown, o: Opts = {}
   const retry = async () => !o.to && !o.retried && !wasLocal && !o.signal?.aborted && (await unreachable());
   let r: Response;
   try {
-    r = await fetch(base + path, {
+    const f = fetch(base + path, {
       method,
       headers,
       body: body === undefined ? undefined : raw ? (body as FormData) : JSON.stringify(body),
       signal: o.signal,
       keepalive: o.keepalive,
     });
+    // Sin respuesta durante mucho: ¿el server sigue ahi? (lib/net.svelte.ts)
+    r = await (o.to ? f : watchSlow(f));
   } catch (e) {
     if (e instanceof TypeError && (await retry())) return req<T>(method, path, body, { ...o, retried: true });
     // Sin respuesta (server caido, sin red): aviso arriba y reconexion automatica.

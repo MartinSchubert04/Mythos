@@ -4,6 +4,7 @@
 // Quien lo decide:
 // - App de Android: el plugin (`device`: modo TV del sistema, leanback o sin pantalla tactil).
 //   Automatico, sin opcion.
+// - Samsung (Tizen, lib/tizen.ts): siempre, sin opcion.
 // - Web (p. ej. Firefox en un TV box cuyo WebView es demasiado viejo para la app): lo elegido en
 //   Settings → Appearance → "TV mode", o `?tv=1` / `?tv=0` / `?tv=auto` en la URL (queda guardado
 //   en este navegador). Sin eleccion, automatico: Android sin pantalla tactil, o un navegador de TV.
@@ -20,6 +21,7 @@
 import { liteForTv } from "./perf";
 import { isAndroid, shellInvoke } from "./platform";
 import { read, write } from "./store";
+import { isTizen } from "./tizen";
 
 /** Lo aplicado (lo lee index.html antes de pintar). */
 const KEY = "mythos.tv";
@@ -82,6 +84,14 @@ export function setTvPref(p: Pref) {
 
 /** Al arrancar. App de Android: pregunta al APK que aparato es. Web: lo elegido o automatico. */
 export async function initTv() {
+  // Samsung (app de la tele o su navegador): siempre TV, como la app de Android. Con el modo TV
+  // apagado el control no mueve nada y no se podria volver a prenderlo (queda guardado).
+  if (isTizen) {
+    tv.auto = true;
+    tv.pref = null;
+    apply(true);
+    return;
+  }
   if (!isAndroid) {
     const q = new URLSearchParams(location.search).get("tv");
     if (q !== null) {

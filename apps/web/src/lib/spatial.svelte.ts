@@ -166,10 +166,13 @@ export function focusFirst(root: HTMLElement = scope(), onlyPreferred = false): 
   const q = (sel: string) => document.querySelector<HTMLElement>(sel);
   const area = root === document.body ? (q("main") ?? q(".player-host") ?? q(".who") ?? q(".body") ?? root) : root;
   const list = candidates(area).filter(usable);
+  // Lo elegido (la pestaña o la opcion actual) y el boton primario, lo que este primero en la
+  // pagina: en la ficha de una serie el Play de arriba y no la pestaña "Temporada 1" de abajo
+  // (que ademas corria la pagina y dejaba el titulo cortado); en un dialogo con opciones, la
+  // elegida antes que el OK.
   const pick =
     list.find((el) => el.matches("[data-autofocus], [autofocus]")) ??
-    list.find((el) => el.matches("[aria-current='true'], [aria-checked='true'], .sel")) ??
-    list.find((el) => el.matches(".btn.primary")) ??
+    list.find((el) => el.matches("[aria-current='true'], [aria-checked='true'], .sel, .btn.primary")) ??
     // La X de un cajon no: lo primero de su contenido (la X queda arriba, a una flecha).
     (onlyPreferred ? undefined : (list.find((el) => !el.matches("[data-close]")) ?? list[0]));
   if (!pick) return false;

@@ -77,6 +77,8 @@ export default {
   "browse.top.title": "Mejor calificadas",
   "browse.top.titles": { one: "1 título", other: "{count} títulos" },
   "browse.top.votesOpt": "{n}+ votos",
+  // En miles: el formato compacto de Intl en es-AR da "1 K" pero "10 k".
+  "browse.top.votesK": "{n} mil+ votos",
   "browse.top.clearGenres": "Limpiar géneros",
   "browse.top.genres": "Géneros",
   "browse.top.upTo": "Hasta {n} géneros",
@@ -112,6 +114,10 @@ export default {
   "browse.detail.seasons": { one: "1 temporada", other: "{n} temporadas" },
   "browse.detail.trailer": "Tráiler",
   "browse.detail.closeTrailer": "Cerrar el tráiler",
+  // TV: el tráiler con el control (lib/trailer.ts).
+  "browse.detail.trailerKeys": "OK: pausa · ◀ ▶: 10 s · Atrás: cerrar",
+  "browse.detail.trailerBlocked": "YouTube no deja ver este tráiler fuera de su página.",
+  "browse.detail.trailerClose": "OK o Atrás para cerrar",
   "browse.detail.markedWatched": "Marcada como vista",
   "browse.detail.markedUnwatched": "Marcada como no vista",
   "browse.detail.watchedTip": "Vista · clic para marcarla como no vista",

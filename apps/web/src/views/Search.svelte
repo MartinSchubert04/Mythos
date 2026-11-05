@@ -13,6 +13,7 @@
   import { onMount, tick } from "svelte";
   import { go, route, searchIntent, setQuery } from "../lib/router.svelte";
   import { keepScroll } from "../lib/scroll";
+  import { tv } from "../lib/tv.svelte";
   import type { MetaPreview } from "../lib/types";
 
   const initial = route.query.get("q") ?? "";
@@ -52,6 +53,9 @@
       q = typed;
       onInput();
     }
+    // TV, volviendo con atras (de un resultado): ni el teclado ni el foco en el campo; el foco
+    // vuelve a la tarjeta de donde se salio (lib/spatial.svelte.ts).
+    if (tv.on && route.pop) return;
     await tick();
     input?.focus();
     requestAnimationFrame(() => {

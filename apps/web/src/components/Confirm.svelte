@@ -4,6 +4,8 @@
   import { confirmState as c } from "../lib/confirm.svelte";
   import { t } from "../lib/i18n.svelte";
   import { fadeQuick, pop } from "../lib/motion";
+  // "Done" del teclado de la tele confirma, como Enter.
+  import { keyName } from "../lib/tizen";
 
   let ok = $state<HTMLButtonElement>();
   let field = $state<HTMLInputElement>();
@@ -37,7 +39,7 @@
           type={c.input.secret ? "password" : "text"}
           placeholder={c.input.placeholder}
           bind:value={c.value}
-          onkeydown={(e) => e.key === "Enter" && c.value && (e.preventDefault(), c.resolve?.(true))}
+          onkeydown={(e) => (e.key === "Enter" || keyName(e) === "ImeDone") && c.value && (e.preventDefault(), c.resolve?.(true))}
         />
       {/if}
     </div>

@@ -46,7 +46,9 @@
   let typed = "";
   let typedAt = 0;
 
-  const searchable = $derived(options.length > 7);
+  // En TV no: las flechas son de la lista (no se llega al buscador) y enfocarlo abre el teclado de
+  // la tele, que achica la pagina y cerraba la lista apenas se abria (el resize de abajo).
+  const searchable = $derived(options.length > 7 && !tv.on);
   const selected = $derived(options.find((o) => o.value === value));
   const shown = $derived(
     query ? options.filter((o) => (o.label + " " + (o.hint ?? "")).toLowerCase().includes(query.toLowerCase())) : options,

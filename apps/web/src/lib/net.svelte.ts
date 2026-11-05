@@ -51,5 +51,30 @@ export async function check() {
   if (net.down) schedule(5000);
 }
 
+/** Un server que no contesta ni rechaza (apagado, o la red descarta los paquetes) no da error: el
+ *  navegador espera minutos y la interfaz no avisaba nada (probado en la tele: la vista nueva no
+ *  llegaba nunca y no aparecia la barra). Si un pedido o el codigo de una vista tarda mas de 8 s, se
+ *  prueba /api/health con 5 s de tope; si tampoco contesta, caido. Lo lento de verdad (buscar
+ *  streams, preparar un torrent) sigue esperando: el server contesta /api/health enseguida. */
+let probing = false;
+export function watchSlow<T>(p: Promise<T>, ms = 8000): Promise<T> {
+  const id = window.setTimeout(probe, ms);
+  const done = () => clearTimeout(id);
+  p.then(done, done);
+  return p;
+}
+async function probe() {
+  if (net.down || probing) return;
+  probing = true;
+  try {
+    const r = await fetch(serverBase() + "/api/health", { signal: AbortSignal.timeout(5000) });
+    if ([502, 503, 504].includes(r.status)) markDown();
+  } catch {
+    markDown();
+  } finally {
+    probing = false;
+  }
+}
+
 // El navegador avisa cuando vuelve la red: probar enseguida.
 window.addEventListener("online", () => net.down && check());

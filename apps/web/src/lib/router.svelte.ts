@@ -3,7 +3,7 @@
 import type { Component } from "svelte";
 import { tick } from "svelte";
 import { reduceMotion } from "./motion";
-import { markDown } from "./net.svelte";
+import { markDown, watchSlow } from "./net.svelte";
 
 export type ViewName = "home" | "search" | "top" | "detail" | "player" | "library" | "settings" | "admin";
 
@@ -29,7 +29,8 @@ export function loadView(v: ViewName): Promise<void> {
   if (loaded[v]) return Promise.resolve();
   let p = pending.get(v);
   if (!p) {
-    p = loaders[v]().then((m) => {
+    // Sin respuesta (server apagado): ver watchSlow.
+    p = watchSlow(loaders[v]()).then((m) => {
       loaded[v] = m.default;
     });
     // Sin el codigo de la vista (en la web lo sirve el mismo server: si se cayo, no llega) quedaba
@@ -48,9 +49,11 @@ export function viewComponent(v: ViewName) {
   return loaded[v];
 }
 
-type Route = { path: string; view: ViewName; params: string[]; query: URLSearchParams; key: string; vt: boolean };
+/** `pop`: se llego con atras/adelante del historial (la vista vuelve a como estaba: en la TV, la
+ *  busqueda no abre el teclado y el foco vuelve a la tarjeta de donde se salio). */
+type Route = { path: string; view: ViewName; params: string[]; query: URLSearchParams; key: string; vt: boolean; pop: boolean };
 
-function parse(hash: string, vt = false): Route {
+function parse(hash: string, vt = false, pop = false): Route {
   const raw = hash.replace(/^#/, "") || "/";
   const [path, qs = ""] = raw.split("?");
   const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
@@ -79,7 +82,7 @@ function parse(hash: string, vt = false): Route {
   // La busqueda no se vuelve a montar al escribir (cambia solo ?q=), ni "Top rated" al cambiar
   // los filtros (?type=&genres=&votes=).
   const key = view === "search" || view === "top" ? view : path;
-  return { path, view, params, query, key, vt };
+  return { path, view, params, query, key, vt, pop };
 }
 
 export const route = $state<Route>(parse(location.hash));
@@ -88,8 +91,12 @@ function apply(r: Route) {
   Object.assign(route, r);
 }
 
+/** La URL a la que se llego con atras/adelante: despues de popstate llega tambien hashchange (y,
+ *  si la vista todavia no estaba cargada, aplicaria la ruta sin `pop`). */
+let popped = "";
+
 function sync() {
-  const r = parse(location.hash);
+  const r = parse(location.hash, false, location.hash === popped);
   if (r.path === route.path && r.query.toString() === route.query.toString()) return;
   loadView(r.view).finally(() => apply(r));
 }
@@ -109,6 +116,7 @@ function onPop() {
     history.pushState(null, "", "#" + route.path + (q ? "?" + q : ""));
     return;
   }
+  popped = location.hash;
   sync();
 }
 // Atras/adelante y la URL escrita a mano (hashchange) re-parsean la ruta.
@@ -122,6 +130,7 @@ if (import.meta.hot) import.meta.hot.accept(() => location.reload());
 /** Ir a una ruta. Con `vt`, View Transitions (el poster vuela de la tarjeta al detalle). */
 export async function go(path: string, o: { replace?: boolean; vt?: boolean } = {}) {
   const url = "#" + path;
+  popped = "";
   if (o.replace) history.replaceState(null, "", url);
   else if (location.hash !== url) history.pushState(null, "", url);
   const r = parse(url, false);
