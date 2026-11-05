@@ -388,6 +388,18 @@ async function route(req: Request): Promise<Response> {
       updated_at: Math.floor(Date.now() / 1000) - 86400,
     });
   }
+  if ((r = path.match(/^\/api\/recommended\/(movie|series)$/))) {
+    // Como el server sin gustos (recommend.rs): al azar de lo mejor calificado, sin lo de "like".
+    await wait(250);
+    const like = url.searchParams.get("like");
+    const limit = Number(url.searchParams.get("limit") ?? 20);
+    const items = allPreviews()
+      .filter((x) => x.type === r![1] && x.imdb_rating && x.id !== like)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, limit);
+    const rotates_at = Math.floor(Date.now() / 1000) + 6 * 3600;
+    return json({ state: "ready", basis: like ? "like" : "top", items, genres: [], rotates_at });
+  }
   if ((r = path.match(/^\/api\/genres\/(movie|series)$/)))
     return json(["Action", "Adventure", "Animation", "Comedy", "Crime", "Drama", "Fantasy", "Horror", "Sci-Fi", "Thriller"]);
   if (path === "/api/search") {

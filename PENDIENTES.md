@@ -17,3 +17,13 @@ caído, página local en español).
       no se apretó para no sacarle una serie al usuario.
 - [ ] **Android: vista previa al adelantar arrastrando con el dedo** (en la PC con mouse y en la
       tele con el control ya anda).
+
+## Recomendaciones "para vos" (2026-11-05)
+
+Probado con el server local y los datos reales de IMDb (las filas y "Similares" por curl, y
+`recommend::tests::real_data`), pero no con la interfaz andando.
+
+- [ ] **Ver el inicio en la PC y en la tele**: el destacado con lo recomendado (descripción y logo
+      de los 4 primeros, que el server pide a Cinemeta), "Películas para vos" / "Series para vos"
+      arriba de "Populares" y "Similares" en la ficha. En la tele, que la home no tarde más que antes
+      (el pedido espera hasta 2 s a Cinemeta la primera vez).

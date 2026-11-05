@@ -168,6 +168,20 @@ export type SettingsUpdate = Partial<Omit<Settings, "has_rd_key">> & { rd_key?: 
 
 export type ExternalSub = { id: string; lang: string; url: string };
 
+/** "Para vos" y "Similares" (GET /api/recommended/{type}, docs/API.md "Recomendaciones"). */
+export type Recommended = {
+  /** Como en TopRated: sin "ready" no hay titulos y la UI usa lo de antes. */
+  state: "ready" | "preparing" | "unavailable";
+  /** "taste": por los gustos; "top": todavia no hay gustos (al azar de los 300 mejores);
+   *  "like": parecidos al titulo pedido. */
+  basis: "taste" | "top" | "like" | null;
+  items: MetaPreview[];
+  /** Los generos que mas pesan en los gustos (vacio sin gustos). */
+  genres: string[];
+  /** unix s en que cambia la seleccion. */
+  rotates_at: number;
+};
+
 /** "Top rated" (GET /api/top/{type}): lo mejor calificado de IMDb con todos los generos pedidos. */
 export type TopRated = {
   /** "preparing": el server todavia baja los datos de IMDb; "unavailable": este server no lo

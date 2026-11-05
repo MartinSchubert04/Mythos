@@ -27,6 +27,7 @@ import type {
   Settings,
   SettingsUpdate,
   Stream,
+  Recommended,
   TopRated,
   TorrentStat,
   User,
@@ -321,6 +322,15 @@ export const api = {
     const path = `/api/top/${type}${q({ genres: o.genres?.join(","), min_votes: o.min_votes, skip: o.skip, limit: o.limit })}`;
     const p = cached(`top:${path}`, 10 * MIN, () => req<TopRated>("GET", path, undefined, { signal }));
     p.then((r) => r.state !== "ready" && dropCache(`top:${path}`)).catch(() => {});
+    return p;
+  },
+  /** Recomendaciones del usuario (`like`: parecidos a ese titulo; `genres`: los suyos, por si el
+   *  server no lo conoce). La seleccion cambia cada 6 h en el server; lo que no esta listo no se
+   *  cachea. Un server viejo sin la ruta da 404 (el que llama usa lo de antes). */
+  recommended: (type: MediaType, o: { like?: string; genres?: string[]; limit?: number } = {}) => {
+    const path = `/api/recommended/${type}${q({ like: o.like, genres: o.genres?.join(","), limit: o.limit })}`;
+    const p = cached(`rec:${path}`, 10 * MIN, () => req<Recommended>("GET", path));
+    p.then((r) => r.state !== "ready" && dropCache(`rec:${path}`)).catch(() => {});
     return p;
   },
   search: (query: string, signal?: AbortSignal) =>

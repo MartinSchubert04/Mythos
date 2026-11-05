@@ -326,8 +326,12 @@
     const p = progress[e.id];
     return p && p.duration_s ? Math.min(100, (p.position_s / p.duration_s) * 100) : 0;
   }
-  /** Del mismo genero principal, sin este titulo. */
+  /** Parecidos y bien calificados (GET /api/recommended?like=, sin lo que ya vio el usuario). Si
+   *  el server no lo tiene (sin datos de IMDb, el embebido, uno viejo): lo popular del mismo
+   *  genero principal, sin este titulo. */
   async function moreLike(): Promise<MetaPreview[]> {
+    const r = await api.recommended(type, { like: id, genres: m?.genres ?? undefined }).catch(() => null);
+    if (r?.state === "ready" && r.items.length) return r.items;
     const g = m?.genres?.[0];
     if (!g) return [];
     const l = await api.catalog(type, "top", { genre: g });

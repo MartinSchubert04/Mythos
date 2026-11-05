@@ -15,17 +15,32 @@
   let featured = $state<MetaPreview[] | null>(null);
   let cont = $state<Progress[] | null>(null);
 
-  // Las dos a la vez (y quedan en cache para las filas "Popular", que piden lo mismo).
-  const seriesTop = api.catalog("series", "top").catch(() => [] as MetaPreview[]);
-  api
-    .catalog("movie", "top")
-    .then(async (movies) => {
-      const series = await seriesTop;
+  /** "Para vos" (GET /api/recommended): por los gustos del usuario, o al azar de lo mejor de IMDb
+   *  si todavia no vio lo suficiente; cambia cada 6 h. `null` si el server no lo tiene (bajando los
+   *  datos de IMDb, el embebido de las apps, uno viejo sin la ruta): ahi se usa lo de antes. */
+  const forYou = (type: MediaType) =>
+    api
+      .recommended(type)
+      .then((r) => (r.state === "ready" && r.items.length ? r.items : null))
+      .catch(() => null);
+  // Pedidos ya: el destacado los usa y las filas "para vos" toman lo mismo de la cache.
+  const forYouMovies = forYou("movie");
+  const forYouSeries = forYou("series");
+
+  // El destacado: lo recomendado (los primeros traen descripcion y logo del server) o, sin eso,
+  // lo popular de Cinemeta (que queda en cache para las filas "Popular", que piden lo mismo).
+  Promise.all([forYouMovies, forYouSeries])
+    .then(([m, s]) =>
+      m || s
+        ? [m ?? [], s ?? []]
+        : Promise.all([api.catalog("movie", "top"), api.catalog("series", "top").catch(() => [] as MetaPreview[])]),
+    )
+    .then(([movies, series]) => {
       // Peliculas y series intercaladas, solo las que tienen fondo.
       const pick = (l: MetaPreview[]) => l.filter((m) => m.background).slice(0, 4);
       const a = pick(movies);
       const b = pick(series);
-      featured = a.flatMap((m, i) => (b[i] ? [m, b[i]] : [m])).slice(0, 7);
+      featured = (a.length ? a.flatMap((m, i) => (b[i] ? [m, b[i]] : [m])) : b).slice(0, 7);
     })
     .catch(() => (featured = []));
 
@@ -61,7 +76,10 @@
       .catch(() => api.catalog(type, "imdbRating"));
 
   // `title` es la clave del texto (se traduce al pintar).
+  // Las "para vos" sin datos quedan vacias y no se dibujan (Row las esconde).
   const ROWS: { title: Key; load: () => Promise<MetaPreview[]>; href?: string }[] = [
+    { title: "browse.home.forYouMovies", load: () => forYouMovies.then((l) => l ?? []) },
+    { title: "browse.home.forYouSeries", load: () => forYouSeries.then((l) => l ?? []) },
     { title: "browse.home.popularMovies", load: () => api.catalog("movie", "top") },
     { title: "browse.home.popularSeries", load: () => api.catalog("series", "top") },
     { title: "browse.home.topMovies", load: topRated("movie"), href: "/top" },

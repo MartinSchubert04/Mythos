@@ -150,6 +150,18 @@ type TopRated = {              // GET /api/top/{type} (ver "Top rated" más abaj
   updated_at: number | null;   // unix s de la bajada de IMDb
 };
 
+type Recommended = {           // GET /api/recommended/{type} (ver "Recomendaciones" más abajo)
+  state: "ready" | "preparing" | "unavailable";   // como TopRated: sin "ready", items vacío
+  basis: "taste"               // por los gustos del usuario
+       | "top"                 // todavía no hay gustos (< 3 títulos): al azar de los 300 mejores
+       | "like"                // parecidos al título de `like`
+       | null;                 // sin "ready"
+  items: MetaPreview[];        // hasta `limit`, en el orden del sorteo. Sin `like`, los 4 primeros
+                               // traen `description` y `logo` de Cinemeta si llegaron en 2 s
+  genres: string[];            // los géneros que más pesan en los gustos (hasta 5; vacío sin gustos)
+  rotates_at: number;          // unix s en que cambia la selección (bloques de 6 h)
+};
+
 type ClientCaps = {            // lo que el reproductor del cliente puede reproducir directo
   h264: boolean; hevc: boolean; av1: boolean; vp9: boolean;
   mkv: boolean;                // el navegador abre .mkv con <video>
@@ -257,6 +269,7 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 | GET | `/api/catalog/{type}/{catalog}` | `?genre=&skip=` (`catalog`: `top`, `imdbRating`, `year`) | `MetaPreview[]` |
 | GET | `/api/genres/{type}` | | `string[]` |
 | GET | `/api/top/{type}` | `?genres=Crime,Drama` (hasta 3, todos tienen que coincidir; nombres de IMDb, sin distinguir mayúsculas) `&min_votes=` (por defecto 25000 en películas y 10000 en series; piso 1000) `&skip=&limit=` (≤ 100, def. 50) | `TopRated`; 400 con un género desconocido o más de 3. Siempre 200 aunque no haya datos (`state`) |
+| GET | `/api/recommended/{type}` | `?limit=` (≤ 40, def. 20) `&like=tt…` ("Similares": parecidos a ese título) `&genres=Crime,Drama` (los del título, por si no está en los datos de IMDb) | `Recommended`; 400 con un id inválido. Siempre 200 aunque no haya datos (`state`) |
 | GET | `/api/search` | `?q=` | `{movies: MetaPreview[], series: MetaPreview[]}` |
 | GET | `/api/meta/{type}/{id}` | | `Meta` |
 | GET | `/api/streams/{type}/{id}` | id con episodio para series (`tt…:1:2`). `?caps=` opcional: `ClientCaps` en JSON o lista `h264,hevc,aac,mkv,…`; da bonus a lo que el cliente reproduce directo | `Stream[]` |
@@ -456,6 +469,32 @@ metahub por id de IMDb (`/poster/small/{id}/img`, los mismos de Cinemeta); los t
 caen en el póster tipográfico. Páginas cacheadas 1 h. En modo local está apagado (230 MB por
 semana en un celular no): responde `state: "unavailable"` y la UI lo pide al server de casa.
 `MYTHOS_IMDB=0` lo apaga también en el server.
+
+**Recomendaciones (`/api/recommended`)**: "Películas para vos" / "Series para vos" y el destacado
+del inicio, y "Similares" en la ficha (`backend/server/src/recommend.rs`, con el detalle).
+
+- **Gustos**, por cuenta (cada perfil de la tele es una cuenta), de lo que hay: no hay
+  calificaciones propias. Película vista ≥ 60 % pesa 1, entre 25 y 60 % 0,5; serie 1 por el primer
+  episodio visto (+0,15 por cada otro, hasta 2) o 0,5 con dos empezados; biblioteca 0,6 (+0,2 si
+  además la vio). Lo reciente pesa más (vida media 90 días, piso un cuarto). De ahí, cuánto de lo
+  visto tiene cada género y el año promedio, con géneros y años de los datos de IMDb del Top rated.
+  Películas y series juntas (el que ve series policiales recibe películas policiales).
+- **Candidatos**: rating ≥ 7.0 con los votos por defecto del Top rated (25 mil películas, 10 mil
+  series), sin nada que tenga progreso (visto, en "Seguir viendo" o sacado de ahí) ni esté en la
+  biblioteca. **Puntaje** = afinidad^1,5 × calidad × época: afinidad = cuánto más que lo normal ve
+  los géneros del candidato (así Drama, que está en todo, pesa poco); calidad = rating y, la mitad,
+  votos; época hasta +25 %. Animación y documental casi no vistos (< 10 %) valen un 30 %.
+- **Rotación**: de los 120 mejores puntajes salen 20 por muestreo ponderado sin reemplazo
+  (Efraimidis–Spirakis, peso = puntaje²) con semilla (usuario, tipo, bloque de 6 h): sin estado, la misma fila
+  dentro del bloque (volver al inicio no la baraja) y otra cada 6 h, con los mejores más seguido
+  pero no siempre. Ver algo nuevo cambia el perfil enseguida.
+- **Sin gustos** (menos de 3 títulos con señal): 20 al azar (misma semilla) de los 300 mejores del
+  Top rated de ese tipo, sin lo ya visto.
+- **Similares** (`like`): géneros en común (Jaccard ≥ 0,3; animación y documental solo con
+  animación y documental), calidad y época cerca del título; los gustos acomodan ±25 %.
+- Sin datos de IMDb (la primera bajada, modo local, `MYTHOS_IMDB=0`) responde el `state` sin
+  títulos y la UI usa lo de antes: el destacado vuelve a lo popular de Cinemeta, las filas "para
+  vos" no se muestran y "Similares" vuelve a lo popular del primer género.
 
 **Imágenes achicadas (`/api/media/img`)**: metahub da los fondos en 480 px (`background/small`) o
 1920 px (`background/medium`, ~800 KB y ~8 MB decodificado). La UI (`apps/web/src/lib/images.ts`)

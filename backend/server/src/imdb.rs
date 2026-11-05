@@ -22,7 +22,7 @@ use std::{
     path::{Path as FsPath, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc, OnceLock, RwLock,
     },
     time::Duration,
 };
@@ -69,13 +69,13 @@ pub const GENRES: [&str; 28] = [
     "Film-Noir", "Game-Show", "History", "Horror", "Music", "Musical", "Mystery", "News", "Reality-TV", "Romance", "Sci-Fi",
     "Short", "Sport", "Talk-Show", "Thriller", "War", "Western",
 ];
-const ADULT_BIT: u32 = 1 << 1;
+pub(crate) const ADULT_BIT: u32 = 1 << 1;
 
-fn genre_bit(name: &str) -> Option<u32> {
+pub(crate) fn genre_bit(name: &str) -> Option<u32> {
     GENRES.iter().position(|g| g.eq_ignore_ascii_case(name)).map(|i| 1 << i)
 }
 
-fn genre_names(mask: u32) -> Vec<String> {
+pub(crate) fn genre_names(mask: u32) -> Vec<String> {
     GENRES.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, g)| g.to_string()).collect()
 }
 
@@ -86,7 +86,15 @@ pub enum Kind {
 }
 
 impl Kind {
-    fn api(self) -> &'static str {
+    /// `"movie"` / `"series"` (ya validado con `check_type`).
+    pub fn from_api(s: &str) -> Self {
+        if s == "movie" {
+            Kind::Movie
+        } else {
+            Kind::Series
+        }
+    }
+    pub fn api(self) -> &'static str {
         match self {
             Kind::Movie => "movie",
             Kind::Series => "series",
@@ -126,7 +134,7 @@ impl Title {
         })
     }
 
-    fn preview(&self, kind: Kind) -> MetaPreview {
+    pub(crate) fn preview(&self, kind: Kind) -> MetaPreview {
         let id = &*self.id;
         MetaPreview {
             id: id.to_string(),
@@ -149,6 +157,8 @@ pub struct Dataset {
     pub series: Vec<Title>,
     /// unix s de la bajada.
     pub updated_at: i64,
+    /// id → (tipo, posición en su lista); se arma la primera vez que se busca (recommend.rs).
+    index: OnceLock<HashMap<Box<str>, (Kind, usize)>>,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -166,11 +176,33 @@ pub struct Page {
 }
 
 impl Dataset {
-    fn list(&self, kind: Kind) -> &[Title] {
+    pub(crate) fn list(&self, kind: Kind) -> &[Title] {
         match kind {
             Kind::Movie => &self.movies,
             Kind::Series => &self.series,
         }
+    }
+
+    /// Armado a mano (pruebas): ordena cada lista como al leerla.
+    #[cfg(test)]
+    pub(crate) fn from_lists(movies: Vec<Title>, series: Vec<Title>, updated_at: i64) -> Self {
+        let mut d = Dataset { movies, series, updated_at, ..Default::default() };
+        d.sort();
+        d
+    }
+
+    /// Un título por id (de cualquier tipo).
+    pub(crate) fn find(&self, id: &str) -> Option<(Kind, &Title)> {
+        let index = self.index.get_or_init(|| {
+            let mut m = HashMap::with_capacity(self.movies.len() + self.series.len());
+            for kind in [Kind::Movie, Kind::Series] {
+                for (i, t) in self.list(kind).iter().enumerate() {
+                    m.insert(t.id.clone(), (kind, i));
+                }
+            }
+            m
+        });
+        index.get(id).map(|&(kind, i)| (kind, &self.list(kind)[i]))
     }
 
     fn sort(&mut self) {
@@ -455,6 +487,18 @@ impl Imdb {
 
     fn current(&self) -> Option<Arc<Dataset>> {
         self.inner.data.read().unwrap().clone()
+    }
+
+    /// Los datos en uso, o por qué no hay (sin datos todavía, adelanta la primera bajada).
+    pub(crate) fn dataset(&self) -> Result<Arc<Dataset>, TopState> {
+        match self.state() {
+            TopState::Ready => self.current().ok_or(TopState::Preparing),
+            TopState::Preparing => {
+                self.inner.wake.notify_one();
+                Err(TopState::Preparing)
+            }
+            s => Err(s),
+        }
     }
 
     fn set(&self, d: Dataset) {

@@ -51,6 +51,8 @@ export default {
 
   "browse.home.continue": "Continue watching",
   "browse.home.newEpisodes": "New episodes",
+  "browse.home.forYouMovies": "Movies for you",
+  "browse.home.forYouSeries": "Series for you",
   "browse.home.popularMovies": "Popular movies",
   "browse.home.popularSeries": "Popular series",
   "browse.home.topMovies": "Top rated movies",

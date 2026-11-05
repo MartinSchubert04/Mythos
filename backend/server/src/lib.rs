@@ -27,6 +27,7 @@ mod images;
 mod imdb;
 mod local;
 mod metrics;
+mod recommend;
 mod score;
 mod state;
 mod streams;
@@ -263,6 +264,7 @@ fn app(state: AppState) -> Router {
         )
         .merge(cinemeta::routes())
         .merge(imdb::routes())
+        .merge(recommend::routes())
         .merge(streams::routes())
         .merge(subtitles::routes())
         .merge(user_data::routes())
