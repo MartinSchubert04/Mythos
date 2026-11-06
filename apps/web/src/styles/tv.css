@@ -4,15 +4,27 @@
    el mouse. Solo variables de themes.css; las transiciones son las de cada componente (con
    "reducir animaciones" duran 0, base.css). Lo propio de cada tarjeta esta en su componente. */
 
-/* El foco: un anillo grueso del acento, separado del borde. */
+/* El foco: un anillo grueso (--focus, el color del texto en TV: themes.css), separado del borde.
+   Es lo unico con un anillo de afuera: lo elegido se marca de otra forma (relleno o borde de
+   adentro), si no a 3 m no se sabe donde esta parado. */
 html[data-tv] :focus-visible {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+/* Los campos y los desplegables tenian solo el borde y un brillo suave del acento (en una paleta
+   clara, casi nada): el mismo anillo que el resto. */
+html[data-tv] :is(input, textarea):not(.inbox *):focus-visible,
+html[data-tv] .inbox:focus-within,
+html[data-tv] .select-trigger:focus-visible {
+  outline: 3px solid var(--focus) !important;
   outline-offset: 3px;
 }
 
-/* Lo enfocado no queda pegado al borde al desplazarse (deja ver el titulo de la fila). */
+/* Lo enfocado no queda pegado al borde al desplazarse: arriba deja ver el titulo de lo que sigue
+   y abajo un poco de lo que viene (pegado abajo, en Ajustes no se veia que habia mas). Las filas
+   de posters van siempre al mismo lugar (lib/spatial.svelte.ts). */
 html[data-tv] main * {
-  scroll-margin-block: 56px 28px;
+  scroll-margin-block: 56px 96px;
 }
 
 /* Sin barras de desplazamiento: no hay con que agarrarlas y a 3 m son una raya que distrae. */

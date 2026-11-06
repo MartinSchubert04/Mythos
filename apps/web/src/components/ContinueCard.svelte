@@ -185,12 +185,14 @@
       opacity: 1;
     }
   }
-  /* TV: el foco tiene que verse a 3 m (anillo del acento y un poco mas grande). */
+  /* TV: el foco tiene que verse a 3 m (anillo --focus y un poco mas grande). */
   :global(html[data-tv]) .cw:focus-visible .frame {
     transform: scale(1.06);
-    border-color: var(--accent);
     /* Solo el anillo (sin la sombra difusa: en la tele se dibuja por CPU y al doble). */
-    box-shadow: 0 0 0 3px var(--accent);
+    /* Con un hueco del fondo: pegado al poster, en uno oscuro con un tema claro no se veia. */
+    box-shadow:
+      0 0 0 3px var(--bg),
+      0 0 0 6px var(--focus);
   }
   :global([data-lite]) .cw {
     animation: none;

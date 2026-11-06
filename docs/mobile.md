@@ -178,6 +178,14 @@ de cada tema.
   A los costados solo se va a lo que esta a la misma altura; arriba/abajo no salta entre la barra
   lateral y el contenido; si no hay nada, la pagina se desplaza (y las filas que cargan al
   acercarse aparecen). La fila se corre sola para que lo enfocado se vea.
+- Filas de posters (inicio, busqueda, "Similares"): cada fila enfocada queda con su borde de
+  arriba siempre a la misma altura (`ROW_TOP`, 40 px) y arriba/abajo pasan a la fila de al lado en
+  orden, aunque todavia no haya cargado: la fila va a su lugar y el foco entra cuando llegan sus
+  tarjetas (manteniendo la flecha se sigue fila por fila). Abajo de la ultima no hace nada (el
+  inicio tiene espacio debajo para que la ultima tambien quede arriba). El titulo "ver todo" de
+  una fila no es una parada. Los esqueletos miden lo mismo que las tarjetas: al cargar no se corre
+  nada. Lo demas queda con margen (arriba 56 px, abajo 96 px) para ver que sigue; una seccion de
+  Settings que se abre va arriba de la pantalla.
 - Centro (Enter): aprieta lo enfocado. En un campo de texto abre el teclado del sistema (pasar por
   encima no lo abre: `inputmode="none"` mientras se navega). La busqueda lo abre sola al entrar
   desde la barra lateral; al volver con atras (de un resultado) no, y el foco vuelve a la tarjeta
@@ -204,8 +212,13 @@ de cada tema.
   de `postMessage` del reproductor de YouTube (`lib/trailer.ts`). Si el dueño no deja verlo fuera
   de YouTube (errores 101/150), un cartel propio en vez del "Mirar en YouTube" que no se puede
   apretar.
-- Foco: anillo de 3 px del acento separado del borde, y las tarjetas crecen un poco (con "reducir
-  animaciones", sin animar).
+- Foco: anillo de 3 px separado del borde, del color `--focus` (`styles/themes.css`): en TV el del
+  texto, que contrasta con el fondo en todas las paletas (el acento no: Poolsuite Sunset/Mint Pool
+  y Default Paper quedaban debajo de 3:1); en Poolsuite claro el acento (todo lleva borde negro);
+  encima del video y del destacado del inicio, blanco (`--on-media`). Las tarjetas crecen un poco
+  (con "reducir animaciones", sin animar) y su anillo va con un hueco del fondo. El anillo de
+  afuera es solo del foco: lo elegido (tema, paleta) se marca por dentro, si no a 3 m no se sabe
+  donde esta parado. En Athanor lo enfocado pierde la escalera (el `clip-path` recortaba el anillo).
 - Sin mouse: lo que en la PC aparece al pasar el mouse aparece con el foco (los botones de cada
   episodio: marcar visto y elegir stream). Sin barras de desplazamiento. No hay menú de copiar link
   / abrir en VLC en los streams.

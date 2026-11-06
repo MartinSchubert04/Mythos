@@ -192,7 +192,7 @@
   .pf:focus-visible .pic {
     transform: scale(1.08);
     box-shadow:
-      0 0 0 4px var(--accent),
+      0 0 0 4px var(--focus),
       0 16px 34px -14px var(--media-scrim);
   }
   .plus {

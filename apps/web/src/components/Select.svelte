@@ -219,7 +219,7 @@
     background: var(--hover) !important;
   }
   :global(.select-trigger.ghost:focus-visible) {
-    outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent) !important;
+    outline: 2px solid color-mix(in srgb, var(--focus) 70%, transparent) !important;
   }
   .select-trigger {
     display: flex;
@@ -240,8 +240,8 @@
   .select-trigger.open,
   .select-trigger:focus-visible {
     outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+    border-color: var(--focus);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
   }
   .select-trigger .label {
     flex: 1;

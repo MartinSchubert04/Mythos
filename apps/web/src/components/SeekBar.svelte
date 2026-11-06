@@ -229,14 +229,14 @@
   :global(html[data-tv]) .seek:focus-visible .rail {
     height: 10px;
     border-radius: 5px;
-    box-shadow: 0 0 0 2px var(--accent);
+    box-shadow: 0 0 0 2px var(--focus);
     transition: none;
   }
   :global(html[data-tv]) .seek:focus-visible .thumb {
     width: 22px;
     height: 22px;
     border-width: 3px;
-    box-shadow: 0 0 0 3px var(--accent);
+    box-shadow: 0 0 0 3px var(--focus);
     transition: none;
   }
   :global(html[data-tv]) .tip {

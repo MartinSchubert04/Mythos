@@ -105,8 +105,8 @@ textarea {
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
 }
 /* Casilla propia: cuadrado con tilde que aparece con un pequeño rebote. */
 input[type="checkbox"] {
@@ -134,7 +134,7 @@ select option {
 }
 
 :focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--focus) 70%, transparent);
   outline-offset: 2px;
 }
 
@@ -167,8 +167,8 @@ select option {
   padding-right: 0;
 }
 .inbox:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
   color: var(--text-2);
 }
 /* Campos metidos en un lugar que recorta (una fila, la barra de ruta): el foco solo
@@ -177,7 +177,7 @@ select option {
 .tight:focus-visible {
   outline: none !important;
   box-shadow: none !important;
-  border-color: var(--accent) !important;
+  border-color: var(--focus) !important;
 }
 .inbox.bare,
 .inbox.bare:focus-within {
@@ -693,7 +693,7 @@ kbd {
 button:focus-visible,
 a:focus-visible,
 [role="button"]:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 80%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--focus) 80%, transparent);
   outline-offset: 2px;
 }
 

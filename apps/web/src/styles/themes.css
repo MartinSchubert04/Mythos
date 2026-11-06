@@ -18,6 +18,10 @@
   --media-bg          fondo detras del video y de las imagenes que todavia no cargaron
   --on-media          texto y controles encima del video o de un fondo de pelicula
   --media-scrim       velo oscuro para leer texto encima de una imagen
+  --focus             el anillo de lo enfocado. En la PC, el acento. En TV (data-tv), el color del
+                      texto: contrasta con el fondo en todas las paletas (el acento no: Poolsuite
+                      Sunset/Mint Pool y Default Paper quedaban debajo de 3:1) y no se confunde con
+                      lo elegido, que va con el acento (el tema, la paleta, la pestaña actual)
   --win-close         el boton de cerrar la ventana al pasar el mouse (desktop)
 
   Athanor ademas cambia formas (pixel clay): eso esta en athanor.css.
@@ -32,6 +36,22 @@
   /* Boton de cerrar la ventana al pasar el mouse (el rojo de Windows). */
   --win-close: #c42b1c;
   --win-close-ink: #fff;
+  --focus: var(--accent);
+}
+/* TV: ver --focus arriba. (Una variable que usa otra se calcula en <html>, donde estan el tema y
+   la paleta: sigue a cada uno.) */
+:root[data-tv] {
+  --focus: var(--text);
+}
+/* Poolsuite claro: todo lleva borde negro y un anillo oscuro se confundia con esos bordes; el
+   acento (saturado) se distingue. Monochrome es oscuro: sigue con el texto. */
+:root[data-tv][data-theme="poolsuite"]:not([data-palette="mono"]) {
+  --focus: var(--accent);
+}
+/* Encima del video o de la imagen oscurecida del destacado del inicio, en cualquier tema: claro
+   (el del texto de un tema claro, oscuro, se perdia contra la sombra y los controles negros). */
+:root[data-tv] :is(.hero, .player-host) {
+  --focus: var(--on-media);
 }
 
 :root,

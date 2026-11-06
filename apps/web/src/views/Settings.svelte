@@ -517,6 +517,20 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
   }
+  /* TV: lo elegido (tema y paleta) se marca por dentro; el anillo de afuera es solo del foco
+     (styles/tv.css). Antes los dos eran el mismo anillo y no se sabia donde estaba parado. */
+  :global(html[data-tv]) .theme.on {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  :global(html[data-tv]) .pal.on {
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  :global(html[data-tv]) .theme:focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+  }
   .dots {
     display: inline-flex;
   }

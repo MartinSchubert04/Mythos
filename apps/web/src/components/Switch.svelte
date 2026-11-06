@@ -79,7 +79,7 @@
     transform: translate(calc(var(--tw) - var(--th) - 4px), -50%);
   }
   .switch-row:focus-visible .track {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 25%, transparent);
   }
   :global([data-theme="athanor"]) .track,
   :global([data-theme="athanor"]) .thumb {

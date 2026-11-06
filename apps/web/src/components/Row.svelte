@@ -162,9 +162,13 @@
   <section class="shelf" class:wide bind:this={root}>
     {#if href}
       <h2 class="row-title">
+        <!-- En la TV no es una parada: arriba/abajo van de fila en fila (lib/spatial.svelte.ts) y
+             con el titulo enfocable algunas filas pedian un toque de mas. -->
         <a
           class="see-all"
           href="#{href}"
+          data-nav-skip={tv.on ? "" : undefined}
+          tabindex={tv.on ? -1 : undefined}
           onclick={(e) => {
             if (e.ctrlKey || e.metaKey || e.button !== 0) return;
             e.preventDefault();
@@ -189,9 +193,16 @@
           <!-- Las filas lejanas, quietas: un brillo animado dentro de una fila que no se dibuja
                (content-visibility) obliga a recalcular estilos en cada cuadro. -->
           {#each Array(wide ? 4 : 8) as _, i (i)}
+            <!-- Del mismo alto que la tarjeta (PosterCard: poster, nombre y año; las anchas son solo el
+                 cuadro): al llegar los datos la fila no cambia de alto y lo de abajo no se corre. -->
             <div class="ph" class:still={!near && !!load}>
               <div class="skel frame"></div>
-              <div class="skel line" style="width: {55 + ((i * 17) % 35)}%"></div>
+              {#if !wide}
+                <div class="ph-meta">
+                  <span class="ph-name"><span class="skel line" style="width: {55 + ((i * 17) % 35)}%"></span></span>
+                  <span class="ph-year"><span class="skel line" style="width: 30%"></span></span>
+                </div>
+              {/if}
             </div>
           {/each}
         {/if}
@@ -270,7 +281,29 @@
     flex: none;
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 8px;
+  }
+  /* Las mismas medidas que .meta, .name y .year de PosterCard (1lh: el alto de una linea). */
+  .ph-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 0 2px;
+  }
+  .ph-name,
+  .ph-year {
+    display: flex;
+    align-items: center;
+    height: 1lh;
+  }
+  .ph-name {
+    font-size: 13px;
+  }
+  .ph-year {
+    font-size: 11.5px;
+  }
+  .ph-meta :global(.skel.line) {
+    height: 9px;
   }
   .still :global(.skel)::after {
     animation: none;

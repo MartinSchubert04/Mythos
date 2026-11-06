@@ -55,7 +55,10 @@ apps/web/src/lib/tizen.ts   lo de Samsung en la interfaz: nombres de teclas, tec
   entrar desde la barra lateral). "Done" pasa al campo siguiente y en el último envía. Atrás con el
   teclado abierto lo cierra y no cambia de vista; a veces el primer atrás se lo queda el teclado y
   hace falta un segundo. Mientras está abierto la página mide la mitad de alto (`resize`): nada que
-  esté abierto debe cerrarse por eso (el `Select` con buscador se cerraba: en TV ya no tiene).
+  esté abierto debe cerrarse por eso (el `Select` con buscador se cerraba: en TV ya no tiene). En un
+  campo de **contraseña** el teclado no respeta `inputmode="none"` y se abría con solo pasar por
+  encima (login, Real-Debrid): mientras se navega, los campos quedan además de solo lectura
+  (`lib/spatial.svelte.ts`, como la página local).
 - **Teclas multimedia mantenidas.** La tele no repite adelantar/retroceder (un keydown al apretar y
   un keyup al soltar, a diferencia de las flechas): el salto crece con un reloj hasta el keyup.
 - **Server caído.** Si el server no contesta ni rechaza (apagado, o la red descarta los paquetes),

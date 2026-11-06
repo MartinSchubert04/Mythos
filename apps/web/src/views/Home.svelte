@@ -118,6 +118,11 @@
   .home {
     padding: 0 0 40px;
   }
+  /* TV: la ultima fila tambien queda arriba, donde quedan todas (lib/spatial.svelte.ts, ROW_TOP):
+     espacio debajo para poder llevarla ahi. */
+  :global(html[data-tv]) .home {
+    padding-bottom: max(40px, calc(100vh - 320px));
+  }
   .rows {
     position: relative;
     margin-top: clamp(-70px, -7vh, -40px);

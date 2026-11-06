@@ -99,11 +99,124 @@ let lastMain: HTMLElement | null = null;
 /** Enfoca y lo trae a la vista (la fila se desplaza de costado; la pagina, lo justo). */
 export function focusEl(el: HTMLElement) {
   if (el.matches(TEXT)) quiet(el as HTMLInputElement);
+  cancelPending();
   el.focus({ preventScroll: true });
   // El destacado del inicio se ve entero: la pagina vuelve arriba de todo.
   const page = el.closest(".hero") ? el.closest<HTMLElement>(".page") : null;
-  if (page) page.scrollTo({ top: 0, behavior: scrollBehavior() });
-  else el.scrollIntoView({ behavior: scrollBehavior(), block: "nearest", inline: "nearest" });
+  if (page) return page.scrollTo({ top: 0, behavior: scrollBehavior() });
+  // Una tarjeta de una fila: la fila siempre en el mismo lugar (alignShelf) y la fila se corre de
+  // costado lo justo.
+  const shelf = tv.on ? el.closest<HTMLElement>(".shelf") : null;
+  const track = shelf ? el.closest<HTMLElement>(".track") : null;
+  if (shelf && track && alignShelf(shelf)) return revealInTrack(el, track);
+  el.scrollIntoView({ behavior: scrollBehavior(), block: "nearest", inline: "nearest" });
+}
+
+// ---- filas (el inicio, la busqueda, "Similares")
+//
+// En la TV cada fila enfocada queda con su borde de arriba a la misma altura de la pantalla
+// (ROW_TOP): antes, con scrollIntoView "nearest", quedaba arriba o abajo segun de donde se viniera
+// y la pagina parecia saltar. Arriba/abajo pasan a la fila de al lado en orden, aunque todavia no
+// tenga tarjetas (cargan recien al acercarse): se la trae a su lugar y el foco entra cuando llegan
+// (antes una fila sin cargar no tenia nada enfocable y se la salteaba).
+
+/** Donde queda la fila enfocada, en px desde arriba de la pagina. */
+const ROW_TOP = 40;
+
+/** Lleva la pagina para que la fila quede en ROW_TOP. `false` si no esta en una pagina. */
+function alignShelf(shelf: HTMLElement): boolean {
+  const page = shelf.closest<HTMLElement>(".page");
+  if (!page) return false;
+  const top = shelf.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop - ROW_TOP;
+  const want = Math.max(0, Math.min(top, page.scrollHeight - page.clientHeight));
+  if (Math.abs(page.scrollTop - want) > 1) page.scrollTo({ top: want, behavior: scrollBehavior() });
+  return true;
+}
+
+/** Solo de costado: la tarjeta a la vista dentro de su fila (con el margen de la fila). */
+function revealInTrack(el: HTMLElement, track: HTMLElement) {
+  const tr = track.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  const pad = parseFloat(getComputedStyle(track).scrollPaddingLeft) || 0;
+  let dx = 0;
+  if (r.left < tr.left + pad) dx = r.left - tr.left - pad;
+  else if (r.right > tr.right - pad) dx = r.right - (tr.right - pad);
+  if (dx) track.scrollBy({ left: dx, behavior: scrollBehavior() });
+}
+
+/** La fila de al lado (hermana en el mismo contenedor). */
+function sibShelf(shelf: Element, d: "up" | "down"): HTMLElement | null {
+  let s = d === "down" ? shelf.nextElementSibling : shelf.previousElementSibling;
+  while (s && !s.matches(".shelf")) s = d === "down" ? s.nextElementSibling : s.previousElementSibling;
+  return s as HTMLElement | null;
+}
+
+/** La fila a la que se esta yendo y todavia no tiene tarjetas (con la flecha apretada se sigue
+ *  desde ella, no desde la tarjeta que tiene el foco). */
+let pending: { shelf: HTMLElement; x: number; from: Element | null; timer: number } | null = null;
+function cancelPending() {
+  if (pending) clearInterval(pending.timer);
+  pending = null;
+}
+
+/** Entra a la fila: a la tarjeta mas cerca de `x` (el centro de la de antes). Sin tarjetas
+ *  todavia, la fila va a su lugar y se espera (hasta 8 s); si se queda vacia y desaparece, la
+ *  siguiente. */
+function enterShelf(shelf: HTMLElement, x: number, d: "up" | "down"): boolean {
+  const cards = candidates(shelf.querySelector<HTMLElement>(".track") ?? shelf).filter(usable);
+  if (cards.length) {
+    let best = cards[0];
+    let bestD = Infinity;
+    for (const c of cards) {
+      const r = c.getBoundingClientRect();
+      const dist = Math.abs(r.left + r.width / 2 - x);
+      if (dist < bestD) [best, bestD] = [c, dist];
+    }
+    focusEl(best);
+    return true;
+  }
+  if (!alignShelf(shelf)) return false;
+  cancelPending();
+  const from = document.activeElement;
+  const after = sibShelf(shelf, d);
+  const until = performance.now() + 8000;
+  const p = {
+    shelf,
+    x,
+    from,
+    timer: window.setInterval(() => {
+      // La persona se movio a otro lado: no se le roba el foco.
+      if (pending !== p || document.activeElement !== from) return cancelPending();
+      if (!shelf.isConnected) {
+        cancelPending();
+        if (after?.isConnected) enterShelf(after, x, d);
+        return;
+      }
+      if (candidates(shelf).some(usable)) {
+        cancelPending();
+        enterShelf(shelf, x, d);
+      } else if (performance.now() > until) cancelPending();
+    }, 100),
+  };
+  pending = p;
+  return true;
+}
+
+/** Arriba/abajo desde una fila (TV): la fila de al lado. `null`: no aplica (lo de siempre). */
+function shelfMove(cur: HTMLElement, d: Dir, root: HTMLElement): boolean | null {
+  if (!tv.on || (d !== "up" && d !== "down")) return null;
+  // Con la flecha apretada sobre filas que no cargaron: desde la ultima a la que se fue.
+  const from = pending?.shelf.isConnected && document.activeElement === pending.from ? pending.shelf : cur.closest<HTMLElement>(".shelf");
+  if (!from || !root.contains(from)) return null;
+  // La X de "Seguir viendo" (data-nav-inner): abajo vuelve a su tarjeta.
+  if (d === "down" && from === cur.closest(".shelf") && cur.matches("[data-nav-inner]")) return null;
+  const next = sibShelf(from, d);
+  const r = cur.getBoundingClientRect();
+  const x = from === cur.closest(".shelf") ? r.left + r.width / 2 : (pending?.x ?? r.left + r.width / 2);
+  if (next) return enterShelf(next, x, d);
+  // (antes la pagina se corria media pantalla y la fila quedaba cortada arriba). Arriba de la
+  // primera: lo de siempre (el destacado).
+  return d === "down" ? true : null;
 }
 
 /** Mueve el foco para ese lado. `false` si no habia nada (y no se movio). */
@@ -121,6 +234,8 @@ export function moveFocus(d: Dir, root: HTMLElement = scope()): boolean {
     const inner = cur.querySelector<HTMLElement>("[data-nav-inner]");
     if (inner && hasBox(inner) && usable(inner)) return focusEl(inner), true;
   }
+  const byShelf = shelfMove(cur, d, root);
+  if (byShelf !== null) return byShelf;
   const a = cur.getBoundingClientRect();
   const side = d === "left" || d === "right";
   // A los costados dentro de una fila: solo sus tarjetas (en una tele, medir todo lo enfocable
@@ -143,6 +258,13 @@ export function moveFocus(d: Dir, root: HTMLElement = scope()): boolean {
   // Del contenido a la barra lateral: siempre a la seccion activa (no a lo que quede a la altura).
   const activeNav = () => document.querySelector<HTMLElement>(".sidebar .nav.on") ?? document.querySelector<HTMLElement>(".sidebar .nav");
   if (next && d === "left" && cur.closest("main") && next.closest(".sidebar")) next = activeNav() ?? next;
+  // Abajo no hay nada enfocable pero si una fila que todavia no cargo (en la ficha, "Similares"
+  // debajo de los episodios): a esa fila, que espera sus tarjetas (antes la pagina se corria y
+  // hacia falta otra flecha).
+  if (!next && d === "down" && tv.on && cur.closest("main")) {
+    const below = [...root.querySelectorAll<HTMLElement>("main .shelf")].find((sh) => sh.getBoundingClientRect().top >= a.bottom - 1);
+    if (below) return enterShelf(below, a.left + a.width / 2, "down");
+  }
   if (!next) {
     // Entre la barra lateral y el contenido aunque no haya nada a la misma altura: a la seccion
     // activa de la barra, o a lo principal del contenido.
@@ -202,6 +324,13 @@ function quiet(el: HTMLInputElement) {
   if (typing.has(el) || el.dataset.navMode !== undefined) return;
   el.dataset.navMode = el.getAttribute("inputmode") ?? "";
   el.setAttribute("inputmode", "none");
+  // Ademas de solo lectura: en un campo de contraseña el teclado de Samsung no respeta
+  // inputmode="none" y se abria con solo pasar por encima (el login, Real-Debrid), y despues las
+  // flechas quedaban en el teclado. (La pagina local de la app de Tizen hace lo mismo.)
+  if (!el.readOnly) {
+    el.readOnly = true;
+    el.dataset.navRo = "";
+  }
   el.addEventListener("blur", () => restore(el), { once: true });
 }
 function restore(el: HTMLElement) {
@@ -210,6 +339,10 @@ function restore(el: HTMLElement) {
   delete el.dataset.navMode;
   if (m) el.setAttribute("inputmode", m);
   else el.removeAttribute("inputmode");
+  if (el.dataset.navRo !== undefined) {
+    delete el.dataset.navRo;
+    (el as HTMLInputElement).readOnly = false;
+  }
   typing.delete(el);
 }
 /** Centro sobre un campo: ahora si, el teclado (blur + focus dentro del gesto del usuario). */
@@ -331,7 +464,8 @@ function onKey(e: KeyboardEvent) {
     if (!form) return;
     const fields = [...form.querySelectorAll<HTMLElement>(TEXT)].filter(hasBox);
     const next = fields[fields.indexOf(t) + 1];
-    if (next) focusEl(next);
+    // Al siguiente con el teclado abierto (enfocarlo "callado" lo dejaba de solo lectura).
+    if (next) openKeyboard(next as HTMLInputElement);
     else form.requestSubmit();
     return;
   }

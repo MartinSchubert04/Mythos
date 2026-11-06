@@ -166,8 +166,8 @@
 [data-theme="athanor"] input:focus-visible,
 [data-theme="athanor"] select:focus-visible,
 [data-theme="athanor"] textarea:focus-visible {
-  border-color: var(--accent);
-  outline: 2px solid var(--accent);
+  border-color: var(--focus);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 /* Mismo doble marco para los buscadores con icono, en el contenedor y no en el input. */
@@ -177,9 +177,9 @@
   border-radius: 0;
 }
 [data-theme="athanor"] .inbox:focus-within {
-  border-color: var(--accent);
+  border-color: var(--focus);
   box-shadow: none;
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 [data-theme="athanor"] .inbox.bare,
@@ -265,4 +265,11 @@
 /* Los botones "de vidrio" (sobre imagenes) en Athanor son de clay: el texto va en el color del tema. */
 [data-theme="athanor"] .btn.glass {
   color: var(--text);
+}
+
+/* TV: lo enfocado sin la escalera. El clip-path tambien recortaba el anillo del foco
+   (styles/tv.css, y el de los posters) y en Athanor no se veia donde estaba parado. */
+html[data-tv][data-theme="athanor"] .card:focus-visible,
+html[data-tv][data-theme="athanor"] :focus-visible .poster-frame {
+  clip-path: none;
 }

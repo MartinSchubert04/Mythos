@@ -19,7 +19,9 @@
 <script lang="ts">
   import { ChevronDown } from "@lucide/svelte";
   import type { Component, Snippet } from "svelte";
-  import { expand } from "../lib/motion";
+  import { tick } from "svelte";
+  import { expand, scrollBehavior } from "../lib/motion";
+  import { tv } from "../lib/tv.svelte";
 
   let {
     id,
@@ -31,14 +33,22 @@
 
   const open = $derived(opened.ids.includes(id));
 
-  function toggle() {
+  let head = $state<HTMLButtonElement>();
+  async function toggle() {
+    const opening = !open;
     opened.ids = open ? opened.ids.filter((x) => x !== id) : [...opened.ids, id];
     persist();
+    // TV: abierta, arriba de la pantalla, asi se ve lo que tiene (abajo de todo quedaba el
+    // encabezado cortado contra el borde y el contenido fuera de la pantalla).
+    if (opening && tv.on) {
+      await tick();
+      head?.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
+    }
   }
 </script>
 
 <section class="sec card" class:open>
-  <button class="head" type="button" aria-expanded={open} onclick={toggle}>
+  <button class="head" type="button" aria-expanded={open} onclick={toggle} bind:this={head}>
     <span class="ico"><Icon size={16} /></span>
     <span class="txt">
       <span class="title">{title}</span>

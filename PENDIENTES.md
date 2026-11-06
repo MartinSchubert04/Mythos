@@ -20,10 +20,9 @@ caído, página local en español).
 
 ## Recomendaciones "para vos" (2026-11-05)
 
-Probado con el server local y los datos reales de IMDb (las filas y "Similares" por curl, y
-`recommend::tests::real_data`), pero no con la interfaz andando.
+En la tele quedó confirmado el 2026-11-06 con el server en 0.19.0: el destacado sale de lo
+recomendado (con descripción y logo), "Películas para vos" y "Series para vos" arriba de
+"Populares", "Similares" en la ficha, y el inicio no tarda más que con la 0.18.2 (los pedidos de
+"para vos" contestan en ~25 ms; el trabajo pesado de la tele al abrir es el mismo en las dos).
 
-- [ ] **Ver el inicio en la PC y en la tele**: el destacado con lo recomendado (descripción y logo
-      de los 4 primeros, que el server pide a Cinemeta), "Películas para vos" / "Series para vos"
-      arriba de "Populares" y "Similares" en la ficha. En la tele, que la home no tarde más que antes
-      (el pedido espera hasta 2 s a Cinemeta la primera vez).
+- [ ] **Verlo en la PC**: el inicio y "Similares" con la interfaz de escritorio.
