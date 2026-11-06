@@ -222,11 +222,22 @@ type Progress = {
 };
 
 type Settings = {              // por usuario, la UI guarda lo que quiera adentro de `ui`
-  ui: Record<string, unknown>; // theme, palette, idioma de subtítulos preferido, autoplay...
+  ui: Record<string, unknown>; // tema, paletas, idioma, subtítulos, autoplay... (ver abajo)
   has_rd_key: boolean;         // solo lectura
   preferred_quality?: "2160p" | "1080p" | "720p";
   max_size_gb?: number;
 };
+
+// Lo que guarda hoy la UI en `ui` (el server no lo valida: es un JSON de hasta 64 KB). Todo es
+// del usuario; lo que depende del aparato (volumen, modo TV, modo liviano) no viaja.
+//   lang: "es" | "en"             idioma de la interfaz
+//   theme: string                 "neovim", "warp"... (apps/web/src/lib/themes.svelte.ts)
+//   palettes: Record<theme, id>   la paleta elegida para cada tema
+//   glass: {on, opacity}          vidrio esmerilado de desktop (opacity 0.25–1)
+//   subLang, subAlways, subSize, subBg, subPos, audioLang, autoplayNext, hideSpoilers,
+//   reduceMotion                  (apps/web/src/lib/prefs.svelte.ts, UiPrefs)
+// El tema y el vidrio se mandan solo cuando cambian (el resto, en cada PUT). Si faltan, la UI
+// le pone al usuario los del dispositivo y los guarda (migración; el vidrio, solo desde desktop).
 
 type SessionInfo = {           // una sesión abierta del usuario (nunca el token)
   id: number;

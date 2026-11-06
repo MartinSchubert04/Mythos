@@ -6,7 +6,9 @@
 // - Se guardan en el almacenamiento de esta pagina (localStorage): server, usuario, token y
 //   avatar. El token es el mismo que ya se guardaba para la sesion activa (`mythos.token`).
 // - Cambiar de perfil pone su token (y su server) y recarga la pagina: ninguna cache ni vista
-//   queda con datos de la cuenta anterior.
+//   queda con datos de la cuenta anterior. Antes de recargar se aplica la copia de sus
+//   preferencias (`ui`: tema, idioma, subtitulos; views/Profiles.svelte con `previewUi` de
+//   prefs.svelte.ts), asi la pagina nueva ya pinta con su tema y no con el del perfil anterior.
 // - Quitar un perfil cierra su sesion en el server. Si el server la revoco (Settings → Signed-in
 //   devices de otro aparato, o el admin), el perfil se borra solo al recibir el 401.
 // - Solo en TV. En el celular, la PC y la web "Switch account" sigue siendo salir y entrar (con el
@@ -26,6 +28,9 @@ export type Profile = {
   username: string;
   token: string;
   avatarId: number | null;
+  /** Lo ultimo que se supo de sus preferencias (Settings.ui): para pintar con su tema al elegirlo,
+   *  antes de que conteste el server. Falta en los perfiles guardados antes de que existiera. */
+  ui?: Record<string, unknown>;
 };
 
 const KEY = "mythos.profiles";
@@ -65,7 +70,7 @@ export function rememberProfile(user: User, token: string) {
   const server = remoteBase();
   const p: Profile = { server, userId: user.id, username: user.username, token, avatarId: user.avatar_id ?? null };
   const i = profiles.list.findIndex((x) => same(x, server, user.id));
-  if (i >= 0) profiles.list[i] = p;
+  if (i >= 0) profiles.list[i] = { ...p, ui: profiles.list[i].ui };
   else profiles.list.push(p);
   activeToken = token;
   persist();
@@ -78,6 +83,14 @@ export function syncProfile(user: User) {
   if (!p) return;
   p.username = user.username;
   p.avatarId = user.avatar_id ?? null;
+  persist();
+}
+
+/** Las preferencias del perfil activo (al llegar del server o al cambiarlas aca). Solo en TV. */
+export function rememberUi(ui: Record<string, unknown>) {
+  const p = currentProfile();
+  if (!p || JSON.stringify(p.ui) === JSON.stringify(ui)) return;
+  p.ui = ui;
   persist();
 }
 

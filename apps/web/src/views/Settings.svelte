@@ -16,7 +16,7 @@
   import { isAndroid, isDesktop, isRemoteShell, pickServer, remoteBase } from "../lib/platform";
   import { isTizen } from "../lib/tizen";
   import ServerAddresses from "../components/ServerAddresses.svelte";
-  import { LANGS, prefs, savePrefs, setUiLang } from "../lib/prefs.svelte";
+  import { LANGS, prefs, saveLook, savePrefs, setTheme, setUiLang } from "../lib/prefs.svelte";
   import { i18n, t, UI_LANGS } from "../lib/i18n.svelte";
   import { ALL_KEYS as KEYS } from "../lib/shortcuts";
   import { AUDIO_LANGS } from "../lib/streamlang";
@@ -26,27 +26,24 @@
   import { setTvPref, tv } from "../lib/tv.svelte";
   import { MIN_OPACITY, glass, setGlass } from "../lib/glass.svelte";
   import { checkUpdate, installUpdate, leaveServer, remoteUi, setRemoteUi, shell } from "../lib/shell.svelte";
-  import { THEMES, applyTheme, currentPalette, currentTheme, palettesOf, type ThemeId } from "../lib/themes";
+  import { THEMES, currentPalette, look, palettesOf, type ThemeId } from "../lib/themes.svelte";
   import { attempt, toast } from "../lib/toast.svelte";
   import type { PreferredQuality } from "../lib/types";
 
-  let theme = $state<ThemeId>(currentTheme());
-  let palette = $state(currentPalette(currentTheme()));
+  // El tema es de este usuario (lib/themes.svelte.ts): va en sus preferencias del server. Se lee
+  // de `look` (reactivo), asi sigue al usuario si cambia con la pantalla abierta.
+  const theme = $derived(look.theme);
+  const palette = $derived(currentPalette(look.theme));
   // La muestra de cada tema usa la paleta que tiene elegida.
   const swatchOf = (th: ThemeId) => palettesOf(th).find((p) => p.id === currentPalette(th))?.swatch ?? ["#000", "#000", "#000"];
   const themeName = $derived(THEMES.find((th) => th.id === theme)?.name ?? "");
   const paletteName = $derived(palettesOf(theme).find((p) => p.id === palette)?.name ?? "");
 
   function pickTheme(th: ThemeId) {
-    theme = th;
-    palette = currentPalette(th);
-    applyTheme(th, palette);
-    savePrefs();
+    setTheme(th);
   }
   function pickPalette(p: string) {
-    palette = p;
-    applyTheme(theme, p);
-    savePrefs();
+    setTheme(theme, p);
   }
 
   // ---- reproduccion (van al server como campos propios de Settings)
@@ -207,7 +204,7 @@
         </span>
       {/if}
       {#if isDesktop}
-        <Switch checked={glass.on} onchange={(v) => setGlass(v)}>{t("account.look.glass")}</Switch>
+        <Switch checked={glass.on} onchange={(v) => (setGlass(v), saveLook("glass"))}>{t("account.look.glass")}</Switch>
         {#if glass.on}
           <label class="field glass-op">
             <span class="glass-name">{t("account.look.opacity")} <span class="faint">{Math.round(glass.opacity * 100)}%</span></span>
@@ -219,7 +216,7 @@
               value={glass.opacity}
               style="--v: {((glass.opacity - MIN_OPACITY) / (1 - MIN_OPACITY)) * 100}%"
               oninput={(e) => setGlass(true, +e.currentTarget.value, false)}
-              onchange={(e) => setGlass(true, +e.currentTarget.value)}
+              onchange={(e) => (setGlass(true, +e.currentTarget.value), saveLook("glass"))}
             />
             <span class="hint">{t("account.look.opacityHint")}</span>
           </label>

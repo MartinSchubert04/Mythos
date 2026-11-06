@@ -26,3 +26,14 @@ recomendado (con descripción y logo), "Películas para vos" y "Series para vos"
 "para vos" contestan en ~25 ms; el trabajo pesado de la tele al abrir es el mismo en las dos).
 
 - [ ] **Verlo en la PC**: el inicio y "Similares" con la interfaz de escritorio.
+
+## Tema por usuario (2026-11-06)
+
+Probado en la PC (server de prueba + `npm run dev`, Chrome sin ventana): migracion, cada usuario
+con su tema, cambio de cuenta sin recargar, sin parpadeo al abrir y perfiles de la TV con `?tv=1`.
+
+- [ ] **En la tele**: con dos perfiles de temas distintos, cambiar en "¿Quién está viendo?" y ver
+      que la pagina nueva arranca ya con el tema del elegido (la primera vez despues de actualizar
+      puede verse el anterior un instante: el perfil todavia no tiene la copia de sus preferencias).
+- [ ] **Vidrio en desktop**: prenderlo, cambiar la opacidad, salir y entrar con otra cuenta (cada
+      una con el suyo); y que un usuario sin `ui.glass` herede el de la PC.

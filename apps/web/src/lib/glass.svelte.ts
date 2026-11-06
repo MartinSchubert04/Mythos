@@ -1,6 +1,11 @@
 // Desktop: ventana de vidrio esmerilado, como Haze. Windows desenfoca lo que hay detras de la
 // ventana (efecto Acrylic) y encima va el fondo del tema con la opacidad elegida, asi funciona con
-// todos los temas y paletas. Es de cada PC (localStorage), no se sincroniza.
+// todos los temas y paletas.
+//
+// Va con el tema: es de cada usuario (`Settings.ui.glass = {on, opacity}`, lib/prefs.svelte.ts).
+// En localStorage queda la copia del ultimo usuario de esta PC, para arrancar con la ventana ya
+// como estaba. Solo hace algo en desktop; en el resto se guarda pero no se aplica (y nunca se
+// sube desde ahi: ver `saveLook` en prefs.svelte.ts).
 //
 // El fondo de los temas (--bg, --bg-image, --sidebar) no se toca en themes.css: con el vidrio
 // prendido se leen los colores del tema actual y se pisan en <html> con la mezcla
@@ -22,6 +27,15 @@ export function setGlass(on: boolean, opacity = glass.opacity, persist = true) {
   glass.opacity = Math.min(1, Math.max(MIN_OPACITY, opacity));
   if (persist) write(KEY, JSON.stringify({ on: glass.on, opacity: glass.opacity }));
   apply();
+}
+
+/** El vidrio de un usuario (Settings.ui.glass). Devuelve si habia uno valido guardado. */
+export function applyRemoteGlass(g: unknown): boolean {
+  if (!g || typeof g !== "object") return false;
+  const { on, opacity } = g as Record<string, unknown>;
+  if (typeof on !== "boolean" || typeof opacity !== "number" || !Number.isFinite(opacity)) return false;
+  setGlass(on, opacity);
+  return true;
 }
 
 const VARS = ["--bg", "--sidebar"] as const;

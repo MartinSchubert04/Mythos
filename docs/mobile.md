@@ -248,7 +248,11 @@ lo vuelve a abrir (atras lo cierra sin cambiar de perfil). "Add profile" suma ot
 profiles" abre cada perfil para elegirle el avatar (con la sesion de ese perfil, sin entrar) o
 quitarlo (cierra su sesion en el server). Si alguien revoca esa sesion desde Settings → Signed-in
 devices o el admin desde Admin → Users → "Signed-in devices", el perfil se borra solo y vuelve el
-selector. Cambiar de perfil recarga la pagina (ninguna cache queda de la cuenta anterior). Solo
+selector. Cambiar de perfil recarga la pagina (ninguna cache queda de la cuenta anterior). El
+tema, el idioma y los subtitulos son de cada cuenta: el perfil guarda la ultima copia de sus
+preferencias y, al elegirlo, se aplican antes de recargar (la pagina arranca ya con su tema;
+despues llegan las del server). "Who's watching?" y el login se ven con el tema del ultimo perfil
+que entro (`lib/prefs.svelte.ts`). Solo
 en TV: en el celular y la PC "Switch account" sigue siendo salir y entrar.
 
 **WebView minimo: Chromium 111.** La interfaz usa `color-mix()` en casi todos los colores (111),

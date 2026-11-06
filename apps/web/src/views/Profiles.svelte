@@ -13,6 +13,7 @@
   import { ask } from "../lib/confirm.svelte";
   import { t } from "../lib/i18n.svelte";
   import { rise } from "../lib/motion";
+  import { previewUi } from "../lib/prefs.svelte";
   import { profileBase, profiles, removeProfile, switchTo, type Profile } from "../lib/profiles.svelte";
   import { focusEl } from "../lib/spatial.svelte";
   import { session } from "../lib/session.svelte";
@@ -58,7 +59,11 @@
   });
 
   function choose(p: Profile) {
-    if (!managing) return switchTo(p);
+    if (!managing) {
+      // Su tema (y su idioma) enseguida, antes de recargar: la pagina nueva arranca ya con eso.
+      if (p.ui && p.token !== getToken()) previewUi(p.ui);
+      return switchTo(p);
+    }
     editing = p;
   }
 

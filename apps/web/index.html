@@ -142,11 +142,12 @@
       })();
     </script>
     <script>
-      // El tema se aplica antes de pintar (sin parpadeo). Mismas claves que src/lib/themes.ts.
+      // El tema se aplica antes de pintar (sin parpadeo). Mismas claves que src/lib/themes.svelte.ts:
+      // es la copia del ultimo usuario que entro en este aparato (el tema es por usuario).
       // Modo TV (lib/tv.svelte.ts, guardado del arranque anterior): la escala de 10 pies desde el
       // primer cuadro.
       try {
-        var t = localStorage.getItem("mythos.theme") || "neovim"; // DEFAULT_THEME de src/lib/themes.ts
+        var t = localStorage.getItem("mythos.theme") || "neovim"; // DEFAULT_THEME de src/lib/themes.svelte.ts
         var d = document.documentElement;
         var lang = localStorage.getItem("mythos.lang"); // lib/i18n.svelte.ts (por defecto, español)
         if (lang === "en" || lang === "es") d.lang = lang;

@@ -1,11 +1,32 @@
 // Preferencias de la interfaz. Se guardan en local (para que apliquen al instante al abrir) y en
-// el server, dentro de Settings.ui, junto con el tema y las paletas. Volumen y barra lateral son
-// solo de este dispositivo. El idioma de la interfaz vive en lib/i18n.svelte.ts y viaja aca como
-// `ui.lang`.
+// el server, dentro de Settings.ui. El idioma de la interfaz vive en lib/i18n.svelte.ts y viaja
+// aca como `ui.lang`.
+//
+// Por usuario (viajan al server y se aplican al entrar o al cambiar de perfil): las de `SYNCED`,
+// el idioma, el tema y sus paletas (lib/themes.svelte.ts) y el vidrio de desktop
+// (lib/glass.svelte.ts). "Reducir animaciones" tambien: es de la persona (marearse con el
+// movimiento no depende del aparato).
+//
+// Por dispositivo (nunca viajan): volumen, barra lateral, el aviso del modo local, el modo TV
+// (lib/tv.svelte.ts: lo decide el aparato y cambia la escala), el modo liviano (lib/perf.ts: lo
+// decide la potencia del equipo) y las secciones abiertas de Settings. Lo que el aparato puede o no
+// puede hacer no tiene que seguir a la cuenta a otro aparato.
+//
+// La copia local de lo que es por usuario es la del ultimo que entro en este dispositivo: con ella
+// se pinta al abrir, antes de que contesten las preferencias, y se ve en el login y en "¿Quién
+// está viendo?" (al cerrar sesion queda la del que salio). En la TV cada perfil guarda ademas la
+// suya (lib/profiles.svelte.ts, `ui`), y al elegirlo se aplica antes de recargar.
+//
+// Migracion (usuarios de antes de que el tema fuera por usuario, o recien creados): si sus
+// preferencias no traen tema, se queda el de este dispositivo y se le guarda; igual el vidrio, pero
+// solo en desktop (en otro aparato no hay vidrio que heredar).
 import { api } from "./api";
+import { applyRemoteGlass, glass } from "./glass.svelte";
 import { i18n, isLang, setLang, t, type Key, type Lang } from "./i18n.svelte";
+import { isDesktop } from "./platform";
+import { rememberUi } from "./profiles.svelte";
 import { readJson, write } from "./store";
-import { allPalettes, applyRemoteTheme, currentTheme } from "./themes";
+import { allPalettes, applyRemoteTheme, applyTheme, currentTheme, type ThemeId } from "./themes.svelte";
 
 export type UiPrefs = {
   /** Idioma de subtitulos preferido (ISO 639-2, "eng", "spa"...). Vacio = sin subtitulos. */
@@ -60,35 +81,84 @@ function applyMotion() {
 }
 applyMotion();
 
+/** Lo de la apariencia que cambio en este dispositivo y falta subir. El tema y el vidrio viajan
+ *  solo cuando cambian (o en la migracion), nunca de arrastre con otra preferencia: asi, al
+ *  cambiar de cuenta, el tema que quedo en el aparato no se le pega al usuario nuevo antes de que
+ *  lleguen sus preferencias. */
+const pending = new Set<"theme" | "glass">();
+
 let pushTimer = 0;
 /** Guarda en local enseguida y en el server un momento despues (agrupa cambios seguidos). */
 export function savePrefs(sync = true) {
   write(KEY, JSON.stringify(prefs));
   applyMotion();
   if (!sync) return;
+  rememberUi(snapshot());
   clearTimeout(pushTimer);
   pushTimer = window.setTimeout(() => {
-    api.saveSettings({ ui: uiPayload() }).catch(() => {});
+    const sent = [...pending];
+    pending.clear();
+    api.saveSettings({ ui: uiPayload(sent) }).catch(() => {
+      // Se reintenta con el proximo cambio.
+      for (const k of sent) pending.add(k);
+    });
   }, 600);
 }
 
-function uiPayload(): Record<string, unknown> {
-  const out: Record<string, unknown> = { theme: currentTheme(), palettes: allPalettes() };
+/** Cambio el tema, la paleta (`"theme"`) o el vidrio (`"glass"`): a guardar en el server. */
+export function saveLook(what: "theme" | "glass") {
+  if (what === "glass" && !isDesktop) return;
+  pending.add(what);
+  savePrefs();
+}
+
+/** Elige tema (y paleta) para este usuario. */
+export function setTheme(th: ThemeId, palette?: string) {
+  applyTheme(th, palette);
+  saveLook("theme");
+}
+
+function uiPayload(look: readonly ("theme" | "glass")[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   for (const k of SYNCED) out[k] = prefs[k];
   out.lang = i18n.lang;
+  if (look.includes("theme")) {
+    out.theme = currentTheme();
+    out.palettes = allPalettes();
+  }
+  if (look.includes("glass")) out.glass = { on: glass.on, opacity: glass.opacity };
   return out;
 }
 
-/** Lo que vino del server al entrar pisa lo local. */
+/** Todo lo que es por usuario, como esta ahora (la copia de cada perfil en la TV). */
+const snapshot = () => uiPayload(["theme", "glass"]);
+
+/** Lo que vino del server al entrar pisa lo local. Sin tema (o, en desktop, sin vidrio) guardado:
+ *  la migracion de arriba. */
 export function applyRemoteUi(ui: Record<string, unknown>) {
+  applyUi(ui);
+  if (!applyRemoteTheme(ui.theme, ui.palettes)) pending.add("theme");
+  if (!applyRemoteGlass(ui.glass) && isDesktop) pending.add("glass");
+  rememberUi(snapshot());
+  savePrefs(pending.size > 0);
+}
+
+/** TV, al elegir otro perfil: lo ultimo que se supo de sus preferencias, para que la pagina
+ *  arranque ya con su tema e idioma (despues llegan las del server y pisan esto). No sube nada. */
+export function previewUi(ui: Record<string, unknown>) {
+  applyUi(ui);
+  applyRemoteTheme(ui.theme, ui.palettes);
+  applyRemoteGlass(ui.glass);
+  savePrefs(false);
+}
+
+function applyUi(ui: Record<string, unknown>) {
   const d = defaults();
   for (const k of SYNCED) {
     const v = ui[k];
     if (v !== undefined && typeof v === typeof d[k]) (prefs as unknown as Record<string, unknown>)[k] = v;
   }
-  if (ui.theme) applyRemoteTheme(ui.theme, ui.palettes);
   if (isLang(ui.lang)) setLang(ui.lang);
-  savePrefs(false);
 }
 
 /** Cambia el idioma de la interfaz y lo guarda (local y en el server). */
