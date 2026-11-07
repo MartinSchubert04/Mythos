@@ -112,6 +112,17 @@ Android: `docs/mobile.md`).
   Las rutas de media aceptan el token también en `?t=` porque `<video>` no manda headers.
 - Las claves de Real-Debrid y las contraseñas nunca vuelven en ninguna respuesta.
 - Docs y comentarios en español.
+- **Espacio en disco de Rust.** En noviembre de 2026 las carpetas `target/` sumaban ~130 GB (backend
+  88, desktop 20, mobile 20) y llenaron el C:. Hay tres `target/` separados (`backend/`,
+  `apps/desktop/src-tauri/`, `apps/mobile/src-tauri/`) y cada uno compila todas las dependencias de
+  nuevo. Para que no vuelva a pasar:
+  - `--release` solo para publicar o probar el instalador/APK; después, `cargo clean --release` en
+    esa carpeta.
+  - En un worktree (`.claude/worktrees/`) compilar con `CARGO_TARGET_DIR` apuntando al `target/`
+    del repo principal (p. ej. `$env:CARGO_TARGET_DIR="<repo>\backend\target"`), no crear uno
+    nuevo. Al terminar la tarea, `git worktree remove` del worktree.
+  - Al terminar una tarea que compiló, mirar el tamaño de los `target/`: si alguno pasa de 20 GB,
+    `cargo clean` ahí y avisar.
 - **Interfaz en español por defecto, inglés como opción** (Settings → Appearance, "Idioma /
   Language"; viaja con las preferencias del usuario). Ningún texto visible fijo en un componente:
   cada texto es una clave en `apps/web/src/lib/i18n/es/<zona>.ts` (common, browse, player,
