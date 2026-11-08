@@ -103,6 +103,10 @@ Android: `docs/mobile.md`).
 
 ## Reglas
 
+- **Probar sin molestar.** Todo video que se reproduzca en una prueba va muteado desde el arranque.
+  Nunca cerrar la app instalada de Mythos (puede estar mirando algo): las pruebas van en una
+  instancia aparte (p. ej. `tauri dev --config` con otro `identifier`, que no choca con el
+  single-instance de la instalada) o en el navegador.
 - **Pendientes en `PENDIENTES.md`** (si existe): leerlo al empezar. Cada tarea se borra apenas se
   completa, en el mismo commit que la resuelve; cuando no queda ninguna, se borra el archivo.
 - **Temas solo con variables** (igual que Ethereon): colores en `apps/web/src/styles/themes.css`,
