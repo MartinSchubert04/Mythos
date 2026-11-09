@@ -2124,6 +2124,7 @@
 <div
   class="player"
   class:hide-ui={!ui}
+  class:desk={isDesktop}
   bind:this={root}
   onpointermove={activity}
   onpointerdown={activity}
@@ -2700,6 +2701,13 @@
     height: 100%;
     object-fit: contain;
     background: var(--media-bg);
+  }
+  /* Desktop (WebView2): con una pelicula con franjas negras y los controles escondidos unos
+     segundos, el video pasa a la placa de video como capa aparte y la pagina deja de dibujarse:
+     al mover el mouse los controles estaban (y el cursor volvia) pero no se veian. Con opacidad
+     apenas menor a 1 el video se compone con la pagina y no pasa (a la vista es igual). */
+  .desk > video {
+    opacity: 0.999;
   }
 
   /* ---- subtitulos ---- */
