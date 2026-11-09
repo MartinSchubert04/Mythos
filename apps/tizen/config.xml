@@ -3,7 +3,7 @@
      navega a la interfaz que sirve el server. Ver docs/tizen.md. El id del paquete tiene que tener
      10 caracteres; la version es la del repo (CLAUDE.md, "Versiones"). -->
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets"
-        id="https://github.com/MartinSchubert04/Mythos" version="0.19.3" viewmodes="maximized">
+        id="https://github.com/MartinSchubert04/Mythos" version="0.20.0" viewmodes="maximized">
     <tizen:application id="MythosTV01.Mythos" package="MythosTV01" required_version="2.3"/>
     <content src="index.html"/>
     <name>Mythos</name>

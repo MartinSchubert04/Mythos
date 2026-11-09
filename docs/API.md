@@ -595,7 +595,7 @@ pub struct Config {
     pub web_dir: Option<PathBuf>,      // None = no sirve UI (local)
     pub cache_gb: f64,                 // 0 = sin tope (local)
     pub peer_limit: usize,             // peers por torrent: server 200 (MYTHOS_PEER_LIMIT), local 160
-    pub cache_max_age: Option<Duration>, // local: 24 h desde el último uso; server: None
+    pub cache_max_age: Option<Duration>, // desde el último uso: local 24 h; server 72 h (MYTHOS_CACHE_HOURS, 0 = None)
     pub peer_port: u16 /* 0 = efímero */, pub hwaccel: HwAccel,
     pub admin_user: Option<String>, pub admin_password: Option<String>, pub dev_users: bool, // solo server
     pub torrentio_url: String,

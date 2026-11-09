@@ -30,7 +30,8 @@ pub struct Config {
     pub web_dir: Option<PathBuf>,
     /// Tope de la caché de torrents. 0 = sin tope (solo el vencimiento y el espacio libre).
     pub cache_gb: f64,
-    /// Se borra cada torrent sin usar hace más que esto. `None` = sin vencimiento.
+    /// Se borra cada torrent sin usar hace más que esto (nunca el que se está viendo). `None` = sin
+    /// vencimiento. Server: 3 días (`MYTHOS_CACHE_HOURS`); local: 24 h.
     pub cache_max_age: Option<Duration>,
     /// Puerto de peers de BitTorrent. 0 = efímero.
     pub peer_port: u16,
@@ -63,6 +64,9 @@ pub struct Config {
     pub imdb_top: bool,
 }
 
+/// Server de casa: horas sin usar hasta que se borra un torrent de la caché (3 días).
+pub const SERVER_CACHE_HOURS: u64 = 72;
+
 impl Config {
     /// Valores por defecto del server de casa (los mismos que sin variables de entorno).
     pub fn server(data_dir: impl Into<PathBuf>) -> Self {
@@ -73,7 +77,7 @@ impl Config {
             data_dir: data_dir.into(),
             web_dir: Some("./web".into()),
             cache_gb: 60.0,
-            cache_max_age: None,
+            cache_max_age: Some(Duration::from_secs(SERVER_CACHE_HOURS * 3600)),
             peer_port: 42069,
             peer_limit: 200,
             hwaccel: HwAccel::None,
@@ -121,5 +125,16 @@ impl Config {
 
     pub fn is_local(&self) -> bool {
         self.mode == Mode::Local
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_expiry_defaults() {
+        assert_eq!(Config::server("d").cache_max_age, Some(Duration::from_secs(72 * 3600)));
+        assert_eq!(Config::local("d").cache_max_age, Some(Duration::from_secs(24 * 3600)));
     }
 }

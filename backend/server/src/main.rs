@@ -70,6 +70,11 @@ fn config_from_env() -> anyhow::Result<Config> {
         let gb: f64 = v.parse().with_context(|| format!("MYTHOS_CACHE_GB inválido: {v:?}"))?;
         cfg.cache_gb = gb.max(1.0);
     }
+    // Horas sin usar hasta que se borra un torrent de la caché (por defecto 72). 0 = no vence.
+    if let Some(v) = var("MYTHOS_CACHE_HOURS") {
+        let h: u64 = v.parse().with_context(|| format!("MYTHOS_CACHE_HOURS inválido: {v:?} (horas, 0 = no vence)"))?;
+        cfg.cache_max_age = (h > 0).then(|| Duration::from_secs(h * 3600));
+    }
     if let Some(v) = var("MYTHOS_PEER_PORT") {
         cfg.peer_port = v.parse().with_context(|| format!("MYTHOS_PEER_PORT inválido: {v:?}"))?;
     }

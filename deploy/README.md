@@ -150,8 +150,9 @@ Todo vive en `deploy/data/`:
 
 - `mythos.db`: usuarios, sesiones, progreso, biblioteca, settings. Es lo único que vale la pena
   respaldar (con `sqlite3` en el host: `sqlite3 data/mythos.db ".backup mythos-backup.db"`, aunque el contenedor esté andando).
-- `torrents/`: la caché de descargas. Se limpia sola (LRU) al pasar `MYTHOS_CACHE_GB`; se puede
-  borrar entera con el contenedor parado.
+- `torrents/`: la caché de descargas. Se limpia sola: lo que no se mira hace 3 días se borra
+  (`MYTHOS_CACHE_HOURS`, por defecto 72; 0 = no vence) y, al pasar `MYTHOS_CACHE_GB`, lo usado hace
+  más tiempo. Nunca lo que se está viendo. Se puede borrar entera con el contenedor parado.
 - `hls/`: temporales de ffmpeg.
 
 ### Opcional: buffers UDP más grandes
