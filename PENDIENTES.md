@@ -38,21 +38,13 @@ con su tema, cambio de cuenta sin recargar, sin parpadeo al abrir y perfiles de 
 - [ ] **Vidrio en desktop**: prenderlo, cambiar la opacidad, salir y entrar con otra cuenta (cada
       una con el suyo); y que un usuario sin `ui.glass` herede el de la PC.
 
-## Desktop: los controles no aparecen al mover el mouse (2026-11-09)
+## Desktop: controles que no aparecían al mover el mouse (2026-11-09)
 
-Causa encontrada (reproducida en una instancia de prueba de la app de escritorio, con el server
-real y "All Quiet on the Western Front", 1920×802 con franjas negras): con los controles
-escondidos unos segundos, WebView2 manda el video a la placa de video como capa aparte y deja de
-dibujar la página. Al mover el mouse la clase `hide-ui` se saca y el cursor vuelve, pero los
-controles no se ven hasta que cambie otra cosa encima del video. Con videos 16:9 que llenan la
-ventana no pasa. No es `DirectCompositionLetterboxVideoOptimization` ni
-`DesktopPlaneRemovalForMFFullScreenLetterbox` (apagados no cambió nada).
+Arreglado en 0.19.3 (`views/Player.svelte`, `.desk > video`): con una película con franjas negras
+y los controles escondidos unos segundos, WebView2 mandaba el video a la placa como capa aparte y
+dejaba de dibujar la página. Probado en una instancia aparte de desktop con el server real: 4 de 4
+(sin el arreglo, 1 de 6).
 
-Arreglo commiteado sin publicar (`views/Player.svelte`: `.desk > video { opacity: 0.999 }`, solo
-desktop): inyectado a mano en la página anduvo 6 de 6 ciclos de 8 s escondido (sin él, 1 de 6).
-
-- [ ] **Probarlo con el código real**: el `vite` de 5173 servía el CSS viejo (no tomó el cambio) y
-      la prueba con el código se cortó. Levantar `npm run dev`, abrir una película con franjas
-      negras en desktop (muteada), esperar >8 s con los controles escondidos y mover el mouse.
-      Si anda: versión 0.19.3, tag y push.
-- [ ] **¿Pasa también en Chrome/Edge en Windows?** Si pasa, sacar la condición `desk`.
+- [ ] **¿Pasa también en Chrome/Edge en Windows?** Probar la web con una película con franjas
+      negras, >8 s con los controles escondidos y mover el mouse. Si pasa, sacar la condición
+      `desk` (que la regla valga para todos).
