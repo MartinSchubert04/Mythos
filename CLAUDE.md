@@ -120,13 +120,14 @@ Android: `docs/mobile.md`).
   88, desktop 20, mobile 20) y llenaron el C:. Hay tres `target/` separados (`backend/`,
   `apps/desktop/src-tauri/`, `apps/mobile/src-tauri/`) y cada uno compila todas las dependencias de
   nuevo. Para que no vuelva a pasar:
-  - `--release` solo para publicar o probar el instalador/APK; después, `cargo clean --release` en
-    esa carpeta.
+  - `--release` solo para publicar o probar el instalador/APK.
   - En un worktree (`.claude/worktrees/`) compilar con `CARGO_TARGET_DIR` apuntando al `target/`
     del repo principal (p. ej. `$env:CARGO_TARGET_DIR="<repo>\backend\target"`), no crear uno
     nuevo. Al terminar la tarea, `git worktree remove` del worktree.
-  - Al terminar una tarea que compiló, mirar el tamaño de los `target/`: si alguno pasa de 20 GB,
-    `cargo clean` ahí y avisar.
+  - Al terminar las pruebas de una tarea que compiló (antes del push que la publica), `cargo clean`
+    en cada `target/` que se usó: quedan en 0. Volver a compilar tarda unos minutos, pero el disco
+    no se llena. Antes, cerrar la instancia de prueba que corre desde ahí (Windows no deja borrar
+    su .exe; la app instalada no corre desde ahí y no se toca).
 - **Interfaz en español por defecto, inglés como opción** (Settings → Appearance, "Idioma /
   Language"; viaja con las preferencias del usuario). Ningún texto visible fijo en un componente:
   cada texto es una clave en `apps/web/src/lib/i18n/es/<zona>.ts` (common, browse, player,
