@@ -22,7 +22,7 @@ iguales.
 | "Top rated": de dónde sale (datasets de IMDb), cada cuánto se baja, dónde se guarda | `backend/server/src/imdb.rs`, `docs/API.md` ("Top rated") |
 | Rendimiento: tamaño de las imágenes (`/api/media/img`), modo liviano en equipos flojos, qué evitar | `apps/web/src/lib/images.ts`, `apps/web/src/lib/perf.ts`, `DESIGN.md` (5b y 7) |
 | Recomendaciones ("para vos", destacado del inicio, "Similares"): gustos, rotación cada 6 h, sin gustos al azar del Top 300 | `backend/server/src/recommend.rs`, `docs/API.md` ("Recomendaciones") |
-| Qué preferencias son por usuario (tema, paletas, vidrio, idioma, subtítulos) y cuáles por dispositivo (volumen, modo TV, modo liviano), migración del tema | `apps/web/src/lib/prefs.svelte.ts`, `apps/web/src/lib/themes.svelte.ts` |
+| Qué preferencias son por usuario (tema, paletas, vidrio, idioma, subtítulos) y cuáles por dispositivo (calidad, volumen, modo TV, modo liviano), migración del tema | `apps/web/src/lib/prefs.svelte.ts`, `apps/web/src/lib/quality.svelte.ts`, `apps/web/src/lib/themes.svelte.ts` |
 | Idioma de la interfaz (español por defecto, inglés), cómo agregar textos, errores del server traducidos | `apps/web/src/lib/i18n.svelte.ts`, `apps/web/src/lib/i18n/server.ts` |
 
 ## Estructura

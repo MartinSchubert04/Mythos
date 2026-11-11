@@ -39,7 +39,7 @@ export default {
   "account.play.autoOn": "autoplay on",
   "account.play.autoOff": "autoplay off",
   "account.play.quality": "Preferred quality",
-  "account.play.qualityHint": "Streams in this quality go first. Lower ones start faster on slow connections.",
+  "account.play.qualityHint": "Streams in this quality go first. Lower ones start faster on slow connections. Set per device (4K on a TV unless you pick another).",
   "account.play.maxSize": "Maximum file size",
   "account.play.noLimit": "No limit",
   "account.play.maxSizeHint": "Bigger files are skipped when choosing the best stream.",

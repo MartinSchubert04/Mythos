@@ -163,6 +163,9 @@ async fn meta_info(st: &AppState, kind: &str, id: &str) -> (f64, Option<(u16, u1
 struct StreamsQuery {
     /// `ClientCaps` en JSON o lista "h264,hevc,aac,..." (ver `score::parse_caps`).
     caps: Option<String>,
+    /// Calidad preferida de ese dispositivo ("2160p", "1080p", "720p"); sin ella (o inválida), la
+    /// de la cuenta.
+    quality: Option<String>,
 }
 
 async fn streams(
@@ -189,7 +192,12 @@ async fn streams(
         .map(|rows| taste::infer(&rows, series_of(&id), sub_lang.as_deref()))
         .filter(|p| !p.is_empty());
     let p = Prefs {
-        preferred: prefs.preferred_quality.as_deref().and_then(Quality::parse_pref).unwrap_or(Quality::P1080),
+        preferred: q
+            .quality
+            .as_deref()
+            .and_then(Quality::parse_pref)
+            .or_else(|| prefs.preferred_quality.as_deref().and_then(Quality::parse_pref))
+            .unwrap_or(Quality::P1080),
         max_size_bytes: prefs.max_size_gb.map(|g| (g * 1073741824.0) as u64),
         duration_s,
         caps: q.caps.as_deref().and_then(score::parse_caps),

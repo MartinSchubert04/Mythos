@@ -7,9 +7,10 @@
 // (lib/glass.svelte.ts). "Reducir animaciones" tambien: es de la persona (marearse con el
 // movimiento no depende del aparato).
 //
-// Por dispositivo (nunca viajan): volumen, barra lateral, el aviso del modo local, el modo TV
-// (lib/tv.svelte.ts: lo decide el aparato y cambia la escala), el modo liviano (lib/perf.ts: lo
-// decide la potencia del equipo) y las secciones abiertas de Settings. Lo que el aparato puede o no
+// Por dispositivo (nunca viajan): la calidad preferida (lib/quality.svelte.ts: en la TV, 4K),
+// volumen, barra lateral, el aviso del modo local, el modo TV (lib/tv.svelte.ts: lo decide el
+// aparato y cambia la escala), el modo liviano (lib/perf.ts: lo decide la potencia del equipo) y
+// las secciones abiertas de Settings. Lo que el aparato puede o no
 // puede hacer no tiene que seguir a la cuenta a otro aparato.
 //
 // La copia local de lo que es por usuario es la del ultimo que entro en este dispositivo: con ella

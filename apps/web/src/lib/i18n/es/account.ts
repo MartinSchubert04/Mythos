@@ -42,7 +42,7 @@ export default {
   "account.play.autoOn": "reproducción automática",
   "account.play.autoOff": "sin reproducción automática",
   "account.play.quality": "Calidad preferida",
-  "account.play.qualityHint": "Los streams en esta calidad van primero. Los de menos calidad arrancan antes con conexiones lentas.",
+  "account.play.qualityHint": "Los streams en esta calidad van primero. Los de menos calidad arrancan antes con conexiones lentas. Es de este dispositivo (en la tele, 4K si no elegís otra).",
   "account.play.maxSize": "Tamaño máximo del archivo",
   "account.play.noLimit": "Sin límite",
   "account.play.maxSizeHint": "Los archivos más grandes se saltean al elegir el mejor stream.",

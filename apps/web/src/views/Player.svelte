@@ -311,7 +311,7 @@
     started = false;
     ringPeak = null;
     loadSince = Date.now();
-    dropCache(`streams:${type}/${id}`);
+    dropCache(`streams:${type}/${id}?`);
     init();
   }
 

@@ -29,6 +29,7 @@
   import { THEMES, currentPalette, look, palettesOf, type ThemeId } from "../lib/themes.svelte";
   import { attempt, toast } from "../lib/toast.svelte";
   import type { PreferredQuality } from "../lib/types";
+  import { setQuality, shownQuality } from "../lib/quality.svelte";
 
   // El tema es de este usuario (lib/themes.svelte.ts): va en sus preferencias del server. Se lee
   // de `look` (reactivo), asi sigue al usuario si cambia con la pantalla abierta.
@@ -46,10 +47,11 @@
     setTheme(theme, p);
   }
 
-  // ---- reproduccion (van al server como campos propios de Settings)
-  let quality = $state<PreferredQuality>(session.settings?.preferred_quality ?? "1080p");
+  // ---- reproduccion: la calidad es de este dispositivo (lib/quality.svelte.ts); el tamaño
+  // maximo va al server como campo propio de Settings.
+  const quality = $derived(shownQuality(session.settings?.preferred_quality));
   let maxGb = $state<number>(session.settings?.max_size_gb ?? 0);
-  async function saveServer(patch: { preferred_quality?: PreferredQuality; max_size_gb?: number | null }) {
+  async function saveServer(patch: { max_size_gb?: number | null }) {
     await attempt(async () => {
       const s = await api.saveSettings(patch);
       session.settings = s;
@@ -236,7 +238,7 @@
           <Seg
             value={quality}
             options={QUALITIES}
-            onchange={(v) => ((quality = v), saveServer({ preferred_quality: v }))}
+            onchange={setQuality}
           />
           <span class="hint">{t("account.play.qualityHint")}</span>
         </div>
