@@ -140,11 +140,29 @@ export function deviceLabel(): string {
   return os ? `${browser} on ${os}` : browser;
 }
 
-/** "my-server:7700" → "https://my-server:7700" (sin barra final). */
+/** Puerto del server cuando no se escribe ninguno (el de deploy/, CLAUDE.md "Puertos"). */
+export const SERVER_PORT = 7700;
+
+/** Lo que se escribe en el login → URL del server, sin barra final. Sin puerto va `:7700`. Sin
+ *  `http(s)://` va `http://` para una IP o un nombre de la red de casa (sin punto, .local, .lan) y
+ *  `https://` para el resto (`*.ts.net`: Tailscale lo sirve con certificado).
+ *  "192.168.1.20" → "http://192.168.1.20:7700"; "mi-server.ts.net" → "https://mi-server.ts.net:7700". */
 export function normalizeServer(u: string): string {
-  const t = u.trim().replace(/\/+$/, "");
-  if (!t) return "";
-  return /^https?:\/\//i.test(t) ? t : `https://${t}`;
+  const s = u.trim().replace(/\/+$/, "");
+  if (!s) return "";
+  const [, scheme = "", auth = "", rest = ""] = /^(https?:\/\/)?([^/]*)(.*)$/i.exec(s) ?? [];
+  if (!auth) return s;
+  const host = auth.replace(/:\d+$/, "");
+  // "https:" (escribio solo el comienzo) o un IPv6 sin corchetes: queda como esta y no pasa isAddress.
+  if (!host || /:/.test(host.replace(/^\[.*\]$/, ""))) return s;
+  const port = host === auth ? `:${SERVER_PORT}` : auth.slice(host.length);
+  return (scheme.toLowerCase() || (plainHttp(host) ? "http://" : "https://")) + host + port + rest;
+}
+
+/** IP, IPv6 o nombre de la red de casa: ahi no hay certificado, va por http. */
+function plainHttp(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return !h.includes(".") || h.includes(":") || /^\d+\.\d+\.\d+\.\d+$/.test(h) || /\.(local|lan|home|internal)$/.test(h);
 }
 
 /** Lo que contesto GET /api/health en una direccion, y cuanto tardo. */

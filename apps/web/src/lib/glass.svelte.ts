@@ -74,6 +74,23 @@ async function apply() {
   }
 }
 
+/** Reproductor: la ventana pasa a opaca mientras dura (y vuelve a transparente al salir). Con la
+ *  ventana transparente (nace asi por el vidrio, este prendido o no) Windows mezcla cada cuadro
+ *  del video con lo que hay detras al ritmo de la pantalla principal: en una de menos Hz (una
+ *  tele de 60 con un monitor de 180) el video se ve a saltos. En el reproductor el vidrio no se
+ *  ve igual (lo tapa el video). */
+export async function opaqueWindow(on: boolean) {
+  if (!isDesktop) return;
+  try {
+    // La ventana (apps/desktop/src-tauri/src/opaque.rs) y la vista: con una sola no alcanza.
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+    if (on) await invoke("window_opaque", { on });
+    await getCurrentWebview().setBackgroundColor(on ? [0, 0, 0, 255] : [0, 0, 0, 0]);
+    if (!on) await invoke("window_opaque", { on });
+  } catch {}
+}
+
 export function initGlass() {
   if (!isDesktop) return;
   apply();

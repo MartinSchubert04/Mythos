@@ -1,6 +1,6 @@
 [package]
 name = "mythos-media"
-version = "0.20.0"
+version = "0.21.0"
 edition = "2021"
 
 # Dependencias mínimas: casi todo (reqwest, rand, bytes, tokio-util, tracing) ya lo trae librqbit,

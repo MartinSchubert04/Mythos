@@ -28,7 +28,7 @@
       change: "Cambiar de servidor",
       setupLead: "Escribí la dirección de tu servidor de Mythos en la red de tu casa.",
       addrLabel: "Dirección del servidor",
-      addrHint: "Sin <b>http://</b> ni puerto, usa <b>http://</b> y <b>:7700</b>. La tele no puede usar Tailscale: usá la dirección del servidor en tu casa.",
+      addrHint: "Alcanza con la IP: sin <b>http://</b> usa <b>http://</b>, y sin puerto, <b>:7700</b>. La tele no puede usar Tailscale: usá la dirección del servidor en tu casa.",
       connect: "Conectar",
       find: "Buscar en esta red",
       searching: "Buscando…",
@@ -45,7 +45,7 @@
       change: "Change server",
       setupLead: "Enter the address of your Mythos server on your home network.",
       addrLabel: "Server address",
-      addrHint: "Without <b>http://</b> and a port it uses <b>http://</b> and <b>:7700</b>. The TV can't use Tailscale: use the server's address at home.",
+      addrHint: "The IP is enough: without <b>http://</b> it uses <b>http://</b>, and without a port, <b>:7700</b>. The TV can't use Tailscale: use the server's address at home.",
       connect: "Connect",
       find: "Find on this network",
       searching: "Searching…",
@@ -114,12 +114,11 @@
     try { localStorage.setItem(KEY, url); } catch (e) {}
   }
 
-  /** "192.168.0.5" → "http://192.168.0.5:7700". Con http(s):// queda como se escribio. */
+  /** "192.168.0.5" → "http://192.168.0.5:7700". Sin http(s):// va http://; sin puerto, :7700. */
   function normalize(s) {
     var t = String(s || "").replace(/^\s+|\s+$/g, "").replace(/\/+$/, "");
     if (!t) return "";
-    if (/^https?:\/\//i.test(t)) return t;
-    t = "http://" + t;
+    if (!/^https?:\/\//i.test(t)) t = "http://" + t;
     if (!/:\d+$/.test(t.replace(/^https?:\/\//i, ""))) t += ":" + PORT;
     return t;
   }

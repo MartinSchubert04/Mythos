@@ -1,6 +1,6 @@
 [package]
 name = "mythos-desktop"
-version = "0.20.0"
+version = "0.21.0"
 description = "Mythos: la ventana de escritorio (carga la interfaz de apps/web)"
 edition = "2021"
 
@@ -22,6 +22,10 @@ tokio = { version = "1", features = ["time"] }
 tracing = "0.1"
 # El server embebido del modo local (docs/local-mode.md).
 tauri-plugin-mythos-local = { path = "../../local-server" }
+
+# La ventana opaca en el reproductor (src/opaque.rs). La misma version que usa tauri.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Graphics_Dwm", "Win32_Graphics_Gdi"] }
 
 [profile.release]
 codegen-units = 1

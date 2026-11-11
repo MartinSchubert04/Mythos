@@ -23,9 +23,9 @@
         <label class="field">
           <span data-t="addrLabel">Dirección del servidor</span>
           <input id="addr" type="text" inputmode="url" autocomplete="off" spellcheck="false"
-                 placeholder="http://192.168.x.x:7700" />
+                 placeholder="192.168.x.x" />
         </label>
-        <p class="hint" data-t="addrHint">Sin <b>http://</b> ni puerto, usa <b>http://</b> y <b>:7700</b>. La tele no puede usar Tailscale: usá la dirección del servidor en tu casa.</p>
+        <p class="hint" data-t="addrHint">Alcanza con la IP: sin <b>http://</b> usa <b>http://</b>, y sin puerto, <b>:7700</b>. La tele no puede usar Tailscale: usá la dirección del servidor en tu casa.</p>
         <p class="error" id="error" role="alert"></p>
         <div class="row">
           <button class="btn primary" id="connect" data-t="connect">Conectar</button>

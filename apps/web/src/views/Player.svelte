@@ -59,6 +59,7 @@
   import { date as fmtDate, num, t as tr } from "../lib/i18n.svelte";
   import { serverText } from "../lib/i18n/server";
   import { isDesktop, isFullscreen, setFullscreen } from "../lib/platform";
+  import { opaqueWindow } from "../lib/glass.svelte";
   import { langName, nativeLangName, normLang, prefs, savePrefs } from "../lib/prefs.svelte";
   import { back, go, setQuery } from "../lib/router.svelte";
   import { focusEl, focusFirst, moveFocus, type Dir } from "../lib/spatial.svelte";
@@ -216,6 +217,7 @@
   onMount(() => {
     init();
     mediaHandlers(true);
+    opaqueWindow(true);
     const onHide = () => leave(true);
     window.addEventListener("pagehide", onHide);
     const onFs = () => isFullscreen().then((v) => (fs = v));
@@ -234,6 +236,7 @@
     clearTimeout(seekTimer);
     leave(false);
     mediaHandlers(false);
+    opaqueWindow(false);
     if (msess) {
       msess.metadata = null;
       msess.playbackState = "none";
@@ -2705,8 +2708,12 @@
   /* Desktop (WebView2): con una pelicula con franjas negras y los controles escondidos unos
      segundos, el video pasa a la placa de video como capa aparte y la pagina deja de dibujarse:
      al mover el mouse los controles estaban (y el cursor volvia) pero no se veian. Con opacidad
-     apenas menor a 1 el video se compone con la pagina y no pasa (a la vista es igual). */
-  .desk > video {
+     apenas menor a 1 el video se compone con la pagina y no pasa (a la vista es igual).
+     Solo con los controles a la vista: escondidos, el video puede ir como capa aparte (lo mas
+     liviano, como en Edge); al mover el mouse el cambio de opacidad lo vuelve a componer y los
+     controles se ven (probado en la tele). Lo de los saltos en otra pantalla de menos Hz es la
+     ventana transparente: ver `opaqueWindow` en lib/glass.svelte.ts. */
+  .desk:not(.hide-ui) > video {
     opacity: 0.999;
   }
 

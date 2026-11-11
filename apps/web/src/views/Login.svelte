@@ -149,7 +149,7 @@
                   <input
                     bind:value={addrs[i]}
                     inputmode="url"
-                    placeholder={i === 0 ? "https://your-server.ts.net:7700" : "http://192.168.1.20:7700"}
+                    placeholder={i === 0 ? "your-server.ts.net" : "192.168.1.20"}
                     spellcheck="false"
                     autocapitalize="off"
                   />

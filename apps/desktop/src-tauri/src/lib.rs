@@ -7,6 +7,7 @@
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 
+mod opaque;
 mod updater;
 mod vlc;
 
@@ -49,6 +50,7 @@ pub fn run() {
         // "Open in VLC" de la lista de streams (src/vlc.rs) y las actualizaciones (src/updater.rs).
         .invoke_handler(tauri::generate_handler![
             vlc::open_in_vlc,
+            opaque::window_opaque,
             updater::update_state,
             updater::update_check,
             updater::update_install,
