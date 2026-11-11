@@ -99,6 +99,9 @@
     margin: 0;
     line-height: 1.5;
     font-size: 13px;
+    /* El cuerpo puede traer "\n" (p. ej. nombre del torrent + aviso) y nombres sin espacios. */
+    white-space: pre-line;
+    overflow-wrap: anywhere;
   }
   .field-in {
     margin-top: 12px;
