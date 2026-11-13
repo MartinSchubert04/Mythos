@@ -18,6 +18,21 @@ caído, página local en español).
 - [ ] **Android: vista previa al adelantar arrastrando con el dedo** (en la PC con mouse y en la
       tele con el control ya anda).
 
+## Tele: desfase de audio en remux y recarga al despausar (2026-11-13)
+
+Arreglado en 0.22.1 (`backend/media/src/hls.rs`, `views/Player.svelte`): un remux que arranca a
+mitad de pelicula (retomar, adelantar, la recarga tras una pausa) tenia el video desde el keyframe
+anterior y el audio convertido a AAC desde el segundo pedido; la Samsung arrancaba las dos pistas
+juntas y el video quedaba atrasado (anoche, 12 Monkeys 2160p GalaxyRG con DDP5.1). Probado con
+ffmpeg (mkv y mp4: las dos pistas arrancan en el mismo keyframe, tambien al reanudar), no en la tele.
+
+- [ ] **En la tele**: algo en remux con audio DDP/E-AC-3 (la pantalla de stats dice "Remux"):
+      retomar a mitad, adelantar fuera de lo generado, y pausar varios minutos y seguir. Que el
+      audio vaya con la imagen, y que la barra y los subtitulos marquen el segundo correcto.
+- [ ] **Recarga al despausar**: si despues de una pausa larga sigue apareciendo "Cargando" con el
+      video ya bajado, el reproductor ahora espera 12 s (antes 4) antes de recargar; ver si la tele
+      arranca sola en ese tiempo o si hace falta otra cosa.
+
 ## Recomendaciones "para vos" (2026-11-05)
 
 En la tele quedó confirmado el 2026-11-06 con el server en 0.19.0: el destacado sale de lo

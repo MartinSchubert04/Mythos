@@ -406,7 +406,7 @@ Rutas montadas desde el crate de media, con auth (Bearer o `?t=`):
 | Método | Ruta | Respuesta |
 |---|---|---|
 | GET | `/api/media/{session}/file` | el archivo, con `Range` (206). Prioriza las piezas pedidas. Cada respuesta trae a lo sumo 32 MB (`bytes=X-` contesta `X-(X+32 MB-1)`): el navegador pide el tramo siguiente solo, y así ninguna conexión queda abierta todo el episodio (por `tailscale serve` una conexión larga se degradaba hasta trabar el video) |
-| GET | `/api/media/{session}/hls/index.m3u8` | `?start=<s>&audio=<idx>`: playlist HLS que arranca en `start` (para buscar en modo transcode la UI recarga con otro `start` y suma el offset) |
+| GET | `/api/media/{session}/hls/index.m3u8` | `?start=<s>&audio=<idx>`: playlist HLS que arranca en `start` (para buscar en modo transcode la UI recarga con otro `start` y suma el offset; en remux, el de `#MYTHOS-ORIGIN:`) |
 | GET | `/api/media/{session}/hls/{segment}` | segmentos `.ts` o `.m4s` |
 | GET | `/api/media/{session}/subs/{index}.vtt` | subtítulo interno en WebVTT. Si la extracción no terminó en ~20 s (o antes, si el archivo está a medio bajar y ffmpeg lleva ~3 s esperando piezas) devuelve lo que hay (VTT válido desde el principio) con el header `X-Mythos-Partial: true`; la UI vuelve a pedirlo cada 5 s para completarlo. Se guarda como completo solo si terminó con el archivo entero bajado y la sesión abierta |
 | GET | `/api/media/{session}/status` | `MediaStatus` |
@@ -569,6 +569,15 @@ segmentos llevan la clave del trabajo en el nombre (`s<ms>a<pista|d>_00012.m4s`)
 trabajo da 404. La playlist es EVENT y termina en `#EXT-X-ENDLIST` cuando ffmpeg llega al final;
 en hls.js hay que pasar `startPosition: 0` (si no, trata la EVENT como en vivo y arranca cerca del
 final de lo generado).
+
+**Remux desde la mitad: `#MYTHOS-ORIGIN:`**: con `start` > 0 y el video copiado, ffmpeg arranca en
+el keyframe anterior a `start` (hasta un GOP antes), con el audio en ese mismo keyframe
+(`-noaccurate_seek`: si el audio arrancaba en `start` y el video antes, la tele Samsung reproducía
+las dos pistas juntas y el video quedaba atrasado toda la sesión). El segundo del archivo que
+corresponde al tiempo 0 lo averigua ffprobe en paralelo y va en la playlist como comentario,
+`#MYTHOS-ORIGIN:<s>` (los reproductores lo ignoran; puede faltar en las primeras recargas). La UI
+suma ese valor en vez de `start` y la primera vez salta a `start - origin`. En transcode no va: el
+tiempo 0 es `start`.
 
 **`MediaStatus.buffered_ahead_s`** es una estimación: segundos bajados desde donde arrancó la
 reproducción (o el último salto) menos lo que se supone ya reproducido desde que pasó a `ready`.

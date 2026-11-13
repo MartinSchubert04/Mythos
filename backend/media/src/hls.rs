@@ -17,6 +17,11 @@
 //! - Si ffmpeg va más de `MAX_AHEAD_S` por delante de lo que pidió el reproductor, el endpoint
 //!   interno deja de darle datos (backpressure): no llena el disco con la película entera ni
 //!   compite por ancho de banda más allá de lo útil.
+//! - **Remux desde la mitad**: `-ss` con el video copiado arranca en el keyframe anterior. Con
+//!   `-noaccurate_seek` el audio arranca ahí también (si no, recién en el segundo pedido: el video
+//!   empezaba hasta un GOP antes y la tele Samsung arranca las dos pistas juntas, con el video
+//!   atrasado todo el resto de la sesión). Dónde quedó de verdad (`origin`) lo averigua ffprobe y
+//!   va en la playlist (`#MYTHOS-ORIGIN:`) para que el cliente sume eso y no el `?start=`.
 //! - `?start=<s>` arranca un trabajo nuevo desde ese segundo (saltos en modo transcode). Cada
 //!   (start, audio) tiene su "clave" en el nombre de los segmentos (`s125000ad_00012.m4s`), así un
 //!   pedido viejo de otra posición da 404 en vez de recibir un segmento equivocado.
@@ -52,6 +57,8 @@ const PLAYLIST_WAIT: Duration = Duration::from_secs(120);
 const SEGMENT_WAIT: Duration = Duration::from_secs(90);
 /// Margen al reanudar un remux (más que un frame, menos que un GOP).
 const RESUME_EPS_S: f64 = 0.2;
+/// Hasta cuánto se espera a ffprobe para saber en qué keyframe arrancó un remux.
+const KEYFRAME_PROBE: Duration = Duration::from_secs(60);
 
 /// Un segmento ya generado.
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +82,9 @@ struct Run {
 pub struct Job {
     key: String,
     start: f64,
+    /// Segundo del archivo que corresponde al tiempo 0 de la salida: `start` en transcode; en
+    /// remux, el keyframe anterior (`None` mientras ffprobe no lo dijo).
+    origin: Mutex<Option<f64>>,
     audio: Option<usize>,
     dir: PathBuf,
     /// Nivel de degradación (ver `degrade`); sube si una corrida muere sin producir nada.
@@ -107,6 +117,7 @@ impl Job {
             dir: s.tmp_dir.join(&key),
             key,
             start,
+            origin: Mutex::new(None),
             audio,
             attempt: AtomicU32::new(0),
             run: Mutex::new(None),
@@ -253,6 +264,10 @@ pub fn args(pl: &Plan, input: &str, start: f64, offset: f64, base: u64, key: &st
     push(&["-probesize", "5000000", "-analyzeduration", "3000000", "-fflags", "+genpts"]);
     let from = start + offset;
     if from > 0.0 {
+        if pl.copy_video {
+            // El video copiado arranca en el keyframe anterior: que el audio también (ver arriba).
+            push(&["-noaccurate_seek"]);
+        }
         push(&["-ss", &format!("{from:.3}")]);
     }
     // (No `-copyts`: con timestamps absolutos el muxer HLS corta mal el primer segmento —medido:
@@ -359,11 +374,16 @@ pub fn parse_run_playlist(text: &str, default_map: &str) -> Vec<Entry> {
 
 /// Playlist EVENT con todos los segmentos de todas las corridas (un `EXT-X-MAP` cada vez que
 /// cambia el init) y `ENDLIST` si ffmpeg llegó al final.
-pub fn build_playlist(entries: &[Entry], ended: bool) -> String {
+/// `origin`: segundo del archivo del tiempo 0 (comentario `#MYTHOS-ORIGIN:`, que los reproductores
+/// ignoran y la app lee).
+pub fn build_playlist(entries: &[Entry], ended: bool, origin: Option<f64>) -> String {
     let target = entries.iter().map(|e| e.dur.ceil() as u64).max().unwrap_or(4).max(4);
     let mut s = format!(
         "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:{target}\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXT-X-INDEPENDENT-SEGMENTS\n"
     );
+    if let Some(o) = origin {
+        s.push_str(&format!("#MYTHOS-ORIGIN:{o:.3}\n"));
+    }
     let mut map = "";
     for e in entries {
         if e.map != map {
@@ -456,8 +476,29 @@ async fn launch(e: &Engine, s: &Arc<PlaySession>, job: &HlsJob) -> anyhow::Resul
             offset += RESUME_EPS_S;
         }
     }
+    // Desde dónde arranca la salida en el archivo. En remux, el keyframe anterior a `start`: hasta
+    // que ffprobe lo diga (en paralelo, sin demorar a ffmpeg) se toma `start`.
+    if base == 0 {
+        let from_kf = pl.copy_video && job.start > 0.0;
+        *job.origin.lock().unwrap() = if from_kf { None } else { Some(job.start) };
+        if from_kf {
+            let (j, ffprobe, input, stream) = (job.clone(), e.cfg.ffprobe.clone(), e.internal_url(&s.id, Role::Probe), pl.video_index);
+            tokio::spawn(async move {
+                let k = keyframe_before(&ffprobe, &input, stream, j.start).await;
+                tracing::info!(key = %j.key, keyframe = ?k, "hls remux origin");
+                // Si mientras tanto el remux pasó a transcode, el origen ya es `start`.
+                let mut o = j.origin.lock().unwrap();
+                if o.is_none() && j.attempt.load(Ordering::Relaxed) == attempt {
+                    *o = Some(k.unwrap_or(j.start));
+                }
+            });
+        }
+    }
+    // Al reanudar se sigue desde donde termina lo generado, contado desde el origen real (con
+    // `start`, en remux se salteaba lo que hay entre el keyframe y `start`).
+    let origin = job.origin.lock().unwrap().unwrap_or(job.start);
     let input = e.internal_url(&s.id, Role::Hls);
-    let argv = args(&pl, &input, job.start, offset, base, &job.key);
+    let argv = args(&pl, &input, origin, offset, base, &job.key);
     tracing::info!(session = %s.id, key = %job.key, base, offset, attempt, ?pl, "starting ffmpeg (hls)");
     let mut child = crate::util::tool_command(&e.cfg.ffmpeg)
         .args(&argv)
@@ -487,6 +528,39 @@ async fn launch(e: &Engine, s: &Arc<PlaySession>, job: &HlsJob) -> anyhow::Resul
     }
     tokio::spawn(monitor(job.clone(), s.clone(), base));
     Ok(())
+}
+
+/// Keyframe de video en el que cae `-ss <at>` (el anterior a `at`), en segundos desde el inicio
+/// del archivo. `None` si ffprobe falla o tarda (el cliente se queda con `start`).
+async fn keyframe_before(ffprobe: &std::path::Path, input: &str, stream: Option<usize>, at: f64) -> Option<f64> {
+    let sel = stream.map(|i| i.to_string()).unwrap_or_else(|| "v:0".into());
+    let out = tokio::time::timeout(
+        KEYFRAME_PROBE,
+        crate::util::tool_command(ffprobe)
+            .args(["-v", "error", "-read_intervals", &format!("{at:.3}%+#1"), "-select_streams", &sel])
+            .args(["-show_entries", "packet=pts_time,flags:format=start_time", "-of", "json", input])
+            .stdin(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    parse_keyframe(&out.stdout, at)
+}
+
+/// Lee la salida de `keyframe_before`. Descarta lo que no tiene sentido (después de `at` o más de
+/// 30 s antes): mejor `start` que un origen equivocado.
+pub fn parse_keyframe(json: &[u8], at: f64) -> Option<f64> {
+    let v: serde_json::Value = serde_json::from_slice(json).ok()?;
+    let p = v.get("packets")?.get(0)?;
+    if !p.get("flags")?.as_str()?.starts_with('K') {
+        return None;
+    }
+    let pts: f64 = p.get("pts_time")?.as_str()?.parse().ok()?;
+    let st: f64 = v.get("format").and_then(|f| f.get("start_time")).and_then(|x| x.as_str()).and_then(|x| x.parse().ok()).unwrap_or(0.0);
+    let k = pts - st;
+    (k.is_finite() && k <= at + 0.05 && at - k <= 30.0).then_some(k.clamp(0.0, at))
 }
 
 /// Inicio y fin (timestamps de salida, en s) de un segmento ya escrito: ffprobe sobre init + segmento.
@@ -628,7 +702,8 @@ pub async fn index(e: &Engine, s: Arc<PlaySession>, q: &HashMap<String, String>)
     loop {
         let entries = job.entries();
         if !entries.is_empty() {
-            let body = build_playlist(&entries, job.finished_ok.load(Ordering::Relaxed));
+            let origin = *job.origin.lock().unwrap();
+            let body = build_playlist(&entries, job.finished_ok.load(Ordering::Relaxed), origin);
             let body = rewrite_playlist(&body, q.get("t").map(|s| s.as_str()));
             return no_cache(body.into_response(), "application/vnd.apple.mpegurl");
         }
@@ -731,7 +806,9 @@ mod tests {
         assert!(a.contains("-c:v copy"));
         assert!(a.contains("-c:a aac -ac 6"));
         assert!(!a.contains("-hwaccel"));
-        assert!(!a.contains("-ss"));
+        assert!(!a.contains("-ss") && !a.contains("-noaccurate_seek"));
+        // Desde la mitad: el audio arranca en el mismo keyframe que el video copiado.
+        assert!(args(&pl, "http://x", 30.0, 0.0, 0, "s30000ad").join(" ").contains("-noaccurate_seek -ss 30.000 -i"));
         assert!(a.contains("s0ad_r0_init.mp4") && a.contains("-start_number 0") && a.contains("run0.m3u8"));
         // Pista elegida a mano.
         let pl2 = plan(&p, &chrome(), PlayMode::Remux, Some(2), HwAccel::Nvenc);
@@ -750,7 +827,7 @@ mod tests {
         assert!(a.contains("h264_nvenc"));
         assert!(a.contains("setparams=color_primaries=bt2020:color_trc=smpte2084"));
         assert!(a.contains("tonemap=tonemap=hable"));
-        assert!(a.contains("-ss 125.500"));
+        assert!(a.contains("-ss 125.500") && !a.contains("-noaccurate_seek"));
         assert!(a.contains("expr:gte(t,n_forced*4)"));
         let sw = plan(&p, &chrome(), PlayMode::Transcode, None, HwAccel::None);
         assert!(args(&sw, "http://x", 0.0, 0.0, 0, "s0ad").join(" ").contains("libx264 -preset veryfast"));
@@ -824,11 +901,25 @@ mod tests {
         assert_eq!(r0.len(), 2);
         assert_eq!(r0[1].dur, 3.5);
         let all: Vec<Entry> = r0.into_iter().chain(r1).collect();
-        let p = build_playlist(&all, true);
+        let p = build_playlist(&all, true, None);
         assert_eq!(p.matches("#EXT-X-MAP").count(), 2);
         assert!(p.contains("#EXT-X-MAP:URI=\"k_r2_init.mp4\"\n#EXTINF:4.000000,\nk_00002.m4s"));
         assert!(p.ends_with("#EXT-X-ENDLIST\n"));
         assert!(p.contains("#EXT-X-TARGETDURATION:4"));
-        assert!(!build_playlist(&all, false).contains("ENDLIST"));
+        assert!(!build_playlist(&all, false, None).contains("ENDLIST"));
+        assert!(!p.contains("MYTHOS-ORIGIN"));
+        assert!(build_playlist(&all, false, Some(96.5)).contains("#EXT-X-INDEPENDENT-SEGMENTS\n#MYTHOS-ORIGIN:96.500\n#EXT-X-MAP"));
+    }
+
+    #[test]
+    fn keyframe_parse() {
+        let j = |pts: &str, flags: &str, st: &str| format!(r#"{{"packets":[{{"pts_time":"{pts}","flags":"{flags}"}}],"format":{{"start_time":"{st}"}}}}"#).into_bytes();
+        assert_eq!(parse_keyframe(&j("20.000000", "K__", "0.000000"), 23.0), Some(20.0));
+        assert_eq!(parse_keyframe(&j("21.000000", "K__", "1.000000"), 23.0), Some(20.0));
+        // No es keyframe, cae después del pedido o demasiado antes: no se usa.
+        assert_eq!(parse_keyframe(&j("20.000000", "___", "0"), 23.0), None);
+        assert_eq!(parse_keyframe(&j("25.000000", "K__", "0"), 23.0), None);
+        assert_eq!(parse_keyframe(&j("2.000000", "K__", "0"), 100.0), None);
+        assert_eq!(parse_keyframe(b"{}", 23.0), None);
     }
 }

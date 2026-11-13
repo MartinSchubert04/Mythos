@@ -214,9 +214,19 @@ function shelfMove(cur: HTMLElement, d: Dir, root: HTMLElement): boolean | null 
   const r = cur.getBoundingClientRect();
   const x = from === cur.closest(".shelf") ? r.left + r.width / 2 : (pending?.x ?? r.left + r.width / 2);
   if (next) return enterShelf(next, x, d);
-  // (antes la pagina se corria media pantalla y la fila quedaba cortada arriba). Arriba de la
-  // primera: lo de siempre (el destacado).
-  return d === "down" ? true : null;
+  // Arriba de la primera: lo de siempre (el destacado).
+  if (d === "up") return null;
+  // Abajo de la ultima: lo que haya debajo que no sea una fila (en Biblioteca, la grilla de
+  // guardados: antes la flecha no hacia nada). Sin nada, quieto (antes la pagina se corria media
+  // pantalla y la fila quedaba cortada arriba).
+  const below = pick(
+    candidates(root).filter((el) => !!el.closest("main") && !from.contains(el)),
+    cur,
+    from === cur.closest(".shelf") ? r : from.getBoundingClientRect(),
+    "down",
+  );
+  if (below) focusEl(below);
+  return true;
 }
 
 /** Mueve el foco para ese lado. `false` si no habia nada (y no se movio). */

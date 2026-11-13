@@ -100,6 +100,11 @@
   // Medido por Tailscale: la conexion vieja no se recupera sola y la nueva anda al toque; el primer
   // reintento a veces tampoco contesta (va por la misma conexion HTTP/2 que la trabada), el segundo si.
   const STALL_RECOVER_MS = 4_000;
+  // Recien despausado y con lo que sigue ya en el buffer del video: la tele Samsung, tras una pausa
+  // larga, tarda unos segundos en volver a arrancar el decodificador. Recargar ahi no sirve (lo
+  // que falta no es la conexion) y armaba otra playlist desde cero.
+  const RESUME_GRACE_MS = 20_000;
+  const RESUME_STALL_MS = 12_000;
   const MAX_STALL_FIXES = 4; // en 2 minutos; si sigue, se avisa y se ofrece otro stream
 
   // ---- estado
@@ -453,11 +458,27 @@
         if (gen !== attachGen || destroyed) return;
         hls = new Hls(hlsConfig());
         hls.on(Hls.Events.ERROR, (_e, d) => onHlsError(Hls, d));
+        hls.on(Hls.Events.LEVEL_LOADED, (_e, d) => gen === attachGen && readOrigin(d.networkDetails, start ?? 0));
         hls.loadSource(url);
         hls.attachMedia(video);
       }
     }
     if (!wasPaused) tryPlay();
+  }
+
+  /** En remux desde la mitad el server arranca en el keyframe anterior al `?start=` y dice cual
+   *  fue (`#MYTHOS-ORIGIN:` en la playlist): el tiempo 0 del video es ese segundo, no el pedido.
+   *  Sin esto la barra y los subtitulos iban corridos hasta un GOP. La primera vez tambien se
+   *  salta al segundo pedido (el video arranca unos segundos antes). */
+  function readOrigin(net: unknown, asked: number) {
+    const text = (net as XMLHttpRequest | null)?.responseText;
+    const m = typeof text === "string" ? /^#MYTHOS-ORIGIN:([\d.]+)/m.exec(text) : null;
+    const o = m ? Number(m[1]) : NaN;
+    if (!isFinite(o) || o > asked + 0.5 || Math.abs(o - offset) < 0.05 || !video) return;
+    const first = offset === asked;
+    offset = o;
+    if (first && asked - o > 0.5 && video.currentTime < 1) video.currentTime = asked - o;
+    onTime();
   }
 
   function hlsConfig() {
@@ -669,7 +690,8 @@
     const pos = video?.currentTime ?? -1;
     const frozen = pos === lastWatchPos;
     lastWatchPos = pos;
-    if (started && waiting && video && !video.paused && frozen && now - waitSince > STALL_RECOVER_MS && dataReady()) {
+    const patience = now - resumedAt < RESUME_GRACE_MS && localAhead() >= 2 ? RESUME_STALL_MS : STALL_RECOVER_MS;
+    if (started && waiting && video && !video.paused && frozen && now - waitSince > patience && dataReady()) {
       recoverStall();
     } else if (!started && now - loadSince > (slow ? STUCK_MS + 5000 : START_GIVEUP_MS)) {
       stuck = "slow";
@@ -713,6 +735,7 @@
   });
 
   let lastWatchPos = -1;
+  let resumedAt = 0; // cuando se despauso a mano (no al arrancar)
   let stallFixes: number[] = [];
   function recoverStall() {
     const now = Date.now();
@@ -2149,7 +2172,10 @@
     onwaiting={onWaiting}
     onplaying={onPlaying}
     oncanplay={() => started && waiting && video?.paused === false && onPlaying()}
-    onplay={() => (paused = false)}
+    onplay={() => {
+      if (started && paused) resumedAt = Date.now();
+      paused = false;
+    }}
     onpause={() => ((paused = true), saveProgress())}
     ontimeupdate={onTime}
     onprogress={readBuffered}
