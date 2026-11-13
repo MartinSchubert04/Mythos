@@ -18,20 +18,18 @@ caído, página local en español).
 - [ ] **Android: vista previa al adelantar arrastrando con el dedo** (en la PC con mouse y en la
       tele con el control ya anda).
 
-## Tele: desfase de audio en remux y recarga al despausar (2026-11-13)
+## Tele: recarga al despausar (2026-11-13)
 
-Arreglado en 0.22.1 (`backend/media/src/hls.rs`, `views/Player.svelte`): un remux que arranca a
-mitad de pelicula (retomar, adelantar, la recarga tras una pausa) tenia el video desde el keyframe
-anterior y el audio convertido a AAC desde el segundo pedido; la Samsung arrancaba las dos pistas
-juntas y el video quedaba atrasado (anoche, 12 Monkeys 2160p GalaxyRG con DDP5.1). Probado con
-ffmpeg (mkv y mp4: las dos pistas arrancan en el mismo keyframe, tambien al reanudar), no en la tele.
+El desfase de audio en remux (0.22.1) quedo probado en la tele con el inspector: 12 Monkeys 2160p
+GalaxyRG (DDP5.1 → AAC), retomando en 40:00 y adelantando a 1:05:00, las dos pistas del primer
+segmento arrancan con la misma diferencia que en el archivo original (21 ms de corrimiento, un
+cuadro de AAC); la barra marca el segundo correcto.
 
-- [ ] **En la tele**: algo en remux con audio DDP/E-AC-3 (la pantalla de stats dice "Remux"):
-      retomar a mitad, adelantar fuera de lo generado, y pausar varios minutos y seguir. Que el
-      audio vaya con la imagen, y que la barra y los subtitulos marquen el segundo correcto.
-- [ ] **Recarga al despausar**: si despues de una pausa larga sigue apareciendo "Cargando" con el
-      video ya bajado, el reproductor ahora espera 12 s (antes 4) antes de recargar; ver si la tele
-      arranca sola en ese tiempo o si hace falta otra cosa.
+- [ ] **Recarga al despausar**: no se reprodujo. Con pausas de 3 y 10 minutos siguio al instante,
+      sin "Cargando" ni playlist nueva: el reproductor pide la playlist cada 5,5 s y el server no
+      cierra ffmpeg. Si vuelve a pasar, fijarse cuanto duro la pausa y si la tele apago la
+      pantalla o salio de la app (ahi se cortan esos pedidos); el reproductor ahora espera 12 s
+      (antes 4) antes de recargar.
 
 ## Recomendaciones "para vos" (2026-11-05)
 
