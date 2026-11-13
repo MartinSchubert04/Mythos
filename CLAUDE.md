@@ -104,6 +104,11 @@ Android: `docs/mobile.md`).
 ## Reglas
 
 - **Probar sin molestar.** Todo video que se reproduzca en una prueba va muteado desde el arranque.
+  Al terminar la prueba, sacar el muteo siempre, sin esperar a que lo pidan: en la tele (o
+  cualquier página real) el muteo forzado por el inspector se queda hasta que se recargue la
+  página. Restaurar el `muted` nativo de `HTMLMediaElement.prototype` (guardarlo al parchar) en
+  vez de recargar, porque recargar corta lo que se esté mirando. Después confirmar que el `muted`
+  ya es el nativo y que `mythos.prefs` (volumen, mute) quedó como estaba.
   Nunca cerrar la app instalada de Mythos (puede estar mirando algo): las pruebas van en una
   instancia aparte (p. ej. `tauri dev --config` con otro `identifier`, que no choca con el
   single-instance de la instalada) o en el navegador.
