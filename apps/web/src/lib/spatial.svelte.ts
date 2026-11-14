@@ -392,6 +392,9 @@ function settle(key: string, fresh = false) {
   const until = start + 8000;
   // `fresh`: otra pantalla en la misma ruta (login, "Who's watching?"): lo guardado no esta.
   const want = fresh ? undefined : memory.get(key);
+  // Atras con el foco en la barra lateral (se entro a la seccion desde ahi y no se salio): a
+  // donde se estaba en la vista a la que se vuelve, no se queda la barra abierta encima.
+  let leaveSide = route.pop && !!want;
   /** El foco quedo en "lo primero que habia" porque lo principal todavia no estaba. */
   let stopgap = false;
   let lastLook = 0;
@@ -400,7 +403,8 @@ function settle(key: string, fresh = false) {
   const step = () => {
     if (route.view === "player" || !tv.on) return;
     const cur = document.activeElement;
-    const lost = !cur || cur === document.body || !cur.isConnected || !hasBox(cur);
+    if (leaveSide && !cur?.closest(".sidebar")) leaveSide = false;
+    const lost = leaveSide || !cur || cur === document.body || !cur.isConnected || !hasBox(cur);
     if (lost) {
       const saved = want ? (document.querySelectorAll<HTMLElement>(want.sel)[want.n] ?? null) : null;
       if (saved && hasBox(saved)) focusEl(saved);
@@ -538,7 +542,9 @@ function onFocusIn(e: FocusEvent) {
   const r = el.getBoundingClientRect();
   last = { el, view: route.key, x: r.left + r.width / 2, y: r.top + r.height / 2 };
   if (el.closest("main")) lastMain = el;
-  if (route.view !== "player") {
+  // La barra lateral no cuenta como "donde estaba" en la vista: se pasa por ella para irse, y al
+  // volver (atras, o abrir otra vez la misma ficha) el foco caia ahi y la abria.
+  if (route.view !== "player" && !el.closest(".sidebar")) {
     const k = keyOf(el);
     if (k) memory.set(route.key, k);
   }

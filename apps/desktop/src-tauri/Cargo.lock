@@ -3193,7 +3193,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "mythos"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3218,7 +3218,7 @@ dependencies = [
 
 [[package]]
 name = "mythos-desktop"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -3235,7 +3235,7 @@ dependencies = [
 
 [[package]]
 name = "mythos-media"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -5332,7 +5332,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-mythos-local"
-version = "0.22.2"
+version = "0.22.3"
 dependencies = [
  "jni 0.22.4",
  "mythos",
