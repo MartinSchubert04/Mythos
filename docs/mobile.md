@@ -236,9 +236,9 @@ controls is recalculated every frame and makes the video stutter): each theme's 
   with the top bar and continues on its own when it comes back.
 
 **Profiles.** On the TV each account is saved as a profile (`lib/profiles.svelte.ts`): you sign in
-only once with the password and the session never expires (`persistent`, `docs/API.md`). On open,
-with more than one profile, "Who's watching?" (the last used one already selected); the sidebar
-avatar opens it again (back closes it without switching profile). "Add profile" adds another
+only once with the password and the session never expires (`persistent`, `docs/API.md`). On open
+it goes straight into the last used profile (no "Who's watching?"); the sidebar avatar opens
+"Who's watching?" (the current one already selected; back closes it without switching profile). "Add profile" adds another
 account; "Manage profiles" opens each profile to choose its avatar (with that profile's session,
 without entering) or remove it (closes its session on the server). If someone revokes that session
 from Settings → Signed-in devices or the admin from Admin → Users → "Signed-in devices", the profile

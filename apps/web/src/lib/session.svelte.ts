@@ -4,7 +4,7 @@ import { conn, loginLocal, logoutAll, onLocalExpired, startConn, viaLocal } from
 import { remoteBase, serverBase } from "./platform";
 import { choose, multi } from "./servers.svelte";
 import { applyRemoteUi } from "./prefs.svelte";
-import { currentProfile, dropCurrentProfile, profiles, rememberProfile, removeProfile, shouldPick, syncProfile } from "./profiles.svelte";
+import { currentProfile, dropCurrentProfile, profiles, rememberProfile, removeProfile, syncProfile } from "./profiles.svelte";
 import { go } from "./router.svelte";
 import { takeHandoff, toServer } from "./shell.svelte";
 import { tv } from "./tv.svelte";
@@ -59,8 +59,6 @@ export async function start() {
   if (handed) setToken(handed);
   // Desktop y APK: Auto / Solo local (lib/local.svelte.ts) eligen con que server arrancar.
   await startConn();
-  // TV con varios perfiles: "Who's watching?" (mientras tanto ya carga el ultimo usado).
-  if (shouldPick()) profiles.picking = true;
   if (!getToken()) {
     if (tv.on && profiles.list.length) profiles.picking = true;
     session.checked = true;

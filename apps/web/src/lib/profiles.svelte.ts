@@ -1,7 +1,8 @@
 // Perfiles en la TV (docs/mobile.md, "TV"): varias cuentas guardadas en el aparato, como en
 // Netflix. Cada una entra una sola vez con su contraseña y una sesion que no vence (`persistent`,
-// docs/API.md); despues se cambia de una a otra sin pedir nada. Al abrir, con mas de un perfil,
-// "Who's watching?" (views/Profiles.svelte) con el ultimo usado elegido.
+// docs/API.md); despues se cambia de una a otra sin pedir nada. Al abrir entra directo con el
+// ultimo usado (la sesion activa); "Who's watching?" (views/Profiles.svelte) se abre con el avatar
+// de la barra lateral, o solo si ese perfil ya no sirve (401, o se quito).
 //
 // - Se guardan en el almacenamiento de esta pagina (localStorage): server, usuario, token y
 //   avatar. El token es el mismo que ya se guardaba para la sesion activa (`mythos.token`).
@@ -34,8 +35,6 @@ export type Profile = {
 };
 
 const KEY = "mythos.profiles";
-/** En esta sesion de la pagina ya se eligio (la recarga al cambiar no vuelve a preguntar). */
-const PICKED = "mythos.profilePicked";
 
 export const profiles = $state({
   list: readJson<{ list: Profile[] }>(KEY, { list: [] }).list,
@@ -74,7 +73,6 @@ export function rememberProfile(user: User, token: string) {
   else profiles.list.push(p);
   activeToken = token;
   persist();
-  markPicked();
 }
 
 /** El usuario de la sesion activa cambio (avatar): el perfil tambien. */
@@ -111,25 +109,8 @@ export function dropCurrentProfile() {
   if (profiles.list.length !== before) persist();
 }
 
-export function markPicked() {
-  try {
-    sessionStorage.setItem(PICKED, "1");
-  } catch {}
-}
-
-/** Al abrir: con mas de un perfil (y en TV), preguntar quien mira. */
-export function shouldPick(): boolean {
-  if (!tv.on || profiles.list.length < 2) return false;
-  try {
-    return sessionStorage.getItem(PICKED) !== "1";
-  } catch {
-    return true;
-  }
-}
-
 /** Pasar a ese perfil: su token y su server, y la pagina de nuevo desde el inicio. */
 export function switchTo(p: Profile) {
-  markPicked();
   if (p.token === getToken()) {
     profiles.picking = false;
     return;
@@ -138,7 +119,7 @@ export function switchTo(p: Profile) {
   setToken(p.token);
   try {
     // Caches de la cuenta anterior (episodios nuevos, etc.).
-    for (const k of Object.keys(sessionStorage)) if (k !== PICKED) sessionStorage.removeItem(k);
+    sessionStorage.clear();
   } catch {}
   location.hash = "#/";
   location.reload();

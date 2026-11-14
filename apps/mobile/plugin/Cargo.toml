@@ -1,6 +1,6 @@
 [package]
 name = "tauri-plugin-mythos"
-version = "0.22.3"
+version = "0.22.4"
 description = "Mythos en Android: el server elegido, pantalla completa, pantalla encendida y actualizaciones"
 edition = "2021"
 links = "tauri-plugin-mythos"
