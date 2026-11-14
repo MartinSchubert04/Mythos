@@ -29,7 +29,7 @@
   import { THEMES, currentPalette, look, palettesOf, type ThemeId } from "../lib/themes.svelte";
   import { attempt, toast } from "../lib/toast.svelte";
   import type { PreferredQuality } from "../lib/types";
-  import { setQuality, shownQuality } from "../lib/quality.svelte";
+  import { setQuality, streamQuality } from "../lib/quality.svelte";
 
   // El tema es de este usuario (lib/themes.svelte.ts): va en sus preferencias del server. Se lee
   // de `look` (reactivo), asi sigue al usuario si cambia con la pantalla abierta.
@@ -49,7 +49,7 @@
 
   // ---- reproduccion: la calidad es de este dispositivo (lib/quality.svelte.ts); el tamaño
   // maximo va al server como campo propio de Settings.
-  const quality = $derived(shownQuality(session.settings?.preferred_quality));
+  const quality = $derived(streamQuality());
   let maxGb = $state<number>(session.settings?.max_size_gb ?? 0);
   async function saveServer(patch: { max_size_gb?: number | null }) {
     await attempt(async () => {

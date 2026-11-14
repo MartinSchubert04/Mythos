@@ -9,9 +9,11 @@
 //! 2. **Seeders**, en escala logarítmica (90·log10(s+1): 10 → 94, 100 → 180, 1000 → 270): de 5 a
 //!    50 seeders la diferencia es enorme, de 500 a 1000 casi no importa. Con menos de 5 seeders la
 //!    descarga suele no alcanzar al bitrate: penalización fuerte (−180, y −350 con 0).
-//! 3. **Calidad**: la preferida del usuario (1080p por defecto) suma 100. Por debajo pierde 45 por
-//!    escalón; **por encima pierde más** (70 por escalón) porque "pasarse" significa archivos más
-//!    grandes, más bitrate y más chances de tener que transcodificar (4K HEVC/HDR en un navegador).
+//! 3. **Calidad**: la preferida del dispositivo (`?quality=`; si no, la de la cuenta o 1080p) suma
+//!    100. Por debajo pierde 120 por escalón: con 45 un 1080p con el doble de seeders y que va
+//!    directo le ganaba a un 4K sano y la tele con 4K preferido arrancaba en 1080p. Por encima
+//!    pierde 70 por escalón porque "pasarse" significa archivos más grandes, más bitrate y más
+//!    chances de tener que transcodificar (4K HEVC/HDR en un navegador).
 //! 4. **Bitrate estimado** = tamaño / duración (la de Cinemeta, o 2 h / 45 min si no se sabe). Un
 //!    buen encode necesita ~25 Mb/s en 4K, 10 en 1080p, 5 en 720p y 2,5 en SD; cada 100 % de exceso
 //!    resta 100 (hasta −320): un remux de 80 GB necesita 70 Mb/s sostenidos del enjambre, y uno de
@@ -61,6 +63,9 @@ impl Default for Prefs {
         Self { preferred: Quality::P1080, max_size_bytes: None, duration_s: 7200.0, caps: None, years: None, direct_only: false, personal: None }
     }
 }
+
+/// Lo que pierde cada escalón por debajo de la calidad preferida.
+const BELOW_PREFERRED: f64 = 120.0;
 
 /// Bitrate de un buen encode (Mb/s) para cada calidad.
 fn sane_mbps(q: Quality) -> f64 {
@@ -185,7 +190,7 @@ pub fn score(s: &Stream, downloaded: bool, p: &Prefs) -> f64 {
     // 3. Calidad contra la preferida.
     match (s.quality.rank(), p.preferred.rank()) {
         (Some(q), Some(pref)) if q > pref => score += 100.0 - 70.0 * (q - pref),
-        (Some(q), Some(pref)) => score += 100.0 - 45.0 * (pref - q),
+        (Some(q), Some(pref)) => score += 100.0 - BELOW_PREFERRED * (pref - q),
         _ if s.quality == Quality::Cam => score -= 500.0,
         _ => score += 20.0, // calidad desconocida
     }
@@ -368,6 +373,17 @@ mod tests {
         // Si el usuario prefiere 4K, gana el 4K.
         let pref4k = Prefs { preferred: Quality::P2160, ..Prefs::default() };
         assert!(score(&p2160, false, &pref4k) > score(&p1080, false, &pref4k));
+        // Caso real (Saving Private Ryan en la tele, 169 min): el YIFY 1080p en mp4 con 290 seeders
+        // le ganaba a un 4K HEVC de 8 GB con 135 (remux en la tele, sin mkv).
+        let tv = Prefs { preferred: Quality::P2160, duration_s: 169.0 * 60.0, caps: parse_caps("h264,hevc,aac"), ..Prefs::default() };
+        let mut yify = st(Quality::P1080, 290, 2.2, &["x264"]);
+        yify.media = MediaGuess { container: Some("mp4"), video: Some("h264"), audio: vec!["aac"] };
+        let mut uhd = st(Quality::P2160, 135, 8.0, &["HEVC"]);
+        uhd.media = MediaGuess { container: Some("mkv"), video: Some("hevc"), audio: vec!["aac"] };
+        assert!(score(&uhd, false, &tv) > score(&yify, false, &tv));
+        // Pero un 4K casi muerto no le gana a un 1080p sano.
+        let dying = st(Quality::P2160, 3, 8.0, &["HEVC"]);
+        assert!(score(&yify, false, &tv) > score(&dying, false, &tv));
     }
 
     #[test]
