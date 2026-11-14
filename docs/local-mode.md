@@ -1,266 +1,268 @@
-# Modo local (server embebido en las apps)
+# Local mode (server embedded in the apps)
 
-Las apps de escritorio (Tauri 2, Windows) y de celular (Tauri 2, Android) pueden funcionar sin el
-server de casa. Llevan adentro el mismo server de Mythos (el crate `mythos`, `backend/server`)
-corriendo en el propio dispositivo, en modo `local`: catálogo de Cinemeta, streams de Torrentio,
-torrents bajados y reproducidos en el dispositivo, progreso, biblioteca y settings. Misma cuenta
-que en el server. Cuando el server vuelve, se sincroniza todo solo.
+The desktop (Tauri 2, Windows) and phone (Tauri 2, Android) apps can work without the home server.
+They carry inside the same Mythos server (the `mythos` crate, `backend/server`) running on the
+device itself, in `local` mode: Cinemeta catalog, Torrentio streams, torrents downloaded and played
+on the device, progress, library and settings. Same account as on the server. When the server comes
+back, everything syncs on its own.
 
-Contrato HTTP en `docs/API.md` (secciones "Sincronización", "Modo local" y "Embeber el server").
+HTTP contract in `docs/API.md` (sections "Sync", "Local mode" and "Embedding the server").
 
-## Arquitectura
+## Architecture
 
 ```
 ┌──────────────────────── app (Tauri) ─────────────────────────┐
 │  webview (apps/web)                                          │
-│    │  API base = server remoto  (online)                     │
-│    │           = http://127.0.0.1:<puerto>  (local)          │
+│    │  API base = remote server  (online)                     │
+│    │           = http://127.0.0.1:<port>  (local)            │
 │    ▼                                                         │
-│  shell Rust ── mythos::run(Config::local(dir)) ──► Handle    │
-│                 │  axum en 127.0.0.1:0, SQLite propia,       │
-│                 │  librqbit, ffmpeg si hay                   │
+│  Rust shell ── mythos::run(Config::local(dir)) ──► Handle    │
+│                 │  axum on 127.0.0.1:0, own SQLite,          │
+│                 │  librqbit, ffmpeg if present               │
 │                 └── sync (push/pull) ──────────┐             │
 └────────────────────────────────────────────────│─────────────┘
                                                  ▼ (Tailscale)
-                              server de casa (modo server, Docker)
+                              home server (server mode, Docker)
                               GET/POST /api/sync, /api/auth/login
 ```
 
-- **El shell** arranca el server local al abrir la app (`mythos::run`) y le pasa a la UI la URL
-  (`Handle::base_url()`, puerto elegido por el sistema). Al cerrar, `Handle::shutdown()`. En
-  **Auto** arranca ~8 s después (la UI tampoco lo pide antes): en una TV box o un celular flojo
-  competiría por CPU y red con el primer render. Si hace falta antes (login por el local, server
-  de casa caído), el comando `info` lo arranca en el momento. En Solo local arranca enseguida.
-- **La UI** habla con el server remoto mientras se lo alcance (streaming con NVENC, caché grande)
-  y con el local cuando no. No implementa sincronización: solo elige a quién hablarle.
-- **El server local** guarda los datos en su propia SQLite y sincroniza con el remoto por su
-  cuenta: cada 60 s (`sync_interval`) si el remoto responde, ~5 s después de cada cambio local,
-  y a pedido (`POST /api/local/sync`).
+- **The shell** starts the local server when the app opens (`mythos::run`) and hands the URL to
+  the UI (`Handle::base_url()`, port chosen by the system). On close, `Handle::shutdown()`. In
+  **Auto** it starts ~8 s later (the UI doesn't request it earlier either): on a TV box or a weak
+  phone it would compete for CPU and network with the first render. If it's needed earlier (login
+  through the local one, home server down), the `info` command starts it on the spot. In Local only
+  it starts right away.
+- **The UI** talks to the remote server while it can be reached (streaming with NVENC, big cache)
+  and to the local one when not. It doesn't implement sync: it only picks whom to talk to.
+- **The local server** stores data in its own SQLite and syncs with the remote on its own: every
+  60 s (`sync_interval`) if the remote responds, ~5 s after each local change, and on demand
+  (`POST /api/local/sync`).
 
-## Modos que elige el usuario
+## Modes the user chooses
 
-| Modo | Shell | UI |
+| Mode | Shell | UI |
 |---|---|---|
-| **Auto** (recomendado) | arranca el server local con `remote_url` = server de casa | login por el local (`POST {local}/api/auth/login` con `remote_url`); usa el remoto si `offline: false`, el local si no; cambia sola (abajo) |
-| **Solo server** | no hace falta arrancar el local | como hasta ahora: todo contra el remoto. Si no responde, error |
-| **Solo local** | arranca el local (con `remote_url` para sincronizar, o `None` para no tocar la red del server) | todo contra el local, siempre (streaming en el dispositivo). El login igual valida online si puede (`offline: false`) |
+| **Auto** (recommended) | starts the local server with `remote_url` = home server | login through the local one (`POST {local}/api/auth/login` with `remote_url`); uses the remote if `offline: false`, the local otherwise; switches on its own (below) |
+| **Server only** | no need to start the local one | as before: everything against the remote. If it doesn't respond, error |
+| **Local only** | starts the local one (with `remote_url` to sync, or `None` to not touch the server's network) | everything against the local one, always (streaming on the device). The login still validates online if it can (`offline: false`) |
 
-En **Android TV / TV box, o con menos de 2 GB de RAM**, el modo local no existe: el shell no
-arranca el server embebido nunca, el modo es siempre "Solo server" (sin importar lo guardado) y
-`set_mode` rechaza los otros. `info` lo dice con `unavailable: "tv" | "low_ram"` y Settings →
-Connection lo explica en vez de ofrecer Auto / Solo local. Por qué: librqbit + SQLite + el WebView
-no entran en 1-2 GB, y un procesador de TV box no da para bajar y servir el torrent a la vez. La
-detección es de `apps/local-server/src/android.rs` (`limit`): modo TV del sistema, `leanback` o
-sin pantalla táctil; `MemTotal` < 1,5 GiB (un equipo "de 2 GB" reporta ~1,8) o
-`isLowRamDevice()`. Ver `docs/mobile.md`, "TV".
+On **Android TV / TV box, or with less than 2 GB of RAM**, local mode doesn't exist: the shell
+never starts the embedded server, the mode is always "Server only" (regardless of what's saved) and
+`set_mode` rejects the others. `info` says so with `unavailable: "tv" | "low_ram"` and Settings →
+Connection explains it instead of offering Auto / Local only. Why: librqbit + SQLite + the WebView
+don't fit in 1-2 GB, and a TV box processor can't handle downloading and serving the torrent at the
+same time. Detection is in `apps/local-server/src/android.rs` (`limit`): system TV mode,
+`leanback` or no touchscreen; `MemTotal` < 1.5 GiB (a "2 GB" device reports ~1.8) or
+`isLowRamDevice()`. See `docs/mobile.md`, "TV".
 
-Cambiar de modo no pierde datos: el local y el remoto convergen por la sincronización. Pasar de
-"Solo server" a "Auto"/"Solo local" pide la contraseña una vez (hace falta un login online a
-través del local para enrolar la cuenta en el dispositivo).
+Changing modes doesn't lose data: the local and the remote converge through sync. Going from
+"Server only" to "Auto"/"Local only" asks for the password once (an online login through the local
+one is needed to enroll the account on the device).
 
-## Flujos
+## Flows
 
-### Primer login (online)
+### First login (online)
 
-1. La UI manda `POST {local}/api/auth/login {username, password, device, remote_url}`.
-2. El local hace el login contra el remoto. Si acepta: crea/actualiza la cuenta local (mismo
-   nombre, verificación propia de la contraseña), guarda una sesión del remoto para sincronizar
-   (`local_link`), abre una sesión local y arranca la primera sincronización (baja progreso,
-   biblioteca y settings).
-3. Responde `{token, user, offline: false, remote: {url, token, user}}`. La UI guarda los dos
-   tokens y usa el remoto.
+1. The UI sends `POST {local}/api/auth/login {username, password, device, remote_url}`.
+2. The local one logs in against the remote. If it accepts: it creates/updates the local account
+   (same name, its own password verifier), saves a remote session for syncing (`local_link`), opens
+   a local session and starts the first sync (downloads progress, library and settings).
+3. It responds `{token, user, offline: false, remote: {url, token, user}}`. The UI stores both
+   tokens and uses the remote.
 
-Si el remoto rechaza la contraseña → 401 con su mensaje (no se prueba la local). Si la cuenta está
-deshabilitada en el server, también se deshabilita en el dispositivo.
+If the remote rejects the password → 401 with its message (the local one is not tried). If the
+account is disabled on the server, it's also disabled on the device.
 
-### Caída del server ("Server unavailable, continuing locally")
+### Server outage ("Server unavailable, continuing locally")
 
-- Al iniciar sesión: si el remoto no se alcanza (red, timeout de conexión de 4 s, 5xx), el local
-  valida contra su verificación y responde `offline: true`. La UI muestra el aviso y usa el local.
-- Durante el uso: si un request al remoto falla **por red** (no por un status HTTP) o
-  `GET {remote}/api/health` falla dos veces seguidas, la UI muestra el aviso y pasa al local con
-  el token local. Recomendado: no cambiar en medio de una película; cambiar en la próxima
-  navegación (la película sigue mientras el remoto la sirva).
-- El local tiene los datos hasta su última sincronización (≤ 60 s de atraso). Lo que el usuario
-  haga después (progreso, biblioteca, settings) queda en el local y se sube al volver.
+- At sign-in: if the remote can't be reached (network, 4 s connection timeout, 5xx), the local one
+  validates against its verifier and responds `offline: true`. The UI shows the notice and uses the
+  local one.
+- During use: if a request to the remote fails **because of the network** (not because of an HTTP
+  status) or `GET {remote}/api/health` fails twice in a row, the UI shows the notice and switches to
+  the local one with the local token. Recommended: don't switch in the middle of a movie; switch on
+  the next navigation (the movie keeps going as long as the remote serves it).
+- The local one has the data up to its last sync (≤ 60 s behind). What the user does afterwards
+  (progress, library, settings) stays in the local one and is uploaded on return.
 
-### Vuelta del server (reconexión)
+### Server comes back (reconnection)
 
-1. Mientras está en local, la UI consulta `GET {local}/api/local/status` cada 15–30 s.
-2. Cuando `remote_reachable` es `true`: `POST {local}/api/local/sync` (sube lo hecho offline y
-   baja lo nuevo). Con `200`, la UI vuelve al remoto con el token remoto que ya tenía.
-3. Si `remote_signed_in` es `false` (la sesión del remoto venció o se revocó) o el sync da 401:
-   hace falta un login online (pedir la contraseña) para seguir sincronizando. Mientras tanto se
-   puede seguir en local.
+1. While on local, the UI queries `GET {local}/api/local/status` every 15–30 s.
+2. When `remote_reachable` is `true`: `POST {local}/api/local/sync` (uploads what was done offline
+   and downloads what's new). With `200`, the UI goes back to the remote with the remote token it
+   already had.
+3. If `remote_signed_in` is `false` (the remote session expired or was revoked) or the sync returns
+   401: an online login (asking for the password) is needed to keep syncing. Meanwhile it can stay
+   on local.
 
-El server local además sincroniza solo en segundo plano: aunque la UI no haga nada, los cambios
-llegan al remoto en cuanto se lo alcanza.
+The local server also syncs on its own in the background: even if the UI does nothing, changes
+reach the remote as soon as it can be reached.
 
-### Varias direcciones del server
+### Multiple server addresses
 
-El mismo server de casa se puede alcanzar por más de una dirección: por Tailscale
-(`https://<tu-server>.ts.net:7700`, desde cualquier lado) y por la red de casa
-(`http://192.168.x.x:7700` con `MYTHOS_EXTRA_BIND`, más rápida, solo en casa). Desktop y la página
-del APK guardan una **lista de direcciones del mismo server** (`lib/servers.svelte.ts`, en
-`localStorage` de este dispositivo: no se sube al server ni se sincroniza).
+The same home server can be reached through more than one address: through Tailscale
+(`https://<tu-server>.ts.net:7700`, from anywhere) and through the home network
+(`http://192.168.x.x:7700` with `MYTHOS_EXTRA_BIND`, faster, only at home). Desktop and the APK page
+keep a **list of addresses of the same server** (`lib/servers.svelte.ts`, in this device's
+`localStorage`: it isn't uploaded to the server or synced).
 
-- **Cargarlas**: en el login ("Add another address") o después en Settings → Account → Server
-  (agregar, quitar, ponerle nombre, marcar la preferida con la estrella, "Test" con la latencia de
-  cada una). Sin nombre se deduce: "Tailscale" (`*.ts.net`, `100.64.0.0/10`), "Home network" (IP
-  privada, `*.local`, `*.lan`), "This computer" (loopback).
-- **Mismo server**: cada una se valida con `GET /api/health` y se compara el `server_id`
-  (`docs/API.md`). Una dirección que no contesta al cargarla (la de casa estando afuera) se guarda
-  igual y se verifica cuando conteste; si contesta con otro `server_id` no se usa ("Different
-  server"). Agregar en Settings una dirección de otro server ofrece cambiar de server (sale de la
-  cuenta y queda solo esa). Como es la misma base, **el mismo token sirve en todas**.
-- **Cuál se usa**: se prueban todas en paralelo (`/api/health`, 2,5 s). Gana la preferida si
-  contesta (se la espera hasta 0,7 s más si otra contestó antes); si no, la que contesta primero.
-  Sin preferida marcada, la de la red de casa cuenta como preferida: en casa siempre se usa esa.
-  Por Tailscale el video pasa por el proxy de `tailscale serve` (HTTP/2 por el túnel), y en las
-  pruebas una reproducción larga con pausas quedaba con la conexión casi frenada en ese proxy (el
-  server con datos listos y `tailscaled` sin reenviarlos); por la red de casa nunca pasó.
-  Se elige al arrancar (con una sola dirección no se prueba nada de más), al volver de segundo
-  plano (más de 15 s), cuando cambia la red (`online`, `navigator.connection`), cuando un pedido no
-  llega (antes de pasar al local se prueban las demás) y, mientras no conteste ninguna, cada pocos
-  segundos (la reconexión de `net.svelte.ts`, o el chequeo de 20 s del modo local).
-- **Indicador**: el nombre de la que se usa ("Home network", "Tailscale") va en el tooltip de
-  `ConnBadge` y en el detalle de Settings → Connection.
-- **Si no contesta ninguna**: el failover al modo local de siempre (arriba). Para volver alcanza con
-  que conteste cualquiera: la UI las prueba ella misma (el local solo conoce la que tiene guardada)
-  y hace `POST /api/local/sync {token, remote_url}` con la que contestó.
-- **El server del dispositivo** sincroniza por la dirección en uso: al cambiar, la UI le manda
-  `POST /api/local/sync {token, remote_url}`, y unos segundos después de abrir revisa
-  `/api/local/status` → `remote_url`. Como el vínculo guarda el `server_id` del remoto
-  (`local_link.remote_server_id`), otra dirección del mismo server no reinicia la sincronización
-  (sigue en el mismo cursor); otro server sí.
-- **Media**: las URLs (`?t=` del `<video>`, `/api/media/img`, avatares) se arman con la dirección
-  activa en el momento. Cada sesión de video queda en la dirección donde se abrió: cambiar de
-  dirección en medio de una película no la corta; si se traba, el reproductor la reabre en la
-  activa en el mismo segundo (igual que al pasar al local). Si se cambió porque la anterior dejó de
-  contestar, las vistas se recargan (`net.epoch`) para que imágenes y listas se pidan en la nueva.
-- **Perfiles de la TV**: un perfil guardado con cualquiera de las direcciones es del mismo server;
-  sus avatares y su logout van por la dirección en uso.
+- **Adding them**: at login ("Add another address") or later in Settings → Account → Server
+  (add, remove, name them, mark the preferred one with the star, "Test" with each one's latency).
+  Without a name it's inferred: "Tailscale" (`*.ts.net`, `100.64.0.0/10`), "Home network" (private
+  IP, `*.local`, `*.lan`), "This computer" (loopback).
+- **Same server**: each one is validated with `GET /api/health` and the `server_id` is compared
+  (`docs/API.md`). An address that doesn't answer when added (the home one while away) is saved
+  anyway and verified when it answers; if it answers with another `server_id` it isn't used
+  ("Different server"). Adding in Settings an address of another server offers to switch servers
+  (signs out of the account and keeps only that one). Since it's the same database, **the same
+  token works on all of them**.
+- **Which one is used**: all are tried in parallel (`/api/health`, 2.5 s). The preferred one wins if
+  it answers (it's waited for up to 0.7 s more if another answered first); otherwise, the one that
+  answers first. With no preferred one marked, the home network one counts as preferred: at home
+  that one is always used. Through Tailscale the video goes through the `tailscale serve` proxy
+  (HTTP/2 through the tunnel), and in tests a long playback with pauses ended up with the connection
+  nearly stalled in that proxy (the server with data ready and `tailscaled` not forwarding it);
+  through the home network it never happened.
+  It's chosen at startup (with a single address nothing extra is tried), when coming back from the
+  background (more than 15 s), when the network changes (`online`, `navigator.connection`), when a
+  request doesn't get through (before switching to local the others are tried) and, while none
+  answers, every few seconds (the reconnection in `net.svelte.ts`, or local mode's 20 s check).
+- **Indicator**: the name of the one in use ("Home network", "Tailscale") goes in the `ConnBadge`
+  tooltip and in the details of Settings → Connection.
+- **If none answers**: the usual failover to local mode (above). To go back it's enough for any of
+  them to answer: the UI tries them itself (the local one only knows the one it has saved) and does
+  `POST /api/local/sync {token, remote_url}` with the one that answered.
+- **The device's server** syncs through the address in use: when it changes, the UI sends it
+  `POST /api/local/sync {token, remote_url}`, and a few seconds after opening it checks
+  `/api/local/status` → `remote_url`. Since the link stores the remote's `server_id`
+  (`local_link.remote_server_id`), another address of the same server doesn't restart the sync
+  (it continues at the same cursor); another server does.
+- **Media**: URLs (the `<video>`'s `?t=`, `/api/media/img`, avatars) are built with the address
+  active at the time. Each video session stays on the address where it was opened: switching
+  address in the middle of a movie doesn't cut it; if it stalls, the player reopens it on the active
+  one at the same second (same as when switching to local). If it switched because the previous one
+  stopped answering, the views reload (`net.epoch`) so images and lists are requested from the new
+  one.
+- **TV profiles**: a profile saved with any of the addresses belongs to the same server; its
+  avatars and its logout go through the address in use.
 
-### Cambio de nombre de usuario
+### Username change
 
-El nombre se cambia en el server (`PUT /api/me/username` o el admin); en el dispositivo da 403. La
-cuenta local está atada a la del server por su id (`local_link.remote_user_id`), no por el nombre:
-cada sincronización empieza con `GET {remoto}/api/me` y, si el nombre cambió, la cuenta local toma
-el nuevo (si otra cuenta local vieja tenía ese nombre, se le agrega `~<id>` para que no choque).
-Desde ahí el login sin conexión acepta el nombre nuevo (y ya no el viejo), y un login online con
-el nuevo vuelve a la misma cuenta local, con sus datos. Hasta la primera sincronización después
-del cambio, sin conexión sigue valiendo el nombre viejo.
+The name is changed on the server (`PUT /api/me/username` or the admin); on the device it returns
+403. The local account is tied to the server's by its id (`local_link.remote_user_id`), not by
+name: each sync starts with `GET {remote}/api/me` and, if the name changed, the local account takes
+the new one (if another old local account had that name, `~<id>` is appended to it so they don't
+clash). From then on the offline login accepts the new name (and no longer the old one), and an
+online login with the new one goes back to the same local account, with its data. Until the first
+sync after the change, the old name still works offline.
 
-### Conflictos
+### Conflicts
 
-Last-write-wins por registro con `updated_ms` (reloj del dispositivo), lápidas para borrados,
-idempotente, incremental por cursor (ver `docs/API.md` → "Sincronización"). Si el mismo episodio
-se miró en dos dispositivos sin conexión, queda la posición del último que escribió. Un reloj muy
-adelantado en un dispositivo hace que sus cambios ganen hasta que pase esa hora; cada escritura
-nueva usa `max(ahora, anterior + 1)` para que lo último que hizo el usuario en un dispositivo no
-pierda contra lo que ese dispositivo ya tenía.
+Last-write-wins per record with `updated_ms` (device clock), tombstones for deletions, idempotent,
+incremental by cursor (see `docs/API.md` → "Sync"). If the same episode was watched on two devices
+offline, the position of the last one that wrote stays. A clock far ahead on a device makes its
+changes win until that time passes; each new write uses `max(now, previous + 1)` so that the last
+thing the user did on a device doesn't lose against what that device already had.
 
-## Seguridad
+## Security
 
-### Credenciales offline: verificación propia, no el hash del server
+### Offline credentials: own verifier, not the server's hash
 
-Para validar la contraseña sin red hacía falta algo en el dispositivo. Opciones:
+To validate the password without network, something was needed on the device. Options:
 
-1. Bajar del server el hash argon2 del usuario ("bundle de credenciales").
-2. **Calcular una verificación propia en el dispositivo** (elegida).
+1. Download the user's argon2 hash from the server ("credentials bundle").
+2. **Compute an own verifier on the device** (chosen).
 
-El server local hace el login contra el remoto con la contraseña que tipeó el usuario; solo si el
-remoto la acepta calcula un argon2id nuevo, con sal propia, y lo guarda en su SQLite. Por qué:
+The local server logs in against the remote with the password the user typed; only if the remote
+accepts it does it compute a new argon2id, with its own salt, and store it in its SQLite. Why:
 
-- **El hash del server nunca sale del server**: no hay ninguna ruta que lo exporte (menos
-  superficie de ataque, la regla "las contraseñas nunca vuelven en ninguna respuesta" se cumple
-  sin excepciones) y un cambio de parámetros de argon2 en el server no rompe a los clientes.
-- Robar el dispositivo da lo mismo que daría el bundle (una verificación para fuerza bruta
-  offline) pero no permite nada contra el server: el server nunca acepta hashes, solo
-  contraseñas.
-- No hace falta ninguna ruta nueva en el server para esto: alcanza el login normal.
+- **The server's hash never leaves the server**: there is no route that exports it (less attack
+  surface, the rule "passwords never come back in any response" holds without exceptions) and a
+  change of argon2 parameters on the server doesn't break clients.
+- Stealing the device gives the same as the bundle would (a verifier for offline brute force) but
+  allows nothing against the server: the server never accepts hashes, only passwords.
+- No new route on the server is needed for this: the normal login is enough.
 
-Consecuencias: el primer login en cada dispositivo tiene que ser online. Un cambio de contraseña
-en el server llega al dispositivo en el próximo login online (hasta entonces offline vale la
-vieja); por eso `PUT /api/me/password` da 403 en modo local.
+Consequences: the first login on each device has to be online. A password change on the server
+reaches the device on the next online login (until then the old one works offline); that's why
+`PUT /api/me/password` returns 403 in local mode.
 
-### La API local en 127.0.0.1
+### The local API on 127.0.0.1
 
-En Android cualquier app del teléfono puede conectarse a `127.0.0.1:<puerto>`. Por eso:
+On Android any app on the phone can connect to `127.0.0.1:<port>`. That's why:
 
-- Todas las rutas piden login igual que en el server (salvo `POST /api/auth/login` y
-  `GET /api/health`), con el mismo rate limit (10 fallos / 5 min).
-- Solo se aceptan requests con `Host` de loopback: una página web que haga apuntar su dominio a
-  127.0.0.1 (DNS rebinding) recibe 403. CORS solo para los orígenes de Tauri y Vite.
-- Sin admin (403 en `/api/admin/**`), sin métricas.
+- All routes require login just like on the server (except `POST /api/auth/login` and
+  `GET /api/health`), with the same rate limit (10 failures / 5 min).
+- Only requests with a loopback `Host` are accepted: a web page that points its domain to
+  127.0.0.1 (DNS rebinding) gets 403. CORS only for the Tauri and Vite origins.
+- No admin (403 on `/api/admin/**`), no metrics.
 
-### Lo que se guarda en el dispositivo
+### What's stored on the device
 
-En `data_dir` (carpeta privada de la app): `mythos.db` con la verificación argon2 de la
-contraseña, las sesiones locales (solo el sha256 de cada token) y la sesión del remoto que usa la
-sincronización (`local_link.remote_token`, en claro: es una sesión revocable desde
-`/api/me/sessions` del server, aparece como el dispositivo que se logueó). El logout local, si es
-la última sesión de esa cuenta en el dispositivo, cierra también esa sesión remota.
+In `data_dir` (the app's private folder): `mythos.db` with the argon2 password verifier, the local
+sessions (only the sha256 of each token) and the remote session used by sync
+(`local_link.remote_token`, in plain text: it's a session revocable from the server's
+`/api/me/sessions`, it shows up as the device that signed in). The local logout, if it's that
+account's last session on the device, also closes that remote session.
 
 ### Real-Debrid
 
-Regla del proyecto: la clave de RD nunca vuelve en ninguna respuesta. Por eso **no se
-sincroniza** (`SettingsRec` no la tiene, y aplicar settings remotos no toca la local). El modo
-local anda sin RD (torrents comunes en el dispositivo); si el usuario quiere RD también offline,
-la carga en la app (`PUT /api/me/settings {rd_key}` contra el local) y queda solo en ese
-dispositivo.
+Project rule: the RD key never comes back in any response. That's why **it isn't synced**
+(`SettingsRec` doesn't have it, and applying remote settings doesn't touch the local one). Local
+mode works without RD (regular torrents on the device); if the user wants RD offline too, they enter
+it in the app (`PUT /api/me/settings {rd_key}` against the local one) and it stays only on that
+device.
 
-## Reproducción en el dispositivo y ffmpeg
+## Playback on the device and ffmpeg
 
-- Los torrents se bajan en el dispositivo (`data_dir/torrents`). Sin tope de tamaño: cada película
-  se borra a las 24 h de su último uso (`cache_max_age`; nunca la que se está viendo, y lo que
-  venció con la app cerrada se borra al abrirla). Con menos de 2 GB libres se borran antes, y con
-  menos de 1 GB se pausa la descarga. El primer play tarda lo mismo que en el server; no hay NVENC.
-- ffmpeg es opcional. El shell puede pasar la ruta de un ffmpeg (en Windows, si está en el PATH,
-  `Config::local` ya lo usa). Sin ffmpeg: solo reproducción directa, sondeo con el lector propio
-  de cabeceras MP4/MKV, `PlayInfo.transcode_available: false` y `direct_ok` dice si el
-  reproductor lo va a poder abrir. `/api/streams` con `?caps=` hunde lo que no es directo. La UI
-  tendría que mandar `caps` reales del dispositivo (Android: `<video>` de WebView suele hacer
-  h264/hevc/vp9/av1 + aac/opus/flac en mp4/webm; mkv depende del equipo) y, si `direct_ok` es
-  `false`, ofrecer el siguiente stream.
-- Subtítulos externos (OpenSubtitles) andan igual; los internos necesitan ffmpeg.
+- Torrents are downloaded on the device (`data_dir/torrents`). No size cap: each movie is deleted
+  24 h after its last use (`cache_max_age`; never the one being watched, and whatever expired while
+  the app was closed is deleted when it opens). With less than 2 GB free they're deleted earlier,
+  and with less than 1 GB the download is paused. The first play takes the same as on the server;
+  there's no NVENC.
+- ffmpeg is optional. The shell can pass the path to an ffmpeg (on Windows, if it's in the PATH,
+  `Config::local` already uses it). Without ffmpeg: direct playback only, probing with the in-house
+  MP4/MKV header reader, `PlayInfo.transcode_available: false` and `direct_ok` says whether the
+  player will be able to open it. `/api/streams` with `?caps=` sinks what isn't direct. The UI
+  should send the device's real `caps` (Android: the WebView's `<video>` usually does
+  h264/hevc/vp9/av1 + aac/opus/flac in mp4/webm; mkv depends on the device) and, if `direct_ok` is
+  `false`, offer the next stream.
+- External subtitles (OpenSubtitles) work the same; internal ones need ffmpeg.
 
 ## Android
 
-- **Carpeta de datos**: la privada de la app (`app.path().app_data_dir()` en Tauri =
-  `/data/user/0/<paquete>/files`, o `cache_dir` para los torrents si se quiere que el sistema
-  pueda liberarlos). No usar almacenamiento compartido.
-- **Puertos**: el server en `127.0.0.1:0` (el shell le pasa a la UI el puerto real); peers de
-  BitTorrent en puerto efímero (`peer_port = 0`); en redes móviles UPnP no hace nada y no
-  importa. La UI le habla a `http://127.0.0.1:<puerto>` desde `http://tauri.localhost`: hace
-  falta permitir HTTP en claro **solo** para loopback con un
-  `network_security_config.xml` (`<domain-config cleartextTrafficPermitted="true">` con
-  `127.0.0.1` y `localhost`), además del permiso `INTERNET`.
-- **TLS**: los clientes HTTP propios usan las raíces de Mozilla embebidas
-  (`mythos_media::http_client_builder`), porque el verificador de plataforma de rustls necesita
-  inicializarse por JNI. librqbit tiene su propio cliente HTTP (trackers `https://`); sin esa
-  inicialización esos trackers fallan, pero los UDP y el DHT andan, que es lo que más usa
-  Torrentio. Si se quiere completo: el shell llama a
-  `rustls_platform_verifier::android::init_hosted` al arrancar y agrega el componente de Gradle
-  `rustls-platform-verifier-android`.
-- **Batería y segundo plano**: Android congela o mata procesos en segundo plano. Mientras se
-  reproduce o se baja algo, el shell debería tener un *foreground service*
-  (`mediaPlayback`/`dataSync`) con notificación; sin eso, apagar la pantalla puede cortar la
-  descarga. Sin reproducción, no hace falta: el motor pausa los torrents ociosos solo (15 min) y
-  la sincronización es un request chico cada 60 s solo si el server responde. Al pasar a segundo
-  plano mucho tiempo, el shell puede llamar a `shutdown()` y volver a arrancar al volver (tarda
-  ~0,5 s; los datos quedan).
-- **Tailscale**: el remoto se alcanza solo con la VPN de Tailscale prendida; si no, el modo Auto
-  cae a local (es el caso normal de "server no disponible").
-- **Logs**: la biblioteca usa `tracing` y no inicializa nada; en Android el shell puede mandar
-  los eventos a logcat (p. ej. `tracing-android` o `android_logger`).
+- **Data folder**: the app's private one (`app.path().app_data_dir()` in Tauri =
+  `/data/user/0/<package>/files`, or `cache_dir` for the torrents if you want the system to be able
+  to free them). Don't use shared storage.
+- **Ports**: the server on `127.0.0.1:0` (the shell hands the real port to the UI); BitTorrent
+  peers on an ephemeral port (`peer_port = 0`); on mobile networks UPnP does nothing and it doesn't
+  matter. The UI talks to `http://127.0.0.1:<port>` from `http://tauri.localhost`: cleartext HTTP
+  must be allowed **only** for loopback with a `network_security_config.xml`
+  (`<domain-config cleartextTrafficPermitted="true">` with `127.0.0.1` and `localhost`), besides
+  the `INTERNET` permission.
+- **TLS**: the own HTTP clients use the embedded Mozilla roots
+  (`mythos_media::http_client_builder`), because rustls's platform verifier needs to be initialized
+  through JNI. librqbit has its own HTTP client (`https://` trackers); without that initialization
+  those trackers fail, but UDP ones and the DHT work, which is what Torrentio uses most. If you want
+  it complete: the shell calls `rustls_platform_verifier::android::init_hosted` at startup and adds
+  the Gradle component `rustls-platform-verifier-android`.
+- **Battery and background**: Android freezes or kills background processes. While something is
+  playing or downloading, the shell should have a *foreground service* (`mediaPlayback`/`dataSync`)
+  with a notification; without it, turning off the screen can cut the download. Without playback,
+  it's not needed: the engine pauses idle torrents on its own (15 min) and sync is a small request
+  every 60 s only if the server responds. When going to the background for a long time, the shell
+  can call `shutdown()` and start again on return (takes ~0.5 s; the data stays).
+- **Tailscale**: the remote can only be reached with the Tailscale VPN on; otherwise, Auto mode
+  falls back to local (it's the normal "server unavailable" case).
+- **Logs**: the library uses `tracing` and initializes nothing; on Android the shell can send the
+  events to logcat (e.g. `tracing-android` or `android_logger`).
 
-## Compilar para Windows y Android
+## Building for Windows and Android
 
-Windows (MSVC) es el target nativo: `cargo build -p mythos --lib`.
+Windows (MSVC) is the native target: `cargo build -p mythos --lib`.
 
-Android (`aarch64-linux-android`), desde Windows con el NDK de Android Studio
-(`%LOCALAPPDATA%\Android\Sdk\ndk\<28.x o 30.x>`):
+Android (`aarch64-linux-android`), from Windows with Android Studio's NDK
+(`%LOCALAPPDATA%\Android\Sdk\ndk\<28.x or 30.x>`):
 
 ```bash
 NDK="$LOCALAPPDATA/Android/Sdk/ndk/28.0.13004108"
@@ -274,60 +276,64 @@ rustup target add aarch64-linux-android
 cd backend && cargo build --target aarch64-linux-android -p mythos --lib
 ```
 
-Lo mismo para `armv7-linux-androideabi` (TV box y celulares con Android de 32 bits; el clang es
-`armv7a-linux-androideabi24-clang`): el APK de release trae las dos (`docs/mobile.md`).
+The same for `armv7-linux-androideabi` (TV boxes and phones with 32-bit Android; the clang is
+`armv7a-linux-androideabi24-clang`): the release APK carries both (`docs/mobile.md`).
 
-No hizo falta nada más: SQLite (`rusqlite` con `bundled`), `ring` y `aws-lc-sys` (los proveedores
-de rustls que traen librqbit y reqwest) compilan con el clang del NDK sin CMake ni OpenSSL. Lo
-único propio de Android en el código es la verificación TLS (arriba). Con Tauri, `tauri android
-build` pone estas variables solo.
+Nothing else was needed: SQLite (`rusqlite` with `bundled`), `ring` and `aws-lc-sys` (the rustls
+providers that librqbit and reqwest bring) compile with the NDK's clang without CMake or OpenSSL.
+The only Android-specific thing in the code is TLS verification (above). With Tauri, `tauri android
+build` sets these variables on its own.
 
-## Cómo está hecho en las apps
+## How it's implemented in the apps
 
-**Shell** (`apps/local-server`, plugin de Tauri `mythos-local`, el mismo en desktop y Android):
+**Shell** (`apps/local-server`, Tauri plugin `mythos-local`, the same on desktop and Android):
 
-- Guarda el modo en `<app_local_data_dir>/local-mode` (`auto` por defecto). En `auto` y `local`
-  arranca `mythos::run(Config::local(<app_local_data_dir>/local))` en segundo plano apenas abre la
-  app (la ventana no espera; ~1–2 s en debug, el server local queda listo para cuando haga falta).
-  En `server` no arranca nada.
-- Comandos: `info` → `{mode, base_url, transcode_available, error, unavailable}` (espera si está
-  arrancando) y `set_mode(mode)` (lo guarda; `server` apaga el local, `auto`/`local` lo arrancan;
-  con `unavailable`, solo `server`).
-- ffmpeg: no viene con la app. En Windows, si `ffmpeg` y `ffprobe` están en el PATH se usan; si
-  no, rutas vacías (solo directo, el motor ni intenta lanzarlos). En Android, nunca. Los procesos
-  de ffmpeg se lanzan sin ventana de consola (`CREATE_NO_WINDOW`, `mythos_media::util::tool_command`).
-- Al salir (`RunEvent::Exit`): `Handle::shutdown()`.
-- `tracing`: a stderr en desktop, a logcat (etiqueta `mythos`) en Android (`init_tracing`).
-- Android: `rustls_platform_verifier::android::init_with_env` con el contexto de la app (de
-  `ndk-context`, que deja tao) y la parte de Kotlin `org.rustls:rustls-platform-verifier` en
-  Gradle (misma versión que `rustls-platform-verifier-android` en el `Cargo.lock`, regla de
-  ProGuard en `proguard-rules.pro`). Sin eso el primer tracker `https://` de librqbit entraba en
-  pánico (y en release, con `panic = "abort"`, cerraba la app).
+- Stores the mode in `<app_local_data_dir>/local-mode` (`auto` by default). In `auto` and `local`
+  it starts `mythos::run(Config::local(<app_local_data_dir>/local))` in the background as soon as
+  the app opens (the window doesn't wait; ~1–2 s in debug, the local server is ready by the time
+  it's needed). In `server` it starts nothing.
+- Commands: `info` → `{mode, base_url, transcode_available, error, unavailable}` (waits if it's
+  starting) and `set_mode(mode)` (saves it; `server` shuts down the local one, `auto`/`local` start
+  it; with `unavailable`, only `server`).
+- ffmpeg: doesn't ship with the app. On Windows, if `ffmpeg` and `ffprobe` are in the PATH they're
+  used; otherwise, empty paths (direct only, the engine doesn't even try to launch them). On
+  Android, never. ffmpeg processes are launched without a console window (`CREATE_NO_WINDOW`,
+  `mythos_media::util::tool_command`).
+- On exit (`RunEvent::Exit`): `Handle::shutdown()`.
+- `tracing`: to stderr on desktop, to logcat (tag `mythos`) on Android (`init_tracing`).
+- Android: `rustls_platform_verifier::android::init_with_env` with the app's context (from
+  `ndk-context`, set by tao) and the Kotlin part `org.rustls:rustls-platform-verifier` in Gradle
+  (same version as `rustls-platform-verifier-android` in `Cargo.lock`, ProGuard rule in
+  `proguard-rules.pro`). Without it the first librqbit `https://` tracker panicked (and in release,
+  with `panic = "abort"`, closed the app).
 
 **UI** (`apps/web/src/lib/local.svelte.ts`):
 
 - Settings → Connection: Auto / Server only / Local only, "Show a notice when switching to local",
-  estado (cambios sin subir, última sincronización, "Sync now"). Pasar a Auto/Local sin la cuenta
-  en el dispositivo pide la contraseña ahí mismo (login por el local).
-- Indicador siempre visible, solo el ícono (nube = server, disco = local, un punto si hay cambios
-  pendientes; el detalle en el tooltip): en la barra de título del desktop y arriba a la derecha en
-  Android (`components/ConnBadge.svelte`).
-- Dos tokens en `localStorage`: `mythos.token` (server de casa) y `mythos.localToken` (local).
-  `lib/api.ts` usa el del server activo. Logout y "Switch account" cierran los dos.
-- Caída: un pedido al de casa que no llega (o 502/503/504) y `GET /api/health` que tampoco (en
-  ninguna de sus direcciones, `lib/servers.svelte.ts`) → pasa al local, repite ese pedido ahí y avisa. En el local mira `/api/local/status` cada 20 s;
-  con `remote_reachable` → `POST /api/local/sync {token}` → vuelve al de casa ("Back on the server ·
-  synced") y recarga la vista. Sin sesión del remoto (`remote_signed_in: false` o un login hecho
-  sin conexión) se queda en el local y pide entrar de nuevo para sincronizar.
-- Cada sesión de video queda atada al server (y token) donde se abrió: `direct_url`, HLS,
-  subtítulos internos y `/status` siguen yendo ahí aunque la API cambie. Si ese video se traba y
-  la API ya está en otro server, el reproductor lo reabre en el activo en el mismo segundo.
-- Sin ffmpeg (`transcode_available: false`): si `direct_ok` es `false` se prueba solo el
-  siguiente stream (hasta 3); si el `<video>` no lo decodifica, lo mismo en vez de degradar.
+  status (unsynced changes, last sync, "Sync now"). Switching to Auto/Local without the account on
+  the device asks for the password right there (login through the local one).
+- Always-visible indicator, icon only (cloud = server, disk = local, a dot if there are pending
+  changes; the details in the tooltip): in the desktop title bar and at the top right on Android
+  (`components/ConnBadge.svelte`).
+- Two tokens in `localStorage`: `mythos.token` (home server) and `mythos.localToken` (local).
+  `lib/api.ts` uses the active server's. Logout and "Switch account" close both.
+- Outage: a request to the home one that doesn't get through (or 502/503/504) and a
+  `GET /api/health` that doesn't either (on none of its addresses, `lib/servers.svelte.ts`) →
+  switches to local, repeats that request there and notifies. On local it checks
+  `/api/local/status` every 20 s; with `remote_reachable` → `POST /api/local/sync {token}` → goes
+  back to the home one ("Back on the server · synced") and reloads the view. Without a remote
+  session (`remote_signed_in: false` or a login made offline) it stays on local and asks to sign in
+  again to sync.
+- Each video session stays tied to the server (and token) where it was opened: `direct_url`, HLS,
+  internal subtitles and `/status` keep going there even if the API changes. If that video stalls
+  and the API is already on another server, the player reopens it on the active one at the same
+  second.
+- Without ffmpeg (`transcode_available: false`): if `direct_ok` is `false` it tries the next
+  stream on its own (up to 3); if the `<video>` can't decode it, the same instead of degrading.
 
-## Lo que falta
+## What's missing
 
-- Android: *foreground service* mientras se reproduce o baja algo en el local (con la pantalla
-  apagada Android puede congelar el proceso).
-- `caps` reales del WebView de Android para `/api/streams` (hoy usa la misma detección que la
-  web, que ya es la del dispositivo).
+- Android: *foreground service* while something is playing or downloading on the local one (with
+  the screen off Android can freeze the process).
+- Real `caps` of the Android WebView for `/api/streams` (today it uses the same detection as the
+  web, which is already the device's).

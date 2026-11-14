@@ -5,7 +5,7 @@
 //
 // En TV (lib/tv.svelte.ts) siempre: una tele Samsung (Tizen) o un TV box dibujan la pagina al doble
 // (viewport de 960 px en 1920) con CPU y GPU de tele; medido en una UN50DU7000, con los efectos el
-// raster se comia mas de un nucleo entero al moverse por las filas (docs/tizen.md, "Rendimiento").
+// raster se comia mas de un nucleo entero al moverse por las filas (docs/tizen.md, "Performance").
 //
 // Se puede forzar desde la consola: localStorage["mythos.lite"] = "1" (siempre) o "0" (nunca).
 import { isAndroid } from "./platform";

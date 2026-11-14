@@ -50,7 +50,7 @@ html[data-tv] *::after {
   backdrop-filter: none !important;
 }
 
-/* ---- Rendimiento en la tele (docs/tizen.md, "Rendimiento"). La pagina se dibuja al doble (960 px
+/* ---- Rendimiento en la tele (docs/tizen.md, "Performance"). La pagina se dibuja al doble (960 px
    en una pantalla de 1920) y en una Samsung el raster es por CPU: lo que cuesta es redibujar.
    Ademas de lo de los equipos flojos (data-lite, lib/perf.ts, que en TV va siempre):
    - Desplazar de un salto (lib/motion.ts scrollBehavior; aca el de CSS de cada vista).

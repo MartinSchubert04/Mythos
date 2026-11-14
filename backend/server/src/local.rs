@@ -552,7 +552,7 @@ impl std::fmt::Display for SyncError {
 }
 
 impl SyncError {
-    /// Código estable para la UI (docs/API.md, "Errores").
+    /// Código estable para la UI (docs/API.md, "Errors").
     pub fn code(&self) -> &'static str {
         match self {
             SyncError::NotLinked => "sync_not_linked",
@@ -818,7 +818,7 @@ struct Status {
     /// ms unix de la última sincronización buena.
     last_sync_at: Option<i64>,
     last_sync_error: Option<String>,
-    /// Código de `last_sync_error` (docs/API.md, "Errores").
+    /// Código de `last_sync_error` (docs/API.md, "Errors").
     last_sync_error_code: Option<&'static str>,
     /// Cambios locales que todavía no subieron.
     pending_changes: i64,

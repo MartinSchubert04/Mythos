@@ -48,7 +48,7 @@ if [ ! -f .env ]; then
       .env.example > .env
   # Con GPU NVIDIA, nvenc; si no, CPU.
   if ! command -v nvidia-smi >/dev/null || ! nvidia-smi >/dev/null 2>&1; then
-    warn "no se encontró una GPU NVIDIA: MYTHOS_HWACCEL=none (ver 'Sin GPU' en deploy/README.md)"
+    warn "no se encontró una GPU NVIDIA: MYTHOS_HWACCEL=none (ver 'No GPU' en deploy/README.md)"
     sed -i 's/^MYTHOS_HWACCEL=.*/MYTHOS_HWACCEL=none/' .env
   fi
   chmod 600 .env

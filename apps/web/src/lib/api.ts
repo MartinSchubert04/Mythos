@@ -90,7 +90,7 @@ export function onUnauthorized(f: () => void) {
 }
 
 /** Error del server: status, el texto (en ingles), y si lo manda, el codigo estable y sus datos
- *  (docs/API.md, "Errores"; los servers viejos mandan solo el texto). */
+ *  (docs/API.md, "Errors"; los servers viejos mandan solo el texto). */
 export class ApiError extends Error {
   constructor(
     public status: number,

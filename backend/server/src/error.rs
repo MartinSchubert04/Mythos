@@ -1,6 +1,6 @@
 //! Errores de la API: siempre status + `{"error": "..."}` en inglés y, en los que la UI muestra,
 //! un `code` estable (y `params` con los datos que van en el texto) para que los traduzca sin
-//! depender de la frase (docs/API.md, "Errores"). También envuelve los extractores de axum
+//! depender de la frase (docs/API.md, "Errors"). También envuelve los extractores de axum
 //! (`Json`, `Path`, `Query`) para que sus rechazos salgan con ese formato.
 use axum::{
     extract::{rejection::*, FromRequest, FromRequestParts},
@@ -26,7 +26,7 @@ impl ApiError {
     pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
         Self { status, message: message.into(), code: None, params: Map::new() }
     }
-    /// Le pone el código estable (ver docs/API.md, "Errores").
+    /// Le pone el código estable (ver docs/API.md, "Errors").
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
         self

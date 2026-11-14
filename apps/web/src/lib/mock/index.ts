@@ -112,7 +112,7 @@ function userOf(req: Request): User | null {
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-// Como el server: el texto en ingles y el codigo que traduce la UI (docs/API.md, "Errores").
+// Como el server: el texto en ingles y el codigo que traduce la UI (docs/API.md, "Errors").
 const err = (status: number, error: string, code?: string) => json(code ? { error, code } : { error }, status);
 const none = (status = 204) => new Response(null, { status });
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));

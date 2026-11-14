@@ -1,199 +1,199 @@
-# Mythos para Samsung (Tizen)
+# Mythos for Samsung (Tizen)
 
-La app de las teles Samsung (`apps/tizen`): una app web de Tizen (`.wgt`) mínima que hace de shell,
-como la de Android con "interfaz del server". Pide la dirección del server la primera vez, la
-guarda, comprueba que sea un Mythos y navega a la interfaz que sirve el server, que entra sola en
-modo TV (`lib/tv.svelte.ts` reconoce "Tizen" en el user agent).
+The Samsung TV app (`apps/tizen`): a minimal Tizen web app (`.wgt`) that acts as a shell,
+like the Android one with "server interface". It asks for the server address the first time,
+saves it, checks that it's a Mythos and navigates to the interface the server serves, which enters
+TV mode on its own (`lib/tv.svelte.ts` recognizes "Tizen" in the user agent).
 
-## Dónde va cada cosa
+## Where everything goes
 
 ```
 apps/tizen/
-  config.xml          la app: id MythosTV01.Mythos (el paquete tiene que tener 10 caracteres),
-                      version (la del repo), privilegios, navegar a cualquier origen
-  index.html          la pagina local: elegir server ("Conectando a ..." / "Cambiar de servidor"; en
-                      español, o en inglés si la tele está en inglés)
-  shell.js, shell.css (ES5: en una tele vieja dice que no alcanza en vez de quedar en negro)
-  icon.png            el de la app de Android (512x512)
-  build.ps1           arma build\Mythos.wgt firmado y, con -Tv <ip>, lo instala y lo abre
-  tools/samsung-cert.py  los certificados de Samsung (abajo)
-apps/web/src/lib/tizen.ts   lo de Samsung en la interfaz: nombres de teclas, teclas multimedia,
-                            salir de la app
+  config.xml          the app: id MythosTV01.Mythos (the package has to be 10 characters),
+                      version (the repo's), privileges, navigating to any origin
+  index.html          the local page: pick a server ("Conectando a ..." / "Cambiar de servidor"; in
+                      Spanish, or in English if the TV is in English)
+  shell.js, shell.css (ES5: on an old TV it says it's not enough instead of staying black)
+  icon.png            the Android app's (512x512)
+  build.ps1           builds a signed build\Mythos.wgt and, with -Tv <ip>, installs and opens it
+  tools/samsung-cert.py  the Samsung certificates (below)
+apps/web/src/lib/tizen.ts   the Samsung-specific bits in the interface: key names, media keys,
+                            exiting the app
 ```
 
-## Cómo funciona
+## How it works
 
-- **La dirección del server.** Igual que en Android, ningún build la lleva. La tele no tiene
-  Tailscale: va la de la red de casa (`http://<ip-del-server>:7700`, con `MYTHOS_EXTRA_BIND` en el
-  server). Se escribe con el teclado de la tele (el centro del control lo abre; alcanza con la IP:
-  sin `http://` usa `http://`, y sin puerto, `:7700`) o se busca con **Buscar en esta red** ("Find on this network"): prueba
-  `http://<x.y.z.1-254>:7700/icon.svg` en la red de la tele (la IP sale de `tizen.systeminfo`).
-  Queda guardada; al abrir se ve "Conectando a ..." un momento con **Cambiar de servidor**.
-- **Comprobar que es un Mythos.** `GET /api/health` (`ok`, y que no sea el server embebido de
-  otra app). Si la página local no lo puede leer (CORS: el server solo deja leer a sus orígenes
-  conocidos), alcanza con que cargue `/icon.svg` de esa dirección.
-- **Navegar, no iframe.** El server manda `frame-ancestors 'none'`, así que la página local navega
-  a la del server (`<tizen:allow-navigation>*`: la dirección la elige el usuario). Antes de irse
-  marca su entrada del historial (`#away`).
-- **Teclas.** `lib/tizen.ts` traduce los códigos de Samsung a los nombres estándar que ya usan
-  `lib/spatial.svelte.ts` y el reproductor: atrás (10009) = `BrowserBack`, y las multimedia
-  (play/pausa, play, pausa, stop, adelantar, retroceder). Las multimedia solo llegan si se
-  registran con `tizen.tvinputdevice.registerKey`: lo hacen la página local antes de navegar y la
-  interfaz al arrancar (si esa página tiene `tizen`). Stop pausa.
-- **Atrás** (`tizenBack` en `lib/spatial.svelte.ts`). El control manda `XF86Back` (keyCode 10009)
-  y la tele no navega sola. Igual que el botón atrás de Android: primero un Esc a lo enfocado
-  (cierra cajón, menú, diálogo, tráiler, menús del reproductor; en el reproductor sin nada abierto,
-  sale); si nadie lo usa, la vista anterior. En el inicio: si se estaba recorriendo las filas,
-  vuelve arriba (al Play del destacado); arriba de todo, cierra la app sin preguntar (el paso
-  "volver arriba" ya evita salir sin querer, y una confirmación sería una tecla más cada vez).
-  Cerrar: con `tizen.application` si la página del server lo tiene; si no, `history.back()` vuelve a
-  la página local, que al verse con `#away` se cierra. Probado con el control real en inicio,
-  ficha, cajón de streams, menú ⋯, tráiler, reproductor (con y sin menú) y salida.
-- **Modo TV siempre.** En Samsung no hay opción (Settings no muestra "Modo TV"): apagado, el
-  control no movía nada y no había cómo volver a prenderlo (quedaba guardado).
-- **El teclado de la tele.** Se abre con el centro sobre un campo (la búsqueda lo abre sola al
-  entrar desde la barra lateral). "Done" pasa al campo siguiente y en el último envía. Atrás con el
-  teclado abierto lo cierra y no cambia de vista; a veces el primer atrás se lo queda el teclado y
-  hace falta un segundo. Mientras está abierto la página mide la mitad de alto (`resize`): nada que
-  esté abierto debe cerrarse por eso (el `Select` con buscador se cerraba: en TV ya no tiene). En un
-  campo de **contraseña** el teclado no respeta `inputmode="none"` y se abría con solo pasar por
-  encima (login, Real-Debrid): mientras se navega, los campos quedan además de solo lectura
-  (`lib/spatial.svelte.ts`, como la página local).
-- **Teclas multimedia mantenidas.** La tele no repite adelantar/retroceder (un keydown al apretar y
-  un keyup al soltar, a diferencia de las flechas): el salto crece con un reloj hasta el keyup.
-- **Server caído.** Si el server no contesta ni rechaza (apagado, o la red descarta los paquetes),
-  el navegador espera minutos: un pedido o una vista que tardan más de 8 s prueban `/api/health`
-  (5 s) y, si tampoco contesta, aparece la barra "No se puede conectar con el servidor" y se
-  reintenta sola (`lib/net.svelte.ts`). En el reproductor espera sin "probar otro stream" y sigue
-  solo al volver. Si el server ya no contestaba al abrir la app, la página local lo dice ("No hay
-  un servidor de Mythos en ...", con la dirección para corregir).
-- **Tráiler.** Reproduce en la tele (iframe de youtube-nocookie) y se maneja con el control desde
-  afuera del iframe (`lib/trailer.ts`, docs/mobile.md "TV"). Algunos no se pueden embeber (lo decide
-  el dueño en YouTube): cartel propio.
+- **The server address.** Same as on Android, no build carries it. The TV doesn't have
+  Tailscale: it uses the home network one (`http://<ip-del-server>:7700`, with `MYTHOS_EXTRA_BIND` on the
+  server). It's typed with the TV keyboard (the remote's center button opens it; the IP is enough:
+  without `http://` it uses `http://`, and without a port, `:7700`) or found with **Buscar en esta red** ("Find on this network"): it probes
+  `http://<x.y.z.1-254>:7700/icon.svg` on the TV's network (the IP comes from `tizen.systeminfo`).
+  It stays saved; on open "Conectando a ..." ("Connecting to ...") shows for a moment with **Cambiar de servidor** ("Change server").
+- **Checking that it's a Mythos.** `GET /api/health` (`ok`, and that it's not another
+  app's embedded server). If the local page can't read it (CORS: the server only lets its known
+  origins read), it's enough that `/icon.svg` loads from that address.
+- **Navigate, not iframe.** The server sends `frame-ancestors 'none'`, so the local page navigates
+  to the server's (`<tizen:allow-navigation>*`: the address is chosen by the user). Before leaving
+  it marks its history entry (`#away`).
+- **Keys.** `lib/tizen.ts` translates Samsung's codes to the standard names already used by
+  `lib/spatial.svelte.ts` and the player: back (10009) = `BrowserBack`, and the media keys
+  (play/pause, play, pause, stop, fast-forward, rewind). Media keys only arrive if they're
+  registered with `tizen.tvinputdevice.registerKey`: the local page does it before navigating and the
+  interface on startup (if that page has `tizen`). Stop pauses.
+- **Back** (`tizenBack` in `lib/spatial.svelte.ts`). The remote sends `XF86Back` (keyCode 10009)
+  and the TV doesn't navigate on its own. Same as the Android back button: first an Esc to whatever is focused
+  (closes drawer, menu, dialog, trailer, player menus; in the player with nothing open, it
+  exits); if nobody uses it, the previous view. On the home screen: if the rows were being browsed,
+  it goes back up (to the featured item's Play); at the very top, it closes the app without asking (the
+  "go back up" step already prevents exiting by accident, and a confirmation would be one more key press every time).
+  Closing: with `tizen.application` if the server's page has it; if not, `history.back()` goes back to
+  the local page, which closes itself when it sees `#away`. Tested with the real remote on home,
+  title page, stream drawer, ⋯ menu, trailer, player (with and without a menu) and exit.
+- **TV mode always.** On Samsung there's no option (Settings doesn't show "Modo TV" ("TV mode")): when off, the
+  remote didn't move anything and there was no way to turn it back on (it stayed saved).
+- **The TV keyboard.** It opens with the center button on a field (search opens it on its own when
+  entering from the sidebar). "Done" moves to the next field and on the last one submits. Back with the
+  keyboard open closes it and doesn't change view; sometimes the keyboard swallows the first back and
+  a second one is needed. While it's open the page is half as tall (`resize`): nothing that's
+  open should close because of that (the `Select` with a search box used to close: on TV it no longer has one). On a
+  **password** field the keyboard doesn't respect `inputmode="none"` and opened just by passing
+  over it (login, Real-Debrid): while navigating, the fields are also read-only
+  (`lib/spatial.svelte.ts`, like the local page).
+- **Held media keys.** The TV doesn't repeat fast-forward/rewind (one keydown on press and
+  one keyup on release, unlike the arrows): the jump grows with a timer until the keyup.
+- **Server down.** If the server neither answers nor refuses (off, or the network drops the packets),
+  the browser waits for minutes: a request or a view that takes more than 8 s probes `/api/health`
+  (5 s) and, if that doesn't answer either, the "No se puede conectar con el servidor" ("Can't reach the server") bar appears and it
+  retries on its own (`lib/net.svelte.ts`). In the player it waits without "try another stream" and resumes
+  on its own when it's back. If the server already wasn't answering when the app was opened, the local page says so ("No hay
+  un servidor de Mythos en ..." ("Can't reach a Mythos server at ..."), with the address to correct).
+- **Trailer.** Plays on the TV (youtube-nocookie iframe) and is controlled with the remote from
+  outside the iframe (`lib/trailer.ts`, docs/mobile.md "TV"). Some can't be embedded (the
+  owner decides on YouTube): custom notice.
 
-## Reproducir: AC-3 / E-AC-3
+## Playback: AC-3 / E-AC-3
 
-La tele acepta AC-3 y E-AC-3 solos en MSE pero **no mezclados con el video** en el mismo
-SourceBuffer (`video/mp4;codecs="hvc1…,ec-3"` → no soportado), y los segmentos HLS del server llevan
-las dos pistas juntas. Antes la interfaz decía que sí (`ClientCaps`), el server copiaba el audio y
-hls.js no podía ni crear el buffer: "The stream stopped responding" con casi cualquier release
-WEB-DL (DDP5.1). Ahora `lib/caps.ts` pide también la combinación mezclada (el server convierte el
-audio) y, si igual pasa (`bufferAddCodecError`), el reproductor degrada el audio y sigue.
+The TV accepts AC-3 and E-AC-3 on their own in MSE but **not muxed with the video** in the same
+SourceBuffer (`video/mp4;codecs="hvc1…,ec-3"` → not supported), and the server's HLS segments carry
+both tracks together. Previously the interface said yes (`ClientCaps`), the server copied the audio and
+hls.js couldn't even create the buffer: "The stream stopped responding" with almost any
+WEB-DL (DDP5.1) release. Now `lib/caps.ts` also asks for the muxed combination (the server converts the
+audio) and, if it still happens (`bufferAddCodecError`), the player downgrades the audio and continues.
 
-## Chromium 120: lo que cambia con la PC
+## Chromium 120: what's different from the PC
 
-- Los `<button>` traen `align-items: flex-start` en el estilo del navegador (el Chrome de ahora,
-  `normal`): un botón con `display: flex` en columna dejaba a sus hijos con el ancho del contenido
-  (la vista previa de cada tema en Settings medía 2 px). `styles/base.css` lo pone en `normal`.
-- `Intl` en es-AR: el formato compacto da "1 K" pero "10 k" (la lista de votos de Calificadas ahora
-  va en miles a mano: "25 mil+ votos").
+- `<button>`s come with `align-items: flex-start` in the browser's styles (current Chrome,
+  `normal`): a button with `display: flex` in a column left its children at content width
+  (each theme's preview in Settings was 2 px wide). `styles/base.css` sets it to `normal`.
+- `Intl` in es-AR: the compact format gives "1 K" but "10 k" (the votes list in Calificadas, "Top rated", now
+  goes in thousands by hand: "25 mil+ votos").
 
-## Rendimiento
+## Performance
 
-La página se dibuja al doble (960 px en 1920) y la UN50DU7000 rasteriza por CPU: lo que cuesta es
-redibujar, no el JavaScript. En TV (`data-tv`):
+The page is drawn at double size (960 px in 1920) and the UN50DU7000 rasterizes on the CPU: what's costly is
+repainting, not the JavaScript. On TV (`data-tv`):
 
-- Siempre modo liviano (`data-lite`, `lib/perf.ts`): sin desenfoques, sin el zoom lento del hero,
-  sin la aparición escalonada de las tarjetas, fondos de 1280 px como máximo.
-- Desplazamiento de un salto (`scrollBehavior()` de `lib/motion.ts`, `styles/tv.css`): el suave
-  redibujaba en cada cuadro y era la mayoría de los cuadros perdidos.
-- Las tarjetas crecen con el foco sin animar y con solo el anillo (sin sombra difusa): animado,
-  cada tarjeta pasaba a ser una capa mientras duraba y al terminar se redibujaba la página debajo.
-- El hero rota solo con el control quieto 8 s; las filas no miden sus flechas (no se muestran);
-  a los costados la navegación busca solo en la fila (`lib/spatial.svelte.ts`).
+- Always lite mode (`data-lite`, `lib/perf.ts`): no blurs, no slow hero zoom,
+  no staggered appearance of the cards, backdrops at 1280 px at most.
+- Scrolling in one jump (`scrollBehavior()` from `lib/motion.ts`, `styles/tv.css`): smooth scrolling
+  repainted every frame and accounted for most of the dropped frames.
+- Cards grow on focus without animating and with only the ring (no soft shadow): animated,
+  each card became a layer while it lasted and when it ended the page below was repainted.
+- The hero only rotates with the remote idle for 8 s; rows don't measure their arrows (they're not shown);
+  sideways, navigation only searches within the row (`lib/spatial.svelte.ts`).
 
-Medido en la tele (inicio con las filas ya cargadas, 25 flechas): antes ~30 cuadros/s, 70–82
-cuadros de más de 50 ms, tecla→cuadro p90 390–440 ms, 62–67 tareas largas; después ~55 cuadros/s,
-16–18, 234–241 ms y 13. El raster en reposo/navegando bajó de ~128 % a ~46 % de un núcleo.
+Measured on the TV (home screen with the rows already loaded, 25 arrow presses): before ~30 frames/s, 70–82
+frames over 50 ms, key→frame p90 390–440 ms, 62–67 long tasks; after ~55 frames/s,
+16–18, 234–241 ms and 13. Idle/navigating raster dropped from ~128 % to ~46 % of one core.
 
-## Herramientas (una vez, en la PC)
+## Tools (once, on the PC)
 
-- **Tizen Studio CLI** (`web-cli_Tizen_Studio_6.1_windows-64.exe` de
-  `https://download.tizen.org/sdk/Installer/tizen-studio_6.1/`). El instalador pide administrador;
-  sin admin se instala en el perfil:
+- **Tizen Studio CLI** (`web-cli_Tizen_Studio_6.1_windows-64.exe` from
+  `https://download.tizen.org/sdk/Installer/tizen-studio_6.1/`). The installer asks for administrator;
+  without admin it installs into the profile:
   `$env:__COMPAT_LAYER='RunAsInvoker'; .\web-cli.exe --accept-license $env:USERPROFILE\tizen-studio`
-  Trae `tools\sdb.exe`, `tools\ide\bin\tizen.bat` y un Java 8 propio (`jdk\`).
-  Ojo: el package manager (`package-manager-cli.exe install ...`) intenta actualizar WebCLI
-  primero, falla ("Cannot install updates") y deja borrados el `jdk\` y parte del package manager:
-  no hace falta para nada de esto (si se usó, reinstalar).
-- **Python 3** con `cryptography` y `requests` (para `samsung-cert.py`).
+  It brings `tools\sdb.exe`, `tools\ide\bin\tizen.bat` and its own Java 8 (`jdk\`).
+  Careful: the package manager (`package-manager-cli.exe install ...`) tries to update WebCLI
+  first, fails ("Cannot install updates") and leaves `jdk\` and part of the package manager deleted:
+  it's not needed for any of this (if it was used, reinstall).
+- **Python 3** with `cryptography` and `requests` (for `samsung-cert.py`).
 
-## Modo desarrollador de la tele
+## TV developer mode
 
-Una tele de fábrica no instala un `.wgt` desde un pendrive ni de cualquier lado: solo desde la
-tienda de Samsung o, en modo desarrollador, por `sdb` desde la PC elegida y firmado con un
-certificado de Samsung que nombra a esa tele.
+A factory TV doesn't install a `.wgt` from a USB drive or from just anywhere: only from the
+Samsung store or, in developer mode, via `sdb` from the chosen PC and signed with a
+Samsung certificate that names that TV.
 
-1. En la tele: Apps → apretar `1 2 3 4 5` → Developer mode **On** y **Host PC IP** = la IP de la PC.
-2. Reiniciar la tele de verdad (mantener apretado el botón de encendido hasta que aparezca el logo):
-   recién ahí abre el puerto de `sdb` (26101).
-3. `sdb connect <ip-de-la-tele>` y `sdb -s <ip-de-la-tele>:26101 shell 0 getduid` (el DUID).
+1. On the TV: Apps → press `1 2 3 4 5` → Developer mode **On** and **Host PC IP** = the PC's IP.
+2. Really restart the TV (hold the power button until the logo appears):
+   only then does it open the `sdb` port (26101).
+3. `sdb connect <ip-de-la-tele>` and `sdb -s <ip-de-la-tele>:26101 shell 0 getduid` (the DUID).
 
-## Certificados de Samsung
+## Samsung certificates
 
-`apps/tizen/tools/samsung-cert.py` hace lo mismo que el Certificate Manager de Tizen Studio con la
-Samsung Certificate Extension, sin Eclipse: abre el login de la cuenta de Samsung en el navegador
-(responde a `http://localhost:4794/signin/callback`), pide a Samsung el certificado de autor y el
-de distribuidor (con el DUID de la tele, nivel Public), arma los `.p12` con las CA de Samsung y crea
-el perfil de firma `Mythos` en Tizen Studio:
+`apps/tizen/tools/samsung-cert.py` does the same as Tizen Studio's Certificate Manager with the
+Samsung Certificate Extension, without Eclipse: it opens the Samsung account login in the browser
+(answers on `http://localhost:4794/signin/callback`), requests the author and
+distributor certificates from Samsung (with the TV's DUID, Public level), builds the `.p12` files with Samsung's CAs and creates
+the `Mythos` signing profile in Tizen Studio:
 
 ```
 python apps\tizen\tools\samsung-cert.py --duid <DUID> --tizen $env:USERPROFILE\tizen-studio
 ```
 
-Quedan en `~/.mythos-signing/tizen/` (fuera del repo, como las claves de Android):
-`author.p12`, `distributor.p12`, `password.txt` (la de los dos `.p12`) y `ca/` (las CA públicas de
-Samsung, bajadas de la extensión). El perfil de firma vive en
+They end up in `~/.mythos-signing/tizen/` (outside the repo, like the Android keys):
+`author.p12`, `distributor.p12`, `password.txt` (the one for both `.p12` files) and `ca/` (Samsung's public
+CAs, downloaded from the extension). The signing profile lives in
 `~/tizen-studio-data/profile/profiles.xml`.
 
-- **El autor es para siempre**: firma cada versión, y la tele no instala encima una firmada por
-  otro autor (hay que desinstalar). No se pide de nuevo: el script se niega si ya hay un
+- **The author is forever**: it signs every version, and the TV won't install over it one signed by
+  another author (you have to uninstall). It isn't requested again: the script refuses if there's already an
   `author.p12`.
-- **Otra tele**: `--reuse-author --duid <DUID-1> --duid <DUID-2>` pide solo un distribuidor nuevo
-  con todas las teles.
+- **Another TV**: `--reuse-author --duid <DUID-1> --duid <DUID-2>` requests only a new distributor
+  with all the TVs.
 
-## Compilar, firmar e instalar
+## Build, sign and install
 
 ```
 cd apps/tizen
-.\build.ps1                       # build\Mythos.wgt firmado con el perfil "Mythos"
-.\build.ps1 -Tv 192.168.0.139     # además: sdb connect, tizen install y abrirla
+.\build.ps1                       # build\Mythos.wgt signed with the "Mythos" profile
+.\build.ps1 -Tv 192.168.0.139     # also: sdb connect, tizen install and open it
 ```
 
-`build.ps1` copia solo lo de la app a `build\` (la firma escribe ahí) y corre
-`tizen package -t wgt -s Mythos`, `tizen install` y `tizen run -p MythosTV01.Mythos`. Para
-depurar: `sdb -s <ip>:26101 shell 0 debug MythosTV01.Mythos` da un puerto del inspector
-(`sdb forward tcp:<puerto> tcp:<puerto>` y `chrome://inspect`).
+`build.ps1` copies only the app's files to `build\` (signing writes there) and runs
+`tizen package -t wgt -s Mythos`, `tizen install` and `tizen run -p MythosTV01.Mythos`. To
+debug: `sdb -s <ip>:26101 shell 0 debug MythosTV01.Mythos` gives an inspector port
+(`sdb forward tcp:<puerto> tcp:<puerto>` and `chrome://inspect`).
 
-## Probar con el control por red
+## Testing with the network remote
 
-El control por red de la tele (wss `:8002`, `samsung.remote.control`) sirve para probar con las
-teclas de verdad, con algunas mañas:
+The TV's network remote (wss `:8002`, `samsung.remote.control`) is useful for testing with the
+real keys, with a few quirks:
 
-- `Click` manda apretar y soltar juntos: con un campo de texto enfocado, el centro a veces abre el
-  teclado y además escribe la letra marcada. `Press` y `Release` separados se comportan como el
-  control físico.
-- `Press` solo, sin repetirlo, se suelta solo a ~1 s; para mantener más, mandar `Press` cada
-  ~0,5 s y `Release` al final.
-- Una conexión quieta más de un minuto pierde teclas sin avisar: conectar de nuevo antes de una
-  tecla importante.
-- `SendInputString` escribe en el teclado abierto y `SendInputEnd` es su "Done" (keyCode 65376).
-- Las capturas de DevTools no muestran el video (sí los iframes): verlo por el estado del `<video>`.
+- `Click` sends press and release together: with a text field focused, the center button sometimes opens the
+  keyboard and also types the highlighted letter. Separate `Press` and `Release` behave like the
+  physical remote.
+- `Press` alone, without repeating it, releases on its own after ~1 s; to hold longer, send `Press` every
+  ~0.5 s and `Release` at the end.
+- A connection idle for more than a minute loses keys silently: reconnect before an
+  important key.
+- `SendInputString` types into the open keyboard and `SendInputEnd` is its "Done" (keyCode 65376).
+- DevTools screenshots don't show the video (iframes yes): check it via the `<video>`'s state.
 
-## Actualizar
+## Updating
 
-- **La interfaz** viene del server: cada deploy la actualiza sola, sin tocar la tele.
-- **La app** (la página local, `config.xml`) casi nunca cambia: se actualiza reinstalando con
-  `build.ps1 -Tv <ip>` (mismo autor; la dirección guardada queda). No hay actualización sola.
+- **The interface** comes from the server: every deploy updates it on its own, without touching the TV.
+- **The app** (the local page, `config.xml`) almost never changes: it's updated by reinstalling with
+  `build.ps1 -Tv <ip>` (same author; the saved address stays). There's no automatic update.
 
-## Limitaciones
+## Limitations
 
-- Hace falta el modo desarrollador con esta PC como Host PC y el certificado de distribuidor con el
-  DUID de la tele (para instalar y para reinstalar cada versión).
-- **No va a los Releases**: un `.wgt` firmado sirve solo para las teles de su certificado de
-  distribuidor, y no se puede instalar sin `sdb` (ni por pendrive). Por eso no hay workflow de CI:
-  armar un `.wgt` en CI no le sirve a nadie sin el certificado de su tele. Publicarla para cualquier
-  tele sería pasar por la tienda de Samsung (Seller Office).
-- La interfaz pide Chromium 111 (como en Android): teles Samsung con Tizen 8 o más nuevo (2024 en
-  adelante; Tizen 7 trae Chromium 94). En una más vieja la página local lo dice.
-- Solo server: la tele no corre el server embebido del modo local.
+- It needs developer mode with this PC as Host PC and the distributor certificate with the
+  TV's DUID (to install and to reinstall each version).
+- **It doesn't go to the Releases**: a signed `.wgt` only works on the TVs of its distributor
+  certificate, and it can't be installed without `sdb` (not even from a USB drive). That's why there's no CI workflow:
+  building a `.wgt` in CI is no use to anyone without their TV's certificate. Publishing it for any
+  TV would mean going through the Samsung store (Seller Office).
+- The interface requires Chromium 111 (like on Android): Samsung TVs with Tizen 8 or newer (2024
+  onwards; Tizen 7 ships Chromium 94). On an older one the local page says so.
+- Server only: the TV doesn't run the local mode's embedded server.

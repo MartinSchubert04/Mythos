@@ -1798,7 +1798,7 @@
     back(type === "series" ? `/title/series/${seriesId}` : `/title/movie/${id}`);
   }
 
-  // ---- vista previa al adelantar (miniaturas del server, docs/API.md "Vista previa al adelantar")
+  // ---- vista previa al adelantar (miniaturas del server, docs/API.md "Seek preview")
   //
   // Se pide el indice apenas arranca el video (eso le dice al server que empiece a generarlas) y
   // cada 15 s hasta que no vengan mas. Sin ffmpeg (501), con un server viejo o sin duracion

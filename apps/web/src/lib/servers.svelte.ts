@@ -1,7 +1,7 @@
 // Varias direcciones del MISMO server de casa (desktop y la pagina del APK): p. ej. la de
 // Tailscale (`https://<server>.ts.net:7700`, desde cualquier lado) y la de la red de casa
-// (`http://192.168.x.x:7700`, mas rapida, solo en casa). Ver docs/local-mode.md ("Varias
-// direcciones del server").
+// (`http://192.168.x.x:7700`, mas rapida, solo en casa). Ver docs/local-mode.md ("Multiple
+// server addresses").
 //
 // - La lista es de este dispositivo (localStorage, `platform.ts`); no se sube al server.
 // - Todas tienen que ser el mismo server: se compara el `server_id` de GET /api/health. Una que

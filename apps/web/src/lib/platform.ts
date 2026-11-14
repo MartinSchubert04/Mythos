@@ -140,7 +140,7 @@ export function deviceLabel(): string {
   return os ? `${browser} on ${os}` : browser;
 }
 
-/** Puerto del server cuando no se escribe ninguno (el de deploy/, CLAUDE.md "Puertos"). */
+/** Puerto del server cuando no se escribe ninguno (el de deploy/, CLAUDE.md "Ports"). */
 export const SERVER_PORT = 7700;
 
 /** Lo que se escribe en el login → URL del server, sin barra final. Sin puerto va `:7700`. Sin

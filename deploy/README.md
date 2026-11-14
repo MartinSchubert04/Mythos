@@ -1,70 +1,70 @@
-# Despliegue de Mythos
+# Deploying Mythos
 
-Cómo levantar Mythos en el server de casa con Docker. La app queda escuchando solo en
-`127.0.0.1:7700` y se publica a la tailnet con `tailscale serve`; desde internet no se ve nada salvo
-el puerto de BitTorrent.
+How to bring up Mythos on the home server with Docker. The app listens only on
+`127.0.0.1:7700` and is published to the tailnet with `tailscale serve`; from the internet nothing is visible except
+the BitTorrent port.
 
-## Puertos
+## Ports
 
-| Puerto | Para qué | Dónde |
+| Port | What for | Where |
 |---|---|---|
-| `127.0.0.1:7700` TCP | API + interfaz web | solo local; afuera por `tailscale serve` (`https://<tu-server>.ts.net:7700`) |
-| `42069` TCP + UDP | peers de BitTorrent | abierto en el router (más peers = baja más rápido) |
-| UDP aleatorio | DHT (buscar peers sin trackers) | lo elige librqbit; sale solo, no hace falta abrirlo |
+| `127.0.0.1:7700` TCP | API + web interface | local only; outside via `tailscale serve` (`https://<tu-server>.ts.net:7700`) |
+| `42069` TCP + UDP | BitTorrent peers | open on the router (more peers = faster downloads) |
+| random UDP | DHT (finding peers without trackers) | chosen by librqbit; outbound only, no need to open it |
 
-### Por qué `network_mode: host`
+### Why `network_mode: host`
 
-El contenedor usa la red del host en vez de publicar puertos. El motor de torrents necesita dos
-cosas que con la red aislada de Docker no andan: **UPnP** (le pide al router que abra el puerto de
-peers; desde la red bridge el router no lo ve) y el **DHT**, que abre un puerto UDP aleatorio que no
-se puede publicar de antemano. Sin eso hay menos peers y la película tarda más en arrancar.
+The container uses the host's network instead of publishing ports. The torrent engine needs two
+things that don't work with Docker's isolated network: **UPnP** (it asks the router to open the peer
+port; from the bridge network the router doesn't see it) and the **DHT**, which opens a random UDP port that can't
+be published in advance. Without them there are fewer peers and the movie takes longer to start.
 
-La app no queda más expuesta: `MYTHOS_BIND=127.0.0.1:7700` (fijo en `docker-compose.yml`)
-hace que escuche solo en localhost, y `tailscale serve` la publica a la tailnet. El healthcheck
-(`mythos health`) consulta ese mismo puerto en 127.0.0.1.
+The app isn't any more exposed: `MYTHOS_BIND=127.0.0.1:7700` (fixed in `docker-compose.yml`)
+makes it listen only on localhost, and `tailscale serve` publishes it to the tailnet. The healthcheck
+(`mythos health`) queries that same port on 127.0.0.1.
 
-**Red de casa (opcional):** con `MYTHOS_EXTRA_BIND=<ip-del-server>:7700` en `deploy/.env` también
-se entra desde la LAN por `http://<ip-del-server>:7700`, sin Tailscale (por ejemplo, un TV box). No
-sirve `0.0.0.0`: `tailscale serve` ya ocupa el 7700 en la IP de la tailnet. Conviene reservar la
-IP del server en el router (DHCP fijo) para que no cambie. Es `http` sin
-cifrar y cualquiera conectado al WiFi llega a la pantalla de login (con límite de intentos). Desde
-afuera de casa sigue siendo solo por la tailnet, y `tailscale serve` funciona igual.
+**Home network (optional):** with `MYTHOS_EXTRA_BIND=<ip-del-server>:7700` in `deploy/.env` it can
+also be reached from the LAN at `http://<ip-del-server>:7700`, without Tailscale (for example, a TV box).
+`0.0.0.0` doesn't work: `tailscale serve` already takes 7700 on the tailnet IP. It's a good idea to reserve the
+server's IP on the router (static DHCP) so it doesn't change. It's unencrypted `http` and
+anyone connected to the WiFi reaches the login screen (with an attempt limit). From
+outside the house it's still only through the tailnet, and `tailscale serve` works the same.
 
-En el server ya están ocupados 22, 53, 443, 1883, 3000, 4000, 4517, 5678, 6052, 6080, 8080, 8090,
-8123, 8443, 8765, 8787, 8788, 10200, 10300, 11987, 51515 y 61208: Mythos no usa ninguno.
+On the server 22, 53, 443, 1883, 3000, 4000, 4517, 5678, 6052, 6080, 8080, 8090,
+8123, 8443, 8765, 8787, 8788, 10200, 10300, 11987, 51515 and 61208 are already taken: Mythos uses none of them.
 
-## Requisitos
+## Requirements
 
-- Docker con el plugin `compose`.
-- Driver de NVIDIA y el [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-  (para convertir video en la GPU con NVENC). Probá que ande con
+- Docker with the `compose` plugin.
+- NVIDIA driver and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+  (to convert video on the GPU with NVENC). Check that it works with
   `docker run --rm --gpus all ubuntu nvidia-smi`.
-- Tailscale instalado y logueado en el server.
+- Tailscale installed and logged in on the server.
 
-## Con el script (recomendado)
+## With the script (recommended)
 
-`deploy/deploy.sh` hace todo lo de abajo y se puede correr las veces que haga falta (la primera vez
-y en cada actualización):
+`deploy/deploy.sh` does everything below and can be run as many times as needed (the first time
+and on every update):
 
 ```bash
 mkdir -p ~/Projects && cd ~/Projects
 git clone https://github.com/MartinSchubert04/Mythos.git
-MYTHOS_ADMIN_USER=martin ./Mythos/deploy/deploy.sh      # el nombre es opcional (por defecto "admin")
+MYTHOS_ADMIN_USER=martin ./Mythos/deploy/deploy.sh      # the name is optional (default "admin")
 ```
 
 1. `git pull --ff-only`.
-2. Si no existe `deploy/.env`, lo crea desde `.env.example` con una **contraseña de admin aleatoria
-   que muestra una sola vez** (anotala). Si no encuentra una GPU NVIDIA pone `MYTHOS_HWACCEL=none`.
-   Si el `.env` ya existe no lo toca.
-3. Deja `deploy/data/` a nombre del uid 1000 (el usuario del contenedor), con `sudo` si hace falta.
+2. If `deploy/.env` doesn't exist, it creates it from `.env.example` with a **random admin password
+   that it shows only once** (write it down). If it doesn't find an NVIDIA GPU it sets `MYTHOS_HWACCEL=none`.
+   If the `.env` already exists it doesn't touch it.
+3. Gives `deploy/data/` to uid 1000 (the container's user), with `sudo` if needed.
 4. `docker compose up -d --build`.
-5. Espera hasta 3 minutos a que el healthcheck dé `healthy`; si falla, muestra los últimos logs y
-   termina con error.
-6. Si `tailscale serve` todavía no publica el puerto 7700, corre
-   `tailscale serve --bg --https=7700 http://127.0.0.1:7700` (con `sudo` si hace falta) y muestra la
-   URL final.
+5. Waits up to 3 minutes for the healthcheck to report `healthy`; if it fails, it shows the latest logs and
+   exits with an error.
+6. If `tailscale serve` isn't publishing port 7700 yet, it runs
+   `tailscale serve --bg --https=7700 http://127.0.0.1:7700` (with `sudo` if needed) and shows the
+   final URL.
 
-## A mano (primera vez)
+## By hand (first time)
 
 ```bash
 mkdir -p ~/Projects && cd ~/Projects
@@ -72,93 +72,93 @@ git clone https://github.com/MartinSchubert04/Mythos.git
 cd Mythos/deploy
 
 cp .env.example .env
-nano .env                 # usuario y contraseña del primer admin, MYTHOS_HWACCEL=nvenc
+nano .env                 # user and password of the first admin, MYTHOS_HWACCEL=nvenc
 
-# La carpeta de datos (base de datos + caché de torrents). El contenedor corre con el uid 1000:
+# The data folder (database + torrent cache). The container runs as uid 1000:
 mkdir -p data && sudo chown 1000:1000 data
 
 docker compose up -d --build
-docker compose logs -f    # tiene que decir "Mythos … escuchando en http://127.0.0.1:7700"
+docker compose logs -f    # it should say "Mythos … escuchando en http://127.0.0.1:7700"
 curl http://127.0.0.1:7700/api/health     # {"ok":true,"version":"…"}
 ```
 
-El primer build tarda varios minutos (compila la UI y el backend). Los siguientes reusan la capa de
-dependencias y son mucho más rápidos.
+The first build takes several minutes (it compiles the UI and the backend). The following ones reuse the
+dependency layer and are much faster.
 
-### Publicarlo en la tailnet
+### Publishing it on the tailnet
 
 ```bash
 sudo tailscale serve --bg --https=7700 http://127.0.0.1:7700
 tailscale serve status
 ```
 
-Queda en `https://<tu-server>.ts.net:7700`, con HTTPS de verdad y visible solo para los equipos de
-tu tailnet. Para sacarlo: `sudo tailscale serve --https=7700 off`.
+It ends up at `https://<tu-server>.ts.net:7700`, with real HTTPS and visible only to the devices on
+your tailnet. To remove it: `sudo tailscale serve --https=7700 off`.
 
-### Abrir el puerto de BitTorrent en el router
+### Opening the BitTorrent port on the router
 
-En el router, redirigí el puerto **42069 TCP y UDP** a la IP local del server. No es obligatorio
-(sin esto baja igual), pero con el puerto abierto se conectan muchos más peers y la película
-arranca y avanza más rápido (UPnP lo intenta solo, pero muchos routers lo traen apagado). Si
-cambiás el puerto, cambialo en `MYTHOS_PEER_PORT`. El reenvío tiene que ser al **mismo** puerto
-externo e interno: Mythos anuncia `MYTHOS_PEER_PORT` a trackers y DHT. Con doble NAT (módem del
-proveedor + router propio) hace falta en los dos, o el módem en modo bridge. Al arrancar, el log
-dice `torrent session ready ... announce_port=Some(42069)`; si dice otro puerto (el 42069 estaba
-ocupado), avisa con un `warn` y el reenvío no sirve hasta reiniciar con el puerto libre.
+On the router, forward port **42069 TCP and UDP** to the server's local IP. It's not required
+(it downloads anyway without it), but with the port open many more peers connect and the movie
+starts and progresses faster (UPnP tries it on its own, but many routers ship with it off). If
+you change the port, change it in `MYTHOS_PEER_PORT`. The forwarding has to be to the **same** external
+and internal port: Mythos announces `MYTHOS_PEER_PORT` to trackers and DHT. With double NAT (ISP
+modem + your own router) it's needed on both, or the modem in bridge mode. On startup, the log
+says `torrent session ready ... announce_port=Some(42069)`; if it says another port (42069 was
+taken), it warns with a `warn` and the forwarding is useless until restarting with the port free.
 
-Con el puerto abierto, Mythos usa hasta **200 peers por torrent** (entrantes y salientes), sube sin
-tope mientras baja (los peers priorizan a quien les sube) y refresca la lista de trackers públicos
-cada 12 h. Normalmente hay uno o dos torrents vivos a la vez (lo que no mira nadie se pausa), así
-que entra holgado en la tabla NAT de un router de casa (4–16 mil conexiones para toda la casa).
-Si al bajar se corta internet en la casa, bajalo con `MYTHOS_PEER_LIMIT=120` en `deploy/.env`.
-Detalle: "Peers y NAT" en `backend/media/src/engine.rs`.
+With the port open, Mythos uses up to **200 peers per torrent** (inbound and outbound), uploads without
+a cap while downloading (peers prioritize whoever uploads to them) and refreshes the public tracker list
+every 12 h. Normally there are one or two live torrents at a time (whatever nobody is watching is paused), so
+it fits comfortably in a home router's NAT table (4–16 thousand connections for the whole house).
+If the house's internet drops while downloading, lower it with `MYTHOS_PEER_LIMIT=120` in `deploy/.env`.
+Details: "Peers y NAT" in `backend/media/src/engine.rs`.
 
-## Usuarios
+## Users
 
-Nadie entra sin cuenta. El **primer admin** se crea al arrancar si la base está vacía, con
-`MYTHOS_ADMIN_USER` y `MYTHOS_ADMIN_PASSWORD` del `.env` (después podés borrarlos del archivo). Si
-arrancó sin esas variables, el log lo avisa; también se puede crear a mano:
+Nobody gets in without an account. The **first admin** is created on startup if the database is empty, with
+`MYTHOS_ADMIN_USER` and `MYTHOS_ADMIN_PASSWORD` from the `.env` (you can delete them from the file afterwards). If
+it started without those variables, the log says so; it can also be created by hand:
 
 ```bash
 docker compose exec mythos mythos adduser martin 'una-contraseña-larga' --admin
 ```
 
-El resto de los usuarios se crean desde la interfaz (sección Admin). Si alguien se olvida la
-contraseña (o te quedaste afuera):
+The rest of the users are created from the interface (Admin section). If someone forgets their
+password (or you got locked out):
 
 ```bash
-docker compose exec mythos mythos passwd martin 'nueva-contraseña'   # también lo rehabilita
+docker compose exec mythos mythos passwd martin 'nueva-contraseña'   # also re-enables the user
 ```
 
-`MYTHOS_DEV=1` crea `admin`/`admin` y `test`/`test` para pruebas locales: **nunca** en el server.
+`MYTHOS_DEV=1` creates `admin`/`admin` and `test`/`test` for local testing: **never** on the server.
 
-## Actualizar
+## Updating
 
 ```bash
 ~/Projects/Mythos/deploy/deploy.sh
-# o a mano:
+# or by hand:
 cd ~/Projects/Mythos && git pull
 cd deploy && docker compose up -d --build
 ```
 
-Las migraciones de la base corren solas al arrancar (en el lugar, sin perder datos; conviene
-igual un backup antes de actualizar, ver abajo).
+Database migrations run on their own on startup (in place, without losing data; still, a backup
+before updating is a good idea, see below).
 
-## Datos y backups
+## Data and backups
 
-Todo vive en `deploy/data/`:
+Everything lives in `deploy/data/`:
 
-- `mythos.db`: usuarios, sesiones, progreso, biblioteca, settings. Es lo único que vale la pena
-  respaldar (con `sqlite3` en el host: `sqlite3 data/mythos.db ".backup mythos-backup.db"`, aunque el contenedor esté andando).
-- `torrents/`: la caché de descargas. Se limpia sola: lo que no se mira hace 3 días se borra
-  (`MYTHOS_CACHE_HOURS`, por defecto 72; 0 = no vence) y, al pasar `MYTHOS_CACHE_GB`, lo usado hace
-  más tiempo. Nunca lo que se está viendo. Se puede borrar entera con el contenedor parado.
-- `hls/`: temporales de ffmpeg.
+- `mythos.db`: users, sessions, progress, library, settings. It's the only thing worth
+  backing up (with `sqlite3` on the host: `sqlite3 data/mythos.db ".backup mythos-backup.db"`, even while the container is running).
+- `torrents/`: the download cache. It cleans itself up: whatever hasn't been watched in 3 days is deleted
+  (`MYTHOS_CACHE_HOURS`, default 72; 0 = never expires) and, when going over `MYTHOS_CACHE_GB`, whatever was used
+  longest ago. Never what's being watched. It can be deleted entirely with the container stopped.
+- `hls/`: ffmpeg temporary files.
 
-### Opcional: buffers UDP más grandes
+### Optional: bigger UDP buffers
 
-Si el log dice `couldn't set UDP rcv buf size`, el kernel limita el buffer de los sockets UDP (uTP)
-y con mucho tráfico se pierden paquetes. Se puede subir en el host (no se configura por contenedor):
+If the log says `couldn't set UDP rcv buf size`, the kernel limits the buffer of UDP (uTP) sockets
+and under heavy traffic packets get lost. It can be raised on the host (it's not configured per container):
 
 ```bash
 echo 'net.core.rmem_max=8388608' | sudo tee /etc/sysctl.d/90-mythos.conf
@@ -166,24 +166,24 @@ echo 'net.core.wmem_max=8388608' | sudo tee -a /etc/sysctl.d/90-mythos.conf
 sudo sysctl --system && docker compose restart
 ```
 
-## Métricas
+## Metrics
 
-El server registra cada request (la ruta como plantilla, nunca la URL con `?t=`) y los eventos de
-login y de usuarios, para la sección Admin (`/api/admin/metrics`, `/logs`, `/audit`; ver
-`docs/API.md`). Ocupa poco (crudos 14 días, por hora 90 días, en `mythos.db`). Para apagarlo:
-`MYTHOS_METRICS=0` en el `.env`.
+The server logs every request (the route as a template, never the URL with `?t=`) and the login and
+user events, for the Admin section (`/api/admin/metrics`, `/logs`, `/audit`; see
+`docs/API.md`). It takes little space (raw 14 days, hourly 90 days, in `mythos.db`). To turn it off:
+`MYTHOS_METRICS=0` in the `.env`.
 
-## Sin GPU
+## No GPU
 
-Poné `MYTHOS_HWACCEL=none` en el `.env` y borrá el bloque `reservations: devices:` de
-`docker-compose.yml`. ffmpeg convierte por CPU (anda, pero un 4K HEVC en vivo puede no llegar).
+Set `MYTHOS_HWACCEL=none` in the `.env` and delete the `reservations: devices:` block from
+`docker-compose.yml`. ffmpeg converts on the CPU (it works, but a live 4K HEVC may not keep up).
 
-## Comprobaciones útiles
+## Useful checks
 
 ```bash
 docker compose ps                                        # healthy
 docker compose exec mythos ffmpeg -hide_banner -encoders | grep nvenc
 docker compose exec mythos ffmpeg -hide_banner -f lavfi -i testsrc=duration=2:size=1280x720 \
-  -c:v h264_nvenc -f null -                               # si falla, el runtime de nvidia no está
-docker stats mythos                                      # RAM (límite 2 GB en el compose)
+  -c:v h264_nvenc -f null -                               # if it fails, the nvidia runtime isn't there
+docker stats mythos                                      # RAM (2 GB limit in the compose)
 ```

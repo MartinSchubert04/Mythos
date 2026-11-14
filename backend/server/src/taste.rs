@@ -1,4 +1,4 @@
-//! Streams que aprenden qué release prefiere cada usuario (docs/API.md, "Preferencias aprendidas").
+//! Streams que aprenden qué release prefiere cada usuario (docs/API.md, "Learned preferences").
 //!
 //! Caso real: en Demon Slayer el usuario elegía a mano "Erai-raws" (subtítulos en español); la app
 //! tenía que aprenderlo y ofrecerlo primero en los episodios siguientes sin perder la prioridad de

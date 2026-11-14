@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// Error con un código estable para la UI (docs/API.md, "Errores"): el texto sigue en inglés y la
+/// Error con un código estable para la UI (docs/API.md, "Errors"): el texto sigue en inglés y la
 /// UI traduce por `code` (con `params` para los datos variables). Viaja dentro de `anyhow::Error`
 /// (el server lo saca con `downcast_ref`) y en `MediaStatus::error_code`.
 #[derive(Clone, Debug)]
@@ -232,7 +232,7 @@ pub struct MediaStatus {
     pub state: MediaState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Código estable de `error` (docs/API.md, "Errores"): `no_space`, `torrent_error`.
+    /// Código estable de `error` (docs/API.md, "Errors"): `no_space`, `torrent_error`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_code: Option<&'static str>,
     /// Datos variables de `error` (p. ej. `{"e": "..."}` en `torrent_error`).

@@ -145,7 +145,7 @@ CREATE TABLE local_link (
     last_error     TEXT
 );
 "#, r#"
--- Sesiones que no vencen (la app de TV: docs/API.md, "Sesiones"). `expires_at` queda en
+-- Sesiones que no vencen (la app de TV: docs/API.md, "Sessions"). `expires_at` queda en
 -- auth::NEVER_EXPIRES, asi todo lo que filtra por vencimiento sigue igual.
 ALTER TABLE sessions ADD COLUMN persistent INTEGER NOT NULL DEFAULT 0;
 "#, r#"

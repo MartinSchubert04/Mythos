@@ -56,7 +56,7 @@ pub fn json_error(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, axum::Json(serde_json::json!({ "error": msg.into() }))).into_response()
 }
 
-/// Como `json_error`, con el código estable que traduce la UI (docs/API.md, "Errores").
+/// Como `json_error`, con el código estable que traduce la UI (docs/API.md, "Errors").
 pub fn coded_error(status: StatusCode, e: crate::Coded) -> Response {
     let mut body = serde_json::json!({ "error": e.message, "code": e.code });
     if !e.params.is_empty() {

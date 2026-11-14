@@ -112,7 +112,7 @@ export type PlayInfo = {
 export type MediaStatus = {
   state: "metadata" | "probing" | "buffering" | "ready" | "error";
   error?: string | null;
-  /** Codigo estable de `error` (docs/API.md, "Errores"). */
+  /** Codigo estable de `error` (docs/API.md, "Errors"). */
   error_code?: string | null;
   error_params?: Record<string, unknown> | null;
   down_bps: number;
@@ -168,7 +168,7 @@ export type SettingsUpdate = Partial<Omit<Settings, "has_rd_key">> & { rd_key?: 
 
 export type ExternalSub = { id: string; lang: string; url: string };
 
-/** "Para vos" y "Similares" (GET /api/recommended/{type}, docs/API.md "Recomendaciones"). */
+/** "Para vos" y "Similares" (GET /api/recommended/{type}, docs/API.md "Recommendations"). */
 export type Recommended = {
   /** Como en TopRated: sin "ready" no hay titulos y la UI usa lo de antes. */
   state: "ready" | "preparing" | "unavailable";

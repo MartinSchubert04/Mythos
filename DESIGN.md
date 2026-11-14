@@ -1,277 +1,277 @@
 # DESIGN.md
 
-Sistema de diseño de Mythos. Formato: [awesome-design-md](https://github.com/VoltAgent/awesome-design-md)
-(nueve secciones). Portado de Ethereon (mismos temas, paletas, fuentes, movimiento y componentes),
-adaptado a una app de películas. Leer antes de tocar la interfaz (`apps/web`).
+Mythos design system. Format: [awesome-design-md](https://github.com/VoltAgent/awesome-design-md)
+(nine sections). Ported from Ethereon (same themes, palettes, fonts, motion and components),
+adapted to a movie app. Read before touching the interface (`apps/web`).
 
-## 1. Tema visual y atmósfera
+## 1. Visual theme and atmosphere
 
-Un cliente tipo Stremio para uso personal: las imágenes mandan. Pósters en filas y grillas, un hero
-grande con el fondo de algo destacado, el detalle con el fondo de la película, y el reproductor como
-protagonista absoluto (negro, controles que se esconden solos). Se tiene que sentir premium y fluida:
-cada carga tiene esqueleto con brillo, cada imagen aparece en fundido, nada salta de lugar.
+A Stremio-like client for personal use: images rule. Posters in rows and grids, a large hero
+with the backdrop of something featured, the detail page with the movie's backdrop, and the player as
+the absolute protagonist (black, controls that hide on their own). It has to feel premium and smooth:
+every load has a shimmering skeleton, every image fades in, nothing jumps around.
 
-- **Densidad:** media. Pósters de 118 a 168 px de ancho según la ventana; tarjetas de "Continue
-  watching" apaisadas de 230 a 320 px.
-- **Voz:** literal, en español por defecto (rioplatense neutro, con voseo) o en inglés si el usuario
-  lo elige (Settings → Appearance; textos en `lib/i18n/es` y `lib/i18n/en`). "Reproducir",
+- **Density:** medium. Posters 118 to 168 px wide depending on the window; landscape "Continue
+  watching" cards 230 to 320 px.
+- **Voice:** literal, in Spanish by default (neutral Rioplatense, with voseo) or in English if the user
+  picks it (Settings → Appearance; strings in `lib/i18n/es` and `lib/i18n/en`). "Reproducir",
   "Seguir desde 42:10", "Elegir stream", "Probar otro stream", "Cargando 72%…" / "Play",
-  "Resume from 42:10", "Choose stream", "Try another stream". Sin metáforas. Los términos que se
-  dicen en inglés (stream, torrent, seeders, HDR, 4K, REMUX) quedan así. En este archivo los textos
-  entre comillas son los de la versión en inglés. El español es más largo: botones, la barra
-  lateral y la escala de TV (960 px) tienen que aguantarlo (`ellipsis` o que el texto baje de
-  línea, nunca que se corte un botón).
-- **Seis temas, una estructura.** Cambian colores, bordes, sombras, fondos y fuentes; nunca el layout.
-- **La única diferencia entre web y desktop** es la barra de título propia del desktop. En Android
-  (`docs/mobile.md`): botón atrás, reproductor en pantalla completa horizontal, de borde a borde con
-  `env(safe-area-inset-*)` y Settings → App (versión y actualizaciones). En Android TV / TV box
-  (`docs/mobile.md`, "TV"): escala de 10 pies (página de 960 px agrandada), foco grande con el
-  acento, barra lateral en iconos que se abre con el foco, control remoto y "Who's watching?".
-  Lo mismo en la web con el modo TV (Settings → Appearance, o automatico en un navegador de TV).
+  "Resume from 42:10", "Choose stream", "Try another stream". No metaphors. Terms that are
+  said in English (stream, torrent, seeders, HDR, 4K, REMUX) stay that way. In this file the quoted
+  strings are the ones from the English version. Spanish is longer: buttons, the
+  sidebar and the TV scale (960 px) have to hold it (`ellipsis` or the text wrapping to the next
+  line, never a button getting cut off).
+- **Six themes, one structure.** Colors, borders, shadows, backgrounds and fonts change; never the layout.
+- **The only difference between web and desktop** is desktop's own title bar. On Android
+  (`docs/mobile.md`): back button, player in landscape fullscreen, edge to edge with
+  `env(safe-area-inset-*)` and Settings → App (version and updates). On Android TV / TV box
+  (`docs/mobile.md`, "TV"): 10-foot scale (960 px page scaled up), large focus with the
+  accent, icon sidebar that opens on focus, remote control and "Who's watching?".
+  The same on the web with TV mode (Settings → Appearance, or automatic in a TV browser).
 
-## 2. Colores y roles
+## 2. Colors and roles
 
-Todos los colores son variables de `apps/web/src/styles/themes.css`. Ningún componente tiene colores
-fijos.
+All colors are variables in `apps/web/src/styles/themes.css`. No component has hardcoded
+colors.
 
-| Variable | Rol |
+| Variable | Role |
 |---|---|
-| `--bg`, `--bg-image` | Fondo de la ventana (Warp y Haze usan gradientes, Poolsuite un atardecer) |
-| `--sidebar`, `--panel`, `--panel-2` | Superficies, de más atrás a más adelante |
-| `--line`, `--line-strong`, `--border` | Bordes y su grosor (2 px en Poolsuite y Athanor) |
-| `--text`, `--text-2`, `--text-3` | Texto principal, secundario y terciario |
-| `--accent`, `--accent-ink`, `--primary-bg` | Acento, texto sobre el acento, botón principal (puede ser gradiente). También la barra de progreso y el brillo de los pósters |
-| `--danger`, `--warn`, `--ok` | Borrar o error; estrellas de IMDb y pocos seeders; muchos seeders, "Instant", en vivo |
-| `--media-bg`, `--on-media`, `--on-media-2`, `--media-scrim`, `--media-line` | Comunes a todos los temas: el negro del video y lo que va encima (controles, subtítulos, menús del reproductor) |
-| `--win-close` | El rojo de Windows del botón cerrar (desktop) |
+| `--bg`, `--bg-image` | Window background (Warp and Haze use gradients, Poolsuite a sunset) |
+| `--sidebar`, `--panel`, `--panel-2` | Surfaces, from back to front |
+| `--line`, `--line-strong`, `--border` | Borders and their width (2 px in Poolsuite and Athanor) |
+| `--text`, `--text-2`, `--text-3` | Primary, secondary and tertiary text |
+| `--accent`, `--accent-ink`, `--primary-bg` | Accent, text on the accent, primary button (can be a gradient). Also the progress bar and the poster glow |
+| `--danger`, `--warn`, `--ok` | Delete or error; IMDb stars and few seeders; many seeders, "Instant", live |
+| `--media-bg`, `--on-media`, `--on-media-2`, `--media-scrim`, `--media-line` | Shared by all themes: the video's black and what goes on top (controls, subtitles, player menus) |
+| `--win-close` | The Windows red of the close button (desktop) |
 
-Sobre el hero y el detalle el texto usa los colores del tema (`--text`) y el degradado funde la imagen
-con `--bg`: en temas claros la imagen queda lavada y el texto oscuro se lee igual. El reproductor es
-siempre oscuro (`--media-*`), con el acento del tema en la barra de progreso.
+On the hero and the detail page the text uses the theme colors (`--text`) and the gradient blends the image
+into `--bg`: in light themes the image looks washed out and the dark text is still readable. The player is
+always dark (`--media-*`), with the theme accent on the progress bar.
 
-Cada tema tiene paletas (Settings → Appearance). Se definen en `apps/web/scripts/palettes.py`, que
-genera `styles/palettes.css` y `lib/palettes.gen.ts` (`npm run palettes`); cada tema recuerda la suya.
+Each theme has palettes (Settings → Appearance). They're defined in `apps/web/scripts/palettes.py`, which
+generates `styles/palettes.css` and `lib/palettes.gen.ts` (`npm run palettes`); each theme remembers its own.
 
-| Tema | Paletas |
+| Theme | Palettes |
 |---|---|
-| Default | Mint, Nord, Dracula, Tokyo Night, Catppuccin, Gruvbox, Paper (clara), Srcery |
+| Default | Mint, Nord, Dracula, Tokyo Night, Catppuccin, Gruvbox, Paper (light), Srcery |
 | Warp | Violet, Solar Flare, Pink City, Jellyfish, Leafy, Red Rock, Ember |
-| Poolsuite FM | Sunset, Mint Pool, Tropicana, Lavender, Beach, Platinum, Monochrome (oscura), Vellum |
+| Poolsuite FM | Sunset, Mint Pool, Tropicana, Lavender, Beach, Platinum, Monochrome (dark), Vellum |
 | Haze | Cream, Peach, Rose, Mauve, Sky, Sage, Amber |
-| Athanor | Srcery, Umber, Cinnabar, Vellum (clara), Orpiment (clara) |
-| Neovim | Neovim, Nightshade, Oxblood, Paper (clara), Moss, Kanagawa |
+| Athanor | Srcery, Umber, Cinnabar, Vellum (light), Orpiment (light) |
+| Neovim | Neovim, Nightshade, Oxblood, Paper (light), Moss, Kanagawa |
 
-| Tema | Fondo | Acento | Rasgo |
+| Theme | Background | Accent | Trait |
 |---|---|---|---|
-| Default | `#0d0f14` | menta `#6ee7b7` | Plano, sobrio |
-| Warp | negro con luces violeta y cian | gradiente `#8b5cf6 → #22d3ee` | Paneles translúcidos con desenfoque |
-| Poolsuite FM | atardecer pastel | rosa `#ff4f9a` | Claro, bordes negros de 2 px, sombras duras, barra rayada del Mac clásico |
-| Haze | bruma cálida y fría | crema `#f9e2af` | Vidrio |
-| Athanor | `#1C1B19` (Srcery) | ámbar `#FBB829` | Pixel clay: esquinas en escalera, biseles, sombras tramadas; fuente bitmap |
-| Neovim | `#0c0c0c` | gris claro | Todo en JetBrains Mono, poco radio |
+| Default | `#0d0f14` | mint `#6ee7b7` | Flat, understated |
+| Warp | black with violet and cyan lights | gradient `#8b5cf6 → #22d3ee` | Translucent panels with blur |
+| Poolsuite FM | pastel sunset | pink `#ff4f9a` | Light, 2 px black borders, hard shadows, striped classic Mac bar |
+| Haze | warm and cool haze | cream `#f9e2af` | Glass |
+| Athanor | `#1C1B19` (Srcery) | amber `#FBB829` | Pixel clay: stepped corners, bevels, dithered shadows; bitmap font |
+| Neovim | `#0c0c0c` | light gray | Everything in JetBrains Mono, little radius |
 
-## 3. Tipografía
+## 3. Typography
 
-Inter Variable para todo y Geist Mono Variable para tiempos, velocidades y tamaños (con
-`tabular-nums`). Vienen empaquetadas (`@fontsource`), el navegador baja cada una recién cuando un tema
-la usa.
+Inter Variable for everything and Geist Mono Variable for times, speeds and sizes (with
+`tabular-nums`). They come bundled (`@fontsource`); the browser downloads each one only when a theme
+uses it.
 
-**Excepciones:** Athanor usa PxPlus IBM VGA 8x16 a 16 px exactos (bitmap, sin negrita) y títulos en
-Jacquard 24; Neovim usa JetBrains Mono. Los subtítulos del video van siempre en Inter (`--font-sub`).
+**Exceptions:** Athanor uses PxPlus IBM VGA 8x16 at exactly 16 px (bitmap, no bold) and titles in
+Jacquard 24; Neovim uses JetBrains Mono. Video subtitles are always in Inter (`--font-sub`).
 
-| Uso | Tamaño | Peso |
+| Use | Size | Weight |
 |---|---|---|
-| Título del hero / detalle (`.display-title`) | 30 a 58 px (clamp) | 760 |
-| Título de página | 21 px | 650 |
-| Título de fila | 16 px | 650 |
-| Texto | 13,5 px (descripciones 14,5 a 15 px) | 400 a 560 |
-| Etiquetas de sección | 11,5 px mayúsculas | 650 |
-| Mono (tiempos, MB/s) | 12,5 a 13 px | 600 |
-| Subtítulos | `clamp(18px, 2.4vw, 40px)` × tamaño elegido | 600 |
+| Hero / detail title (`.display-title`) | 30 to 58 px (clamp) | 760 |
+| Page title | 21 px | 650 |
+| Row title | 16 px | 650 |
+| Text | 13.5 px (descriptions 14.5 to 15 px) | 400 to 560 |
+| Section labels | 11.5 px uppercase | 650 |
+| Mono (times, MB/s) | 12.5 to 13 px | 600 |
+| Subtitles | `clamp(18px, 2.4vw, 40px)` × chosen size | 600 |
 
-## 4. Componentes
+## 4. Components
 
-- **Póster** (`PosterCard`): 2:3, imagen chica (`/poster/small/`) con `loading="lazy"` y fundido al
-  cargar. Al pasar el mouse sube 4 px, crece 4 %, el borde y la sombra toman el acento y un reflejo lo
-  cruza; aparece el rating. Al pasar el mouse ya carga el detalle (código y datos). Al hacer clic el
-  póster vuela al detalle (View Transitions).
-- **Fila** (`Row`): título, scroll horizontal suave con flechas que aparecen al pasar el mouse, carga
-  sus datos recién al acercarse a la pantalla, esqueletos mientras tanto. Dibuja las tarjetas de a
-  16 (las siguientes al acercarse al final) y fuera de pantalla no se pinta
-  (`content-visibility: auto`): el inicio tiene diez filas de ~50 títulos.
-- **Hero** (`Hero`): fondo con zoom lento, logo o título, rating, año, géneros, descripción, Play /
-  More info. Rota cada 8 s con fundido cruzado (espera a que la imagen siguiente esté bajada).
-- **Continue watching** (`ContinueCard`): 16:9 con barra de progreso, episodio y tiempo restante.
-- **New episodes** (`NewEpisodeCard`, `lib/newEpisodes.ts`): debajo de Continue watching, un episodio
-  por serie de la Library salido en los últimos 14 días y sin empezar ("New · 3" si hay más). Sin
-  esqueleto: la fila aparece solo si hay algo. Las metas se piden de a 4 y lo reciente de cada serie
-  queda una hora en `sessionStorage`.
-- **Lista de streams** (`StreamList`): calidad grande (4K con el acento), tamaño, seeders con color
-  (`--ok` ≥ 50, `--warn` ≥ 10, `--danger` menos), fuente, idiomas, tags como chips (HDR, DV, REMUX
-  resaltados). Los "cached" llevan "Instant" y borde verde. El primero dice "Best". Con un idioma de
-  audio en Settings → Playback, los streams en ese idioma suben (banderas y palabras del release:
-  "Latino", "Castellano"…; nunca uno con < 5 seeders o CAM). Menú ⋯ (al pasar el mouse, clic
-  derecho o mantener apretado): "Copy stream link" (el link directo con `?t=`: el tooltip avisa que
-  lleva la sesión) y, en desktop, "Open in VLC".
-- **Menú chico** (`PopMenu`, `lib/press.ts`): flota donde se pidió (clic derecho, mantener apretado
-  550 ms o un botón ⋯), colgado de `<body>`; Esc o tocar afuera lo cierra.
-- **Reproductor** (`views/Player.svelte`): controles propios que se esconden a los 2,8 s; barra con
-  lo bufferizado y el tiempo al pasar el mouse (`SeekBar`); menús de subtítulos, audio y velocidad;
-  panel de streams a la derecha; pantalla de carga con datos vivos (`PlayerLoading`); diálogo de
-  retomar; panel "Try another stream"; "Next episode" en los créditos y cuenta regresiva al final.
-  Sin botones nuevos: mantener Space (o el dedo) = 2× con la pastilla "2×" arriba; `[`/`]` la
-  velocidad; V la escala (Fit = entero, Fill = estirado, Crop = llena recortando; se recuerda en la
-  sesión); D las estadísticas (modo, códec, peers, MB/s, buffer, cuadros perdidos; `/status` solo
-  mientras se ven; en el celular, "Playback stats" en el panel de streams); `?` la lista de atajos.
-  Con el dedo: tocar muestra/esconde los controles, doble toque a un costado −10/+10 s con una onda
-  (seguir tocando suma), pellizcar afuera = Crop y adentro = Fit. Media Session: título, póster,
-  posición y play/pausa/saltos/siguiente episodio en las teclas multimedia, auriculares y la
-  notificación de Android.
-- **Cajón (Drawer):** formularios y la lista de streams del detalle, a la derecha sobre un velo.
-- **Select**, **Switch**, **Seg**, **Confirm**, **Section**: los de Ethereon, iguales.
-- **Avisos (toasts):** entran desde abajo a la derecha; rojos si fallan.
-- **Tooltips propios** (`lib/tooltip.ts`): todo `title=` se muestra con demora y estilo del tema.
-- **Menú de subtítulos** (por pasos, como Stremio): primero "Off" y una entrada por idioma con su
-  nombre en ese idioma ("Español (Latinoamérica)", "Português (Brasil)"), la cantidad de opciones y
-  "Embedded" si el archivo trae alguna; el preferido y el del audio arriba, después los que vienen
-  en el archivo y el resto alfabético. Elegir un idioma pone su primera opción y pasa (de costado)
-  a sus opciones: las internas primero, después las de OpenSubtitles ("Version n"). Abajo, fijos:
-  **Delay** de la opción elegida (−0,5 / −0,1 / +0,1 / +0,5 s y reset; se recuerda por archivo y
-  pista, y la lista marca las que tienen uno guardado), y el aspecto, que es global y viaja con las
-  preferencias: **Size** (75 a 200 %), **Position** (altura desde abajo) y **Background** (None,
-  Light, Dark, Solid). Con un subtítulo puesto, el menú abre directo en su idioma. En celular es
-  una hoja de lado a lado con filas de 44 px. Los subtítulos los dibuja la app (no `<track>` ni
-  `::cue`), así se ven igual en Chrome, WebView2 y Android y siguen al tiempo real en HLS.
-- **Botones del detalle**: siempre en una fila; en celular "Choose stream" queda solo con el ícono.
-- **Avatar** (`Avatar.svelte`): la imagen que el usuario eligió de la galería del server
-  (Settings → Account; el admin la arma en Admin → Avatars) o, sin avatar, la inicial sobre
-  `--primary-bg`. Redondo, en la barra lateral, Settings y el selector de perfiles de la TV.
-- **Foco en TV** (`styles/tv.css`, `data-tv`): anillo de 3 px de `--accent` separado 3 px; las
-  tarjetas crecen 6 % con el anillo en el marco. Nada depende del hover.
-- **Cast** (detalle): avatares con iniciales sobre el acento (el catálogo no trae fotos). Debajo,
-  la fila "More like this" (mismo género principal).
-- **Top rated** (`views/Top.svelte`, `#/top?type=series&genres=Crime,Drama&votes=10000`): lo
-  mejor de IMDb (`/api/top`). Arriba "Movies / Series" (`Seg`), los votos mínimos (`Select`) y
-  "Clear"; debajo, un chip por género (multi-selección, hasta 3, todos tienen que coincidir: el
-  elegido va con `--primary-bg`, los demás muestran cuántos quedarían y se apagan si no combinan).
-  Grilla de pósters con el rating fijo (`PosterCard pinRating`) que trae de a 60 al acercarse al
-  final; el filtro vive en la URL. En celular los chips van en una línea que se desliza. Se llega
-  desde la barra lateral, desde Search y desde el título de las filas "Top rated" del inicio
-  (`Row href`, con una flecha).
-- **Episodios**: en pantallas anchas van en dos o tres columnas; los especiales (temporada 0) se
-  llaman "Specials" y van al final; con más de 6 temporadas, Select en vez de Seg. Visto / no visto a
-  mano: el tilde al pasar el mouse por un episodio, clic derecho o mantener apretado (menú), el ⋯
-  junto a "Episodes" para toda la temporada, y en las películas el botón del tilde en la fila de
-  acciones. Es progreso con la posición al final (o borrarlo). "Hide spoilers" (Settings →
-  Playback): imagen desenfocada y descripción tapada en los no empezados hasta pasar el mouse (con
-  el dedo, tocar la descripción).
+- **Poster** (`PosterCard`): 2:3, small image (`/poster/small/`) with `loading="lazy"` and a fade on
+  load. On hover it rises 4 px, grows 4 %, the border and shadow take the accent and a sheen
+  crosses it; the rating appears. Hovering already loads the detail page (code and data). On click the
+  poster flies to the detail page (View Transitions).
+- **Row** (`Row`): title, smooth horizontal scroll with arrows that appear on hover, loads
+  its data only when it gets close to the screen, skeletons in the meantime. It renders the cards
+  16 at a time (the next ones when nearing the end) and off-screen it isn't painted
+  (`content-visibility: auto`): the home screen has ten rows of ~50 titles.
+- **Hero** (`Hero`): backdrop with slow zoom, logo or title, rating, year, genres, description, Play /
+  More info. Rotates every 8 s with a crossfade (waits for the next image to be downloaded).
+- **Continue watching** (`ContinueCard`): 16:9 with progress bar, episode and time remaining.
+- **New episodes** (`NewEpisodeCard`, `lib/newEpisodes.ts`): below Continue watching, one episode
+  per Library series released in the last 14 days and not started ("New · 3" if there are more). No
+  skeleton: the row appears only if there's something. Metas are requested 4 at a time and each series'
+  recent episodes stay in `sessionStorage` for an hour.
+- **Stream list** (`StreamList`): large quality (4K with the accent), size, color-coded seeders
+  (`--ok` ≥ 50, `--warn` ≥ 10, `--danger` below), source, languages, tags as chips (HDR, DV, REMUX
+  highlighted). "Cached" ones carry "Instant" and a green border. The first one says "Best". With an
+  audio language in Settings → Playback, streams in that language move up (flags and release words:
+  "Latino", "Castellano"…; never one with < 5 seeders or CAM). ⋯ menu (on hover, right
+  click or long press): "Copy stream link" (the direct link with `?t=`: the tooltip warns that it
+  carries the session) and, on desktop, "Open in VLC".
+- **Small menu** (`PopMenu`, `lib/press.ts`): floats where it was requested (right click, long press
+  550 ms or a ⋯ button), attached to `<body>`; Esc or tapping outside closes it.
+- **Player** (`views/Player.svelte`): custom controls that hide after 2.8 s; bar with
+  the buffered range and the time on hover (`SeekBar`); subtitle, audio and speed menus;
+  stream panel on the right; loading screen with live data (`PlayerLoading`); resume
+  dialog; "Try another stream" panel; "Next episode" during the credits and a countdown at the end.
+  No new buttons: hold Space (or a finger) = 2× with the "2×" pill at the top; `[`/`]` the
+  speed; V the scale (Fit = whole, Fill = stretched, Crop = fills by cropping; remembered for the
+  session); D the stats (mode, codec, peers, MB/s, buffer, dropped frames; `/status` only
+  while they're shown; on the phone, "Playback stats" in the stream panel); `?` the shortcut list.
+  With a finger: tap shows/hides the controls, double tap on one side −10/+10 s with a ripple
+  (keep tapping to add more), pinch out = Crop and in = Fit. Media Session: title, poster,
+  position and play/pause/skips/next episode on the media keys, headphones and the
+  Android notification.
+- **Drawer:** forms and the detail page's stream list, on the right over a scrim.
+- **Select**, **Switch**, **Seg**, **Confirm**, **Section**: Ethereon's, unchanged.
+- **Notices (toasts):** come in from the bottom right; red if they fail.
+- **Custom tooltips** (`lib/tooltip.ts`): every `title=` is shown with a delay and the theme's style.
+- **Subtitle menu** (step by step, like Stremio): first "Off" and one entry per language with its
+  name in that language ("Español (Latinoamérica)", "Português (Brasil)"), the number of options and
+  "Embedded" if the file has any; the preferred one and the audio's at the top, then the ones that come
+  in the file and the rest alphabetically. Picking a language selects its first option and moves (sideways)
+  to its options: the internal ones first, then the OpenSubtitles ones ("Version n"). At the bottom, fixed:
+  **Delay** of the chosen option (−0.5 / −0.1 / +0.1 / +0.5 s and reset; remembered per file and
+  track, and the list marks the ones that have one saved), and the appearance, which is global and travels with the
+  preferences: **Size** (75 to 200 %), **Position** (height from the bottom) and **Background** (None,
+  Light, Dark, Solid). With a subtitle on, the menu opens directly in its language. On the phone it's
+  an edge-to-edge sheet with 44 px rows. Subtitles are drawn by the app (not `<track>` or
+  `::cue`), so they look the same in Chrome, WebView2 and Android and follow real time in HLS.
+- **Detail page buttons**: always in one row; on the phone "Choose stream" is left with only the icon.
+- **Avatar** (`Avatar.svelte`): the image the user picked from the server's gallery
+  (Settings → Account; the admin puts it together in Admin → Avatars) or, with no avatar, the initial on
+  `--primary-bg`. Round, in the sidebar, Settings and the TV profile picker.
+- **TV focus** (`styles/tv.css`, `data-tv`): 3 px `--accent` ring offset by 3 px; the
+  cards grow 6 % with the ring on the frame. Nothing depends on hover.
+- **Cast** (detail page): avatars with initials on the accent (the catalog has no photos). Below,
+  the "More like this" row (same main genre).
+- **Top rated** (`views/Top.svelte`, `#/top?type=series&genres=Crime,Drama&votes=10000`): the
+  best of IMDb (`/api/top`). At the top "Movies / Series" (`Seg`), the minimum votes (`Select`) and
+  "Clear"; below, one chip per genre (multi-select, up to 3, all have to match: the
+  selected one uses `--primary-bg`, the others show how many would remain and dim out if they don't combine).
+  Poster grid with the rating pinned (`PosterCard pinRating`) that fetches 60 at a time when nearing the
+  end; the filter lives in the URL. On the phone the chips go in a single line that scrolls. It's reached
+  from the sidebar, from Search and from the title of the home screen's "Top rated" rows
+  (`Row href`, with an arrow).
+- **Episodes**: on wide screens they go in two or three columns; specials (season 0) are
+  called "Specials" and go at the end; with more than 6 seasons, Select instead of Seg. Watched / unwatched by
+  hand: the checkmark when hovering an episode, right click or long press (menu), the ⋯
+  next to "Episodes" for the whole season, and for movies the checkmark button in the
+  actions row. It's progress with the position at the end (or deleting it). "Hide spoilers" (Settings →
+  Playback): blurred image and covered description on unstarted ones until hovered (with
+  a finger, tap the description).
 
-## 4b. Estados
+## 4b. States
 
-| Estado | Qué se ve |
+| State | What's shown |
 |---|---|
-| Cargando | Esqueletos con brillo en filas, grillas, detalle, admin; splash con la marca al abrir |
-| Vacío | Ícono + frase + acción: Library vacía ("Browse"), búsqueda sin resultados, Top rated sin coincidencias ("Clear genres" / "Any votes"), sin "Continue watching" (la fila no aparece) |
-| Top rated sin datos | "Getting the IMDb ratings…" con el spinner mientras el server baja IMDb la primera vez (reintenta solo cada 10 s); en el server embebido de las apps, "Top rated needs the home server" |
-| Sin streams | "No streams found" con la sugerencia (muy nuevo, o los límites de Settings) y Retry |
-| Server caído | Pastilla arriba "Can't reach the server. Retrying…" con Retry; se reintenta solo cada 5 s y al volver la vista se recarga. Si pasa al abrir: pantalla de reconexión (no el login) |
-| Sesión vencida (401) | Login con el aviso "Your session expired" |
-| Error al reproducir (502, códec) | Panel en el reproductor con el motivo y "Try another stream" |
-| Sin imágenes | Póster tipográfico (degradado del acento + nombre + año); detalle con el póster desenfocado de fondo |
+| Loading | Shimmering skeletons in rows, grids, detail page, admin; splash with the brand on open |
+| Empty | Icon + sentence + action: empty Library ("Browse"), search with no results, Top rated with no matches ("Clear genres" / "Any votes"), no "Continue watching" (the row doesn't appear) |
+| Top rated without data | "Getting the IMDb ratings…" with the spinner while the server downloads IMDb the first time (retries on its own every 10 s); on the apps' embedded server, "Top rated needs the home server" |
+| No streams | "No streams found" with the hint (too new, or the Settings limits) and Retry |
+| Server down | Pill at the top "Can't reach the server. Retrying…" with Retry; retries on its own every 5 s and when it comes back the view reloads. If it happens on open: reconnection screen (not the login) |
+| Session expired (401) | Login with the notice "Your session expired" |
+| Playback error (502, codec) | Panel in the player with the reason and "Try another stream" |
+| No images | Typographic poster (accent gradient + name + year); detail page with the blurred poster as background |
 
 ## 5. Layout
 
-Barra lateral a la izquierda (212 px, o 64 px plegada con solo íconos; se recuerda) con Home,
-Search, Top rated, Library, Settings y Admin (solo admins), y el usuario abajo. El contenido scrollea en su
-propio contenedor y recuerda dónde estaba al volver.
+Sidebar on the left (212 px, or 64 px collapsed with only icons; remembered) with Home,
+Search, Top rated, Library, Settings and Admin (admins only), and the user at the bottom. The content scrolls in its
+own container and remembers where it was when coming back.
 
-Desktop: arriba una barra de 40 px (`Titlebar`) que es la barra de título de la ventana sin marco:
-plegar la barra lateral, la marca, hueco para arrastrar (doble clic maximiza), buscador y
-minimizar / maximizar / cerrar.
+Desktop: a 40 px bar at the top (`Titlebar`) that is the title bar of the frameless window:
+collapse the sidebar, the brand, a gap to drag (double click maximizes), search box and
+minimize / maximize / close.
 
-El reproductor ocupa toda la ventana (sin barra lateral ni de título); en desktop sus controles de
-ventana van en su barra de arriba, que también se arrastra.
+The player takes up the whole window (no sidebar or title bar); on desktop its window
+controls go in its top bar, which can also be dragged.
 
-Rutas con hash: `#/`, `#/search?q=`, `#/top?type=&genres=&votes=`, `#/title/{type}/{id}`,
-`#/watch/{type}/{id}?s={stream}`, `#/library`, `#/settings`, `#/admin`. Cada vista se carga recién cuando hace falta.
+Hash routes: `#/`, `#/search?q=`, `#/top?type=&genres=&votes=`, `#/title/{type}/{id}`,
+`#/watch/{type}/{id}?s={stream}`, `#/library`, `#/settings`, `#/admin`. Each view is loaded only when needed.
 
-Atajos (listados en Settings → Keyboard shortcuts): `/` o `Ctrl K` buscar (lo que se escribe
-mientras la vista carga no se pierde); flechas entre pósters de una fila y entre filas; Esc cierra
-paneles y menús. En el reproductor: espacio/K (mantener espacio: 2×), F, M, ←/→ (5 s), J/L (10 s),
-↑/↓ volumen, `[`/`]` velocidad, V escala, C subtítulos, G/H el subtítulo puesto 0,5 s antes/después
-(con Shift 0,1 s), -/= tamaño de los subtítulos, N siguiente episodio, D estadísticas, `?` atajos, Esc
-(cierra menú → sale de pantalla completa → vuelve). La lista vive en `lib/shortcuts.ts` (Settings y
-el `?` del reproductor usan la misma).
+Shortcuts (listed in Settings → Keyboard shortcuts): `/` or `Ctrl K` search (what's typed
+while the view loads isn't lost); arrows between the posters of a row and between rows; Esc closes
+panels and menus. In the player: space/K (hold space: 2×), F, M, ←/→ (5 s), J/L (10 s),
+↑/↓ volume, `[`/`]` speed, V scale, C subtitles, G/H the current subtitle 0.5 s earlier/later
+(with Shift 0.1 s), -/= subtitle size, N next episode, D stats, `?` shortcuts, Esc
+(closes menu → exits fullscreen → goes back). The list lives in `lib/shortcuts.ts` (Settings and
+the player's `?` use the same one).
 
-## 5b. Movimiento
+## 5b. Motion
 
-Todas las animaciones pasan por `apps/web/src/lib/motion.ts` (transiciones de Svelte) o son CSS
-cortas de `base.css`, y duran 0 con "reducir animaciones" del sistema o de Settings
-(`data-reduce-motion` en `<html>`). **Solo `transform` y `opacity`**: nada que recalcule layout en
-cada cuadro (la barra del reproductor usa `scaleX`/`translateX`, los puntos del hero `scaleX`, el
-volumen flota encima). Sin `filter: blur` animado. Medido con un trace (home → detalle → player →
-atrás y scroll de filas): sin tareas largas (> 50 ms) y CLS 0.
+All animations go through `apps/web/src/lib/motion.ts` (Svelte transitions) or are short CSS
+from `base.css`, and last 0 with the system's or Settings' "reduce motion"
+(`data-reduce-motion` on `<html>`). **Only `transform` and `opacity`**: nothing that recalculates layout on
+every frame (the player bar uses `scaleX`/`translateX`, the hero dots `scaleX`, the
+volume floats on top). No animated `filter: blur`. Measured with a trace (home → detail → player →
+back and row scrolling): no long tasks (> 50 ms) and CLS 0.
 
-| Qué | Cómo |
+| What | How |
 |---|---|
-| Cambiar de vista | sube 6 px y aparece (220 ms) |
-| Tarjeta → detalle | el póster vuela (View Transitions, 420 ms); sin soporte, el cambio de vista normal |
-| Hero | fundido cruzado de 900 ms y zoom lento del fondo (12 s) |
-| Pósters y episodios | aparecen escalonados (30 ms entre uno y otro); al pasar, suben y crecen con resorte |
-| Imágenes | fundido de 450 ms al terminar de cargar |
-| Cargando | esqueletos con un brillo que los cruza (1,4 s) |
-| Cajón | entra desde la derecha con un poco de resorte |
-| Diálogos, menús, desplegables | crecen desde 94-95 % (160 ms) |
-| Botones | suben 1 px al pasar, se hunden al apretar; el principal tiene un brillo que lo cruza |
-| Login | la marca brilla; contraseña incorrecta: la tarjeta tiembla |
-| Reproductor | los controles se van hacia afuera; play/pausa/saltos muestran un ícono al centro que crece y se desvanece |
-| Avisos | entran desde abajo y se reacomodan (flip) |
+| Changing view | rises 6 px and appears (220 ms) |
+| Card → detail | the poster flies (View Transitions, 420 ms); without support, the normal view change |
+| Hero | 900 ms crossfade and slow backdrop zoom (12 s) |
+| Posters and episodes | appear staggered (30 ms between each); on hover, they rise and grow with a spring |
+| Images | 450 ms fade when they finish loading |
+| Loading | skeletons with a sheen that crosses them (1.4 s) |
+| Drawer | comes in from the right with a bit of spring |
+| Dialogs, menus, dropdowns | grow from 94-95 % (160 ms) |
+| Buttons | rise 1 px on hover, sink when pressed; the primary one has a sheen that crosses it |
+| Login | the brand glows; wrong password: the card shakes |
+| Player | the controls slide outwards; play/pause/skips show an icon in the center that grows and fades |
+| Notices | come in from the bottom and rearrange (flip) |
 
-En Athanor el movimiento es por pasos (`steps()`), como el pixel art.
+In Athanor motion is stepped (`steps()`), like pixel art.
 
-**Equipos flojos** (`lib/perf.ts`: ≤ 2 GB de RAM, ≤ 2 núcleos, o Android con ≤ 4 núcleos, como las
-TV boxes; se fuerza con `localStorage["mythos.lite"]` = `"1"` o `"0"`): `data-lite` en `<html>`
-saca los desenfoques (`--blur: none` y sin `backdrop-filter`), el zoom lento del hero, la
-aparición escalonada de las tarjetas y la animación de las sombras; los fondos se piden de 1280 px
-como máximo. El resto (fundidos, hover, transiciones de vista) queda igual.
+**Weak devices** (`lib/perf.ts`: ≤ 2 GB of RAM, ≤ 2 cores, or Android with ≤ 4 cores, like the
+TV boxes; forced with `localStorage["mythos.lite"]` = `"1"` or `"0"`): `data-lite` on `<html>`
+removes the blurs (`--blur: none` and no `backdrop-filter`), the hero's slow zoom, the
+staggered appearance of the cards and the shadow animation; backdrops are requested at 1280 px
+at most. The rest (fades, hover, view transitions) stays the same.
 
-## 6. Profundidad
+## 6. Depth
 
-Default, Warp, Haze y Neovim: sin sombras en reposo; al pasar el mouse los pósters toman una sombra
-y un brillo del acento. Poolsuite: sombras duras desplazadas (`3px 3px 0`) y al pasar el mouse el
-póster se corre y la sombra crece. Athanor: el póster sube un paso, sin sombra difusa. Lo que flota
-(diálogos, menús, cajones) usa `--pop-shadow`. El reproductor usa vidrio oscuro (`backdrop-filter`)
-para menús y paneles.
+Default, Warp, Haze and Neovim: no shadows at rest; on hover the posters take on a shadow
+and an accent glow. Poolsuite: hard offset shadows (`3px 3px 0`) and on hover the
+poster shifts and the shadow grows. Athanor: the poster rises one step, no soft shadow. What floats
+(dialogs, menus, drawers) uses `--pop-shadow`. The player uses dark glass (`backdrop-filter`)
+for menus and panels.
 
-## 7. Qué sí y qué no
+## 7. Dos and don'ts
 
-- Sí: nunca una pantalla en blanco. Siempre esqueleto, splash con la marca o la pantalla de carga.
-- Sí: reservar el tamaño de las imágenes (`aspect-ratio`) para que nada salte al cargar.
-- Sí: estados con color y texto a la vez (seeders en rojo y el número; "Instant" verde).
-- Sí: secretos nunca visibles; la clave de Real-Debrid guardada muestra "Stored. Type to replace."
-- Sí: cada imagen del tamaño en que se muestra (`lib/images.ts`): pósters `small`; fondos y
-  miniaturas según el ancho real (fondo de 480 px de metahub, achicado por el server a
-  640/960/1280, o el original de 1920 solo si la pantalla lo pide). Ver `docs/API.md`
+- Do: never a blank screen. Always a skeleton, splash with the brand or the loading screen.
+- Do: reserve the size of images (`aspect-ratio`) so nothing jumps when loading.
+- Do: states with color and text at the same time (seeders in red and the number; "Instant" green).
+- Do: secrets never visible; the stored Real-Debrid key shows "Stored. Type to replace."
+- Do: each image at the size it's displayed at (`lib/images.ts`): `small` posters; backdrops and
+  thumbnails according to the real width (480 px backdrop from metahub, downscaled by the server to
+  640/960/1280, or the 1920 original only if the screen asks for it). See `docs/API.md`
   (`/api/media/img`).
-- No: `backdrop-filter`, `transform: translateZ(0)` ni `will-change` en algo que se repite
-  (tarjetas, filas): cada uno es una capa del compositor y con cientos el scroll se traba. El
-  desenfoque de una tarjeta va solo al pasar el mouse.
-- No: colores fijos en componentes. Si hace falta uno, es una variable nueva en `themes.css`.
-- No: animaciones largas fuera del hero y la transición del póster.
-- No: librerías de UI. Íconos de `@lucide/svelte` importados de a uno.
+- Don't: `backdrop-filter`, `transform: translateZ(0)` or `will-change` on something repeated
+  (cards, rows): each one is a compositor layer and with hundreds scrolling stutters. A
+  card's blur only goes on hover.
+- Don't: hardcoded colors in components. If one is needed, it's a new variable in `themes.css`.
+- Don't: long animations outside the hero and the poster transition.
+- Don't: UI libraries. Icons from `@lucide/svelte` imported one by one.
 
-## 8. Comportamiento responsive
+## 8. Responsive behavior
 
-Ventana mínima del desktop: 900 x 560. Las grillas usan `auto-fill`; las filas, anchos con `clamp`.
-Hasta 700 px de ancho (celular): la barra lateral pasa a ser una barra abajo con íconos y nombre, el
-detalle apila póster y datos, el reproductor esconde la barra de volumen. En pantallas táctiles no
-hay barras de scroll fijas ni foco automático en el login (el teclado taparía la pantalla). Márgenes laterales con
-`--gutter` (16 a 44 px).
+Desktop minimum window: 900 x 560. Grids use `auto-fill`; rows, widths with `clamp`.
+Up to 700 px wide (phone): the sidebar becomes a bottom bar with icons and names, the
+detail page stacks poster and data, the player hides the volume bar. On touch screens there are
+no permanent scrollbars and no autofocus on the login (the keyboard would cover the screen). Side margins with
+`--gutter` (16 to 44 px).
 
-## 9. Guía para agentes
+## 9. Guide for agents
 
-Antes de cambiar la interfaz: leer este archivo, `styles/themes.css` y `docs/API.md`. Probar en los
-seis temas (Settings → Appearance) y con "Reduce motion". `npm run check` sin errores ni avisos y
-`npm run build`. Sin server: `npm run dev:mock` (datos de Cinemeta guardados y un video de prueba;
-usuarios `admin`/`admin` y `test`/`test`). Comentarios en español; textos de la interfaz con
-`t()` (`lib/i18n.svelte.ts`), probados en los dos idiomas.
+Before changing the interface: read this file, `styles/themes.css` and `docs/API.md`. Test in the
+six themes (Settings → Appearance) and with "Reduce motion". `npm run check` with no errors or warnings and
+`npm run build`. Without a server: `npm run dev:mock` (saved Cinemeta data and a test video;
+users `admin`/`admin` and `test`/`test`). Comments in Spanish; interface strings with
+`t()` (`lib/i18n.svelte.ts`), tested in both languages.

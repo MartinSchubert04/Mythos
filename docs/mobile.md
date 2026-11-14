@@ -1,322 +1,317 @@
-# Mythos para Android
+# Mythos for Android
 
-La app de Android (`apps/mobile`): un shell de Tauri 2 con la misma interfaz de `apps/web`, lo
-nativo que hace falta en el celular y actualizaciones solas, igual que en Haze.
+The Android app (`apps/mobile`): a Tauri 2 shell with the same interface as `apps/web`, the native
+bits needed on the phone and automatic updates, same as in Haze.
 
-## Dónde va cada cosa
+## Where everything lives
 
 ```
 apps/mobile/
-  package.json        CLI de Tauri y scripts (npm run build:emulator, build:debug, build)
-  plugin/             plugin `mythos` (Rust + Kotlin): lo nativo y las actualizaciones
-    src/lib.rs        comandos para la interfaz, permisos de la interfaz del server
-    src/updater.rs    buscar / bajar / instalar (igual que Haze)
-    android/          Kotlin: MythosPlugin.kt (pantalla completa, atras, pantalla encendida,
-                      barras, red local, `device`: TV y memoria) y Updater.kt (GitHub Releases +
+  package.json        Tauri CLI and scripts (npm run build:emulator, build:debug, build)
+  plugin/             `mythos` plugin (Rust + Kotlin): the native bits and the updates
+    src/lib.rs        commands for the interface, permissions for the server's interface
+    src/updater.rs    check / download / install (same as Haze)
+    android/          Kotlin: MythosPlugin.kt (fullscreen, back, screen on,
+                      bars, local network, `device`: TV and memory) and Updater.kt (GitHub Releases +
                       PackageInstaller)
-  src-tauri/          la app: tauri.conf.json (carga apps/web/dist), capabilities, iconos
-    src/lib.rs        solo el Builder (plugins mythos y mythos-local)
-    gen/android/      proyecto de Gradle (de `tauri android init`, con firma y MainActivity propios)
+  src-tauri/          the app: tauri.conf.json (loads apps/web/dist), capabilities, icons
+    src/lib.rs        just the Builder (mythos and mythos-local plugins)
+    gen/android/      Gradle project (from `tauri android init`, with its own signing and MainActivity)
 apps/web/src/lib/
-  platform.ts         isTauri / isAndroid / isDesktop, serverBase(), setActiveServer(), pantalla completa
-  servers.svelte.ts   varias direcciones del mismo server: cual usar, latencia, Settings → Server
-  shell.svelte.ts     todo lo de Android del lado de la interfaz
-  tv.svelte.ts        modo TV: deteccion, escala de 10 pies (viewport de 960 px)
-  spatial.svelte.ts   navegacion con el control remoto (flechas, centro, menu)
-  profiles.svelte.ts  perfiles de la TV ("Who's watching?", views/Profiles.svelte)
+  platform.ts         isTauri / isAndroid / isDesktop, serverBase(), setActiveServer(), fullscreen
+  servers.svelte.ts   multiple addresses of the same server: which to use, latency, Settings → Server
+  shell.svelte.ts     everything Android on the interface side
+  tv.svelte.ts        TV mode: detection, 10-foot scale (960 px viewport)
+  spatial.svelte.ts   remote control navigation (arrows, center, menu)
+  profiles.svelte.ts  TV profiles ("Who's watching?", views/Profiles.svelte)
 ```
 
-## La dirección del server
+## The server address
 
-El repo y los Releases son públicos: ni el APK ni el instalador de escritorio llevan la dirección
-del tailnet. La primera vez el login muestra **Server URL** (sin `https://` se le agrega), se
-valida con `GET /api/health` y se guarda. Después se cambia en Settings → Account → Server.
-Puede tener **varias direcciones del mismo server** (p. ej. Tailscale y la red de casa, `http://` con
-`MYTHOS_EXTRA_BIND`): se cargan en el login ("Add another address") o en Settings, se comprueba
-que sean el mismo server (`server_id` de `/api/health`) y la app usa la preferida si contesta, si no
-la más rápida, y cambia sola al cambiar de red. Ver `docs/local-mode.md`, "Varias direcciones del
-server".
-`VITE_DEFAULT_SERVER` (`apps/web/.env.local`) queda solo para probar en la PC; los workflows lo
-dejan vacío a propósito.
+The repo and the Releases are public: neither the APK nor the desktop installer carries the tailnet
+address. The first time, the login shows **Server URL** (`https://` is added if missing), it's
+validated with `GET /api/health` and saved. Afterwards it's changed in Settings → Account → Server.
+It can have **multiple addresses of the same server** (e.g. Tailscale and the home network,
+`http://` with `MYTHOS_EXTRA_BIND`): they're added at login ("Add another address") or in Settings,
+it's checked that they're the same server (`server_id` from `/api/health`) and the app uses the
+preferred one if it answers, otherwise the fastest, and switches on its own when the network
+changes. See `docs/local-mode.md`, "Multiple server addresses".
+`VITE_DEFAULT_SERVER` (`apps/web/.env.local`) is only for testing on the PC; the workflows leave it
+empty on purpose.
 
-Android 17 corta las conexiones a la red local sin el permiso `ACCESS_LOCAL_NETWORK` ("dispositivos
-cercanos"). Si el server no contesta, la app lo pide y prueba de nuevo (un server con IP de la casa,
-o el emulador hablando con la PC en `10.0.2.2`).
+Android 17 cuts connections to the local network without the `ACCESS_LOCAL_NETWORK` permission
+("Nearby devices"). If the server doesn't answer, the app requests it and tries again (a server with
+a home IP, or the emulator talking to the PC at `10.0.2.2`).
 
-## De dónde sale la interfaz
+## Where the interface comes from
 
-**Por defecto, del APK.** La interfaz es el build de `apps/web` que viene adentro (la página
-local, `http://tauri.localhost`), habla con el server por HTTP (`serverBase()`) y se actualiza con
-el APK. Es la que va a usar el modo local (el server embebido, en `http://127.0.0.1:<puerto>`):
-`setActiveServer(url)` de `platform.ts` cambia el server en caliente sin recargar.
+**By default, from the APK.** The interface is the `apps/web` build that comes inside (the local
+page, `http://tauri.localhost`), it talks to the server over HTTP (`serverBase()`) and updates with
+the APK. It's the one local mode uses (the embedded server, at `http://127.0.0.1:<port>`):
+`setActiveServer(url)` from `platform.ts` switches the server live without reloading.
 
-**Opcional: la interfaz del server** (Settings → App → "Load the interface from the server",
-apagado por defecto). Con eso prendido, al abrir la app la página local se fija si el server
-contesta y trae `<meta name="mythos-shell">` (un server viejo no) y navega a la interfaz que sirve
-el server: cada deploy la actualiza al instante, sin reinstalar, y siempre es de la misma versión
-que la API. Si el server no contesta, queda la local.
+**Optional: the server's interface** (Settings → App → "Load the interface from the server", off by
+default). With that on, when the app opens the local page checks whether the server answers and
+serves `<meta name="mythos-shell">` (an old server doesn't) and navigates to the interface the
+server serves: every deploy updates it instantly, without reinstalling, and it's always the same
+version as the API. If the server doesn't answer, the local one stays.
 
-| | Interfaz del APK (por defecto) | Interfaz del server (opcional) |
+| | APK interface (default) | Server interface (optional) |
 |---|---|---|
-| Actualizar la interfaz | con el APK (solo, de fondo) | con cada deploy, al instante |
-| Sin server / modo local | anda (reconexión, o el server embebido) | cae a la del APK |
-| Arranque | inmediato, todo local | un pedido de más al server antes de mostrar |
-| Permisos nativos | la página local (`capabilities/default.json`) | solo ese origen exacto, en tiempo de ejecución |
+| Updating the interface | with the APK (automatic, in the background) | with every deploy, instantly |
+| No server / local mode | works (reconnection, or the embedded server) | falls back to the APK's |
+| Startup | immediate, all local | one extra request to the server before showing |
+| Native permissions | the local page (`capabilities/default.json`) | only that exact origin, at runtime |
 
-Seguridad de la interfaz del server: `open_server` (solo la página local puede llamarlo) le da al
-origen exacto que eligió el usuario (no `*.ts.net`) una capability en tiempo de ejecución con los
-comandos de `REMOTE_PERMISSIONS` (`plugin/src/lib.rs`): nunca `open_server`, y nada de archivos ni
-ventanas. Cualquier otra página que se abriera en el WebView no tiene IPC. Las dos páginas tienen
-almacenamiento separado: al entrar a la del server se le pasa el token una sola vez (`handoff`), y
-"Change server" o apagar la opción vuelven a la local (`leave_server`).
+Security of the server's interface: `open_server` (only the local page can call it) gives the exact
+origin the user chose (not `*.ts.net`) a runtime capability with the commands in
+`REMOTE_PERMISSIONS` (`plugin/src/lib.rs`): never `open_server`, and no files or windows. Any other
+page opened in the WebView has no IPC. The two pages have separate storage: when entering the
+server's, the token is passed to it only once (`handoff`), and "Change server" or turning the option
+off go back to the local one (`leave_server`).
 
-Contrato entre la interfaz y el APK: los comandos del plugin solo se agregan, nunca se cambian ni se
-sacan, y la interfaz tolera que falte uno (un APK más viejo que la interfaz del server).
+Contract between the interface and the APK: plugin commands are only added, never changed or
+removed, and the interface tolerates one being missing (an APK older than the server's interface).
 
-## Modo local
+## Local mode
 
-El server embebido (`docs/local-mode.md`) es el plugin `mythos-local` (`apps/local-server`), el
-mismo del desktop: arranca en segundo plano según el modo (Auto / Server only / Local only, en
-Settings → Connection) con la carpeta privada de la app, y la interfaz le pregunta dónde está
-(`info`). La interfaz cambia de server en caliente con `useLocal()` de `lib/api.ts` (que usa
-`setActiveServer(url)` de `platform.ts`); ver `lib/local.svelte.ts`.
+The embedded server (`docs/local-mode.md`) is the `mythos-local` plugin (`apps/local-server`), the
+same as on desktop: it starts in the background depending on the mode (Auto / Server only / Local
+only, in Settings → Connection) with the app's private folder, and the interface asks it where it is
+(`info`). The interface switches servers live with `useLocal()` from `lib/api.ts` (which uses
+`setActiveServer(url)` from `platform.ts`); see `lib/local.svelte.ts`.
 
-- **Red:** el release permite HTTP (`gen/android/app/src/main/res/xml/network_security_config.xml`)
-  para entrar al server por la red de casa (`http://<ip-del-server>:7700`, con `MYTHOS_EXTRA_BIND`
-  en el server; útil en un TV box sin Tailscale) y para el server embebido en `127.0.0.1`. Android no
-  deja limitarlo a un rango de IP. Desde afuera de casa va por HTTPS (`tailscale serve`); una
-  dirección sin `http://` se completa con `https://`. El loopback no necesita el permiso de red
-  local de Android 17; la IP de casa sí (se pide al conectar).
-- **TLS:** Gradle trae `org.rustls:rustls-platform-verifier` (repositorio maven de rustls en
-  `gen/android/build.gradle.kts`); el plugin lo inicializa al arrancar.
-- **Logs:** `adb logcat -s mythos` (los del server embebido).
-- La interfaz del server (opcional) no sirve en modo local: con el server caído la app queda en la
-  del APK, que es la que habla con el embebido.
+- **Network:** the release allows HTTP (`gen/android/app/src/main/res/xml/network_security_config.xml`)
+  to reach the server over the home network (`http://<server-ip>:7700`, with `MYTHOS_EXTRA_BIND`
+  on the server; useful on a TV box without Tailscale) and for the embedded server on `127.0.0.1`.
+  Android doesn't allow limiting it to an IP range. From outside home it goes over HTTPS
+  (`tailscale serve`); an address without `http://` is completed with `https://`. Loopback doesn't
+  need Android 17's local network permission; the home IP does (requested when connecting).
+- **TLS:** Gradle brings `org.rustls:rustls-platform-verifier` (rustls's maven repository in
+  `gen/android/build.gradle.kts`); the plugin initializes it at startup.
+- **Logs:** `adb logcat -s mythos` (the embedded server's).
+- The server's interface (optional) doesn't work in local mode: with the server down the app stays
+  on the APK's, which is the one that talks to the embedded server.
 
-## En el celular
+## On the phone
 
-- **Atrás:** el mismo camino que Esc (cierra menús, cajones, diálogos y el tráiler); en el
-  reproductor sale de una (no pasa por "salir de pantalla completa"); sin nada abierto vuelve a la
-  vista anterior, y en el inicio manda la app al fondo.
-- **Reproductor:** al entrar, pantalla completa nativa (sin barras del sistema) y horizontal (gira
-  entre las dos). El botón de pantalla completa la saca (se puede girar libre) y la vuelve a poner.
-  Al salir, todo normal.
-- **Pantalla encendida** mientras un `<video>` se reproduce.
-- **De borde a borde** con `env(safe-area-inset-*)` (App.svelte); los iconos de las barras del
-  sistema siguen al tema (claros u oscuros).
-- **ClientCaps:** la misma detección de la web. El WebView de Android dice h264, hevc, av1, aac,
-  opus, flac y `mkv: maybe`; no ac3/eac3/dts (el server convierte el audio). Si el directo falla,
-  el reproductor degrada y pasa a HLS (hls.js con MSE).
-- Debajo de 700 px de ancho, la barra de pestañas abajo (DESIGN.md §8); en horizontal, la lateral.
+- **Back:** the same path as Esc (closes menus, drawers, dialogs and the trailer); in the player it
+  exits right away (doesn't go through "exit fullscreen"); with nothing open it goes back to the
+  previous view, and on home it sends the app to the background.
+- **Player:** on entering, native fullscreen (no system bars) and landscape (rotates between the
+  two). The fullscreen button removes it (free rotation) and puts it back. On exit, everything back
+  to normal.
+- **Screen on** while a `<video>` is playing.
+- **Edge to edge** with `env(safe-area-inset-*)` (App.svelte); the system bar icons follow the theme
+  (light or dark).
+- **ClientCaps:** the same detection as the web. The Android WebView reports h264, hevc, av1, aac,
+  opus, flac and `mkv: maybe`; no ac3/eac3/dts (the server converts the audio). If direct fails, the
+  player degrades and switches to HLS (hls.js with MSE).
+- Below 700 px wide, the tab bar at the bottom (DESIGN.md §8); in landscape, the side one.
 
-## TV (Android TV y TV box)
+## TV (Android TV and TV box)
 
-(Las teles Samsung no son Android: tienen su propia app, ver `docs/tizen.md`.)
+(Samsung TVs aren't Android: they have their own app, see `docs/tizen.md`.)
 
-El mismo APK sirve para un TV box o un Android TV: aparece en el launcher de TV con su banner
-(`res/drawable-xhdpi/banner.png`, 320x180, hecho con el logo) y se maneja con el control remoto.
-En el celular no cambia nada.
+The same APK works for a TV box or an Android TV: it shows up in the TV launcher with its banner
+(`res/drawable-xhdpi/banner.png`, 320x180, made with the logo) and is driven with the remote
+control. Nothing changes on the phone.
 
-**Instalar en un TV box** (p. ej. un X96 Mini, que no tiene Play Store ni ADB a mano):
+**Installing on a TV box** (e.g. an X96 Mini, which has no Play Store or ADB at hand):
 
-- Con la app **Downloader** (o el navegador del box): abrir el link del APK del ultimo Release
-  (`Mythos-X.Y.Z-android.apk` en GitHub) e instalar. Hay que permitirle a Downloader "instalar
-  apps desconocidas".
-- O con un **pendrive**: copiar el APK, abrirlo desde el administrador de archivos del box e
-  instalar.
-- Despues se actualiza sola como en el celular (Settings → App).
+- With the **Downloader** app (or the box's browser): open the APK link of the latest Release
+  (`Mythos-X.Y.Z-android.apk` on GitHub) and install. You have to allow Downloader to "install
+  unknown apps".
+- Or with a **USB stick**: copy the APK, open it from the box's file manager and install.
+- Afterwards it updates itself like on the phone (Settings → App).
 
-**32 y 64 bits.** Muchos TV box (Allwinner H313, Amlogic S905W...) tienen procesador de 64 bits
-pero Android de 32 (userspace `armeabi-v7a`). El APK es universal: trae `lib/arm64-v8a` y
-`lib/armeabi-v7a` (librqbit, rusqlite, ring/rustls compilan igual para armv7) y Android elige la
-que corresponde. Un solo APK, mismo `versionCode` (lo arma Tauri de la version) y la misma firma:
-las apps instaladas se siguen actualizando solas. Pesa unos MB mas que el de solo 64 bits.
+**32 and 64 bits.** Many TV boxes (Allwinner H313, Amlogic S905W...) have a 64-bit processor but
+32-bit Android (`armeabi-v7a` userspace). The APK is universal: it carries `lib/arm64-v8a` and
+`lib/armeabi-v7a` (librqbit, rusqlite, ring/rustls compile just the same for armv7) and Android
+picks the matching one. A single APK, same `versionCode` (Tauri builds it from the version) and the
+same signature: installed apps keep updating themselves. It weighs a few MB more than the 64-bit-only
+one.
 
-**Que es "TV".** El plugin (`MythosPlugin.kt`, comando `device`) dice que es TV si el sistema
-esta en modo TV (`UiModeManager`), si tiene `android.software.leanback` o si no tiene pantalla
-tactil. Con eso la interfaz (`lib/tv.svelte.ts`) pone `data-tv` en `<html>`; queda guardado y al
-abrir de nuevo se aplica antes de pintar (script de `index.html`). En la app es automatico, sin
-opcion.
+**What "TV" is.** The plugin (`MythosPlugin.kt`, `device` command) says it's a TV if the system is
+in TV mode (`UiModeManager`), if it has `android.software.leanback` or if it has no touchscreen.
+With that the interface (`lib/tv.svelte.ts`) sets `data-tv` on `<html>`; it's saved and on the next
+open it's applied before painting (`index.html` script). In the app it's automatic, with no option.
 
-**En el navegador (p. ej. Firefox en el TV box).** Si el WebView del box no se puede actualizar,
-la alternativa es la interfaz web del server en Firefox para Android (motor propio, no usa el
-WebView; anda en Android 8+ y en 32 bits) por Tailscale. Ahi el modo TV es el mismo y se decide
-asi: lo elegido en Settings → Appearance → "TV mode (remote control)" (guardado en ese
-navegador), o `?tv=1` / `?tv=0` / `?tv=auto` en la URL (tambien queda guardado). Sin eleccion,
-automatico: Android sin pantalla tactil (`maxTouchPoints` 0 y sin puntero "coarse") o un
-navegador de Smart TV (Android TV, Fire TV, BRAVIA, Tizen, webOS...). Con el modo TV el login
-tambien pide la sesion que no vence y la cuenta queda como perfil, igual que en la app. Lo que
-cambia: el boton atras del control navega el historial del navegador; el router
-(`setBackGuard`) le pregunta antes a `lib/spatial.svelte.ts`, que con algo abierto (cajon,
-dialogo, menu, menu del reproductor, "Who's watching?", "Add profile") lo cierra como Esc y deja
-la ruta como estaba; si no hay nada abierto es el atras de siempre (sale del reproductor, vuelve
-a la vista anterior). Tambien se aceptan las teclas `BrowserBack` / `GoBack`. Esc del teclado
-hace lo mismo que atras.
+**In the browser (e.g. Firefox on the TV box).** If the box's WebView can't be updated, the
+alternative is the server's web interface in Firefox for Android (its own engine, doesn't use the
+WebView; works on Android 8+ and on 32 bits) over Tailscale. There TV mode is the same and is
+decided like this: what was chosen in Settings → Appearance → "TV mode (remote control)" (saved in
+that browser), or `?tv=1` / `?tv=0` / `?tv=auto` in the URL (also saved). With no choice,
+automatic: Android without a touchscreen (`maxTouchPoints` 0 and no "coarse" pointer) or a Smart TV
+browser (Android TV, Fire TV, BRAVIA, Tizen, webOS...). With TV mode the login also requests the
+non-expiring session and the account is kept as a profile, same as in the app. What changes: the
+remote's back button navigates the browser history; the router (`setBackGuard`) first asks
+`lib/spatial.svelte.ts`, which, with something open (drawer, dialog, menu, player menu, "Who's
+watching?", "Add profile"), closes it like Esc and leaves the route as it was; if nothing is open
+it's the usual back (exits the player, goes back to the previous view). The `BrowserBack` /
+`GoBack` keys are also accepted. Esc on the keyboard does the same as back.
 
-**Solo server.** En un TV, o con menos de 2 GB de RAM (`MemTotal` < 1,5 GiB o
-`isLowRamDevice()`), el server embebido del modo local no arranca nunca (no da para bajar
-torrents ahi): el modo es siempre "Server only" y Settings → Connection lo explica en vez de
-ofrecer Auto / Local only (`docs/local-mode.md`). El login va directo al server de casa.
+**Server only.** On a TV, or with less than 2 GB of RAM (`MemTotal` < 1.5 GiB or
+`isLowRamDevice()`), the local mode's embedded server never starts (it can't handle downloading
+torrents there): the mode is always "Server only" and Settings → Connection explains it instead of
+offering Auto / Local only (`docs/local-mode.md`). The login goes straight to the home server.
 
-**Escala de 10 pies.** La pagina se arma en 960 px de ancho (el lienzo de 960x540 dp de Android TV)
-con `<meta name="viewport" content="width=960">`, y el WebView la agranda hasta llenar la
-pantalla (el plugin prende `useWideViewPort` y `loadWithOverviewMode` en TV). En un TV 1080p todo
-se dibuja al doble, en cualquier densidad que tenga el box. La barra lateral queda en iconos y se
-abre encima del contenido cuando el foco entra en ella.
+**10-foot scale.** The page is laid out at 960 px wide (Android TV's 960x540 dp canvas) with
+`<meta name="viewport" content="width=960">`, and the WebView scales it up to fill the screen (the
+plugin turns on `useWideViewPort` and `loadWithOverviewMode` on TV). On a 1080p TV everything is
+drawn at double size, whatever density the box has. The sidebar stays as icons and opens over the
+content when focus enters it.
 
-**Liviano.** Los TV box tienen poca memoria y GPU chica (el X96 Mini real: Hi3798MV310, Android 9,
-userspace de 32 bits, 1 GB de RAM con ~380 MB libres, Mali-450). En TV no corre el server
-embebido (arriba), no se precarga nada grande (hls.js y cada vista se bajan recien al usarse) y
-`styles/tv.css` saca todos los `backdrop-filter` (el desenfoque detras de paneles, menus y los
-controles del reproductor se recalcula en cada cuadro y hace saltar el video): quedan los fondos
-de cada tema.
+**Lightweight.** TV boxes have little memory and a small GPU (the real X96 Mini: Hi3798MV310,
+Android 9, 32-bit userspace, 1 GB of RAM with ~380 MB free, Mali-450). On TV the embedded server
+doesn't run (above), nothing big is preloaded (hls.js and each view are downloaded only when used)
+and `styles/tv.css` removes every `backdrop-filter` (the blur behind panels, menus and the player
+controls is recalculated every frame and makes the video stutter): each theme's backgrounds remain.
 
-**Control remoto** (`lib/spatial.svelte.ts`, solo en TV):
+**Remote control** (`lib/spatial.svelte.ts`, TV only):
 
-- Flechas: el foco va a lo que se puede apretar mas cercano para ese lado, mirando donde esta
-  dibujado (filas de posters, hero, barra lateral, detalle, streams, Settings, menus, dialogos).
-  A los costados solo se va a lo que esta a la misma altura; arriba/abajo no salta entre la barra
-  lateral y el contenido; si no hay nada, la pagina se desplaza (y las filas que cargan al
-  acercarse aparecen). La fila se corre sola para que lo enfocado se vea.
-- Filas de posters (inicio, busqueda, "Similares"): cada fila enfocada queda con su borde de
-  arriba siempre a la misma altura (`ROW_TOP`, 40 px) y arriba/abajo pasan a la fila de al lado en
-  orden, aunque todavia no haya cargado: la fila va a su lugar y el foco entra cuando llegan sus
-  tarjetas (manteniendo la flecha se sigue fila por fila). Abajo de la ultima no hace nada (el
-  inicio tiene espacio debajo para que la ultima tambien quede arriba). El titulo "ver todo" de
-  una fila no es una parada. Los esqueletos miden lo mismo que las tarjetas: al cargar no se corre
-  nada. Lo demas queda con margen (arriba 56 px, abajo 96 px) para ver que sigue; una seccion de
-  Settings que se abre va arriba de la pantalla.
-- Centro (Enter): aprieta lo enfocado. En un campo de texto abre el teclado del sistema (pasar por
-  encima no lo abre: `inputmode="none"` mientras se navega). La busqueda lo abre sola al entrar
-  desde la barra lateral; al volver con atras (de un resultado) no, y el foco vuelve a la tarjeta
-  (`route.pop` de `lib/router.svelte.ts`).
-- Al entrar a una vista el foco va a lo principal: lo marcado con `data-autofocus` o, si no, lo
-  primero de la pagina entre lo elegido (pestaña u opcion actual) y el boton primario (en la ficha
-  de una serie, el Play y no la pestaña "Temporada 1").
-- Atras: el Esc de siempre (cierra menus y dialogos, sale del reproductor, vuelve a la vista
-  anterior) y al volver el foco queda en la tarjeta de donde se salio. Al cerrar un cajon el foco
-  vuelve a lo que lo abrio; si lo enfocado desaparece (un boton que se deshabilita mientras
-  guarda), la proxima flecha sigue desde donde estaba.
-- Menu del control: el menu contextual del elemento (el de clic derecho / mantener apretado).
-- Lo que tiene un boton propio adentro (la X de "Continue watching", `data-nav-inner`): con el
-  foco en la tarjeta se ve, y arriba lo enfoca.
-- Samsung: "Done" del teclado en pantalla pasa al campo siguiente del formulario y en el ultimo lo
-  envia (login: usuario → contraseña → entrar); en un dialogo con un campo (Admin: renombrar,
-  contraseña) confirma.
-- Los desplegables (`components/Select.svelte`) no tienen buscador en TV: las flechas son de la
-  lista y enfocarlo abria el teclado, que achicaba la pagina y cerraba la lista.
-- Settings: sin "Atajos de teclado" (con el control no sirven y las flechas del reproductor hacen
-  otra cosa).
-- Tráiler (YouTube): centro = play/pausa, izquierda/derecha = -10/+10 s (y las teclas
-  multimedia), atras lo cierra; abajo lo dice. El iframe no recibe el foco: se lo maneja con la API
-  de `postMessage` del reproductor de YouTube (`lib/trailer.ts`). Si el dueño no deja verlo fuera
-  de YouTube (errores 101/150), un cartel propio en vez del "Mirar en YouTube" que no se puede
-  apretar.
-- Foco: anillo de 3 px separado del borde, del color `--focus` (`styles/themes.css`): en TV el del
-  texto, que contrasta con el fondo en todas las paletas (el acento no: Poolsuite Sunset/Mint Pool
-  y Default Paper quedaban debajo de 3:1); en Poolsuite claro el acento (todo lleva borde negro);
-  encima del video y del destacado del inicio, blanco (`--on-media`). Las tarjetas crecen un poco
-  (con "reducir animaciones", sin animar) y su anillo va con un hueco del fondo. El anillo de
-  afuera es solo del foco: lo elegido (tema, paleta) se marca por dentro, si no a 3 m no se sabe
-  donde esta parado. En Athanor lo enfocado pierde la escalera (el `clip-path` recortaba el anillo).
-- Sin mouse: lo que en la PC aparece al pasar el mouse aparece con el foco (los botones de cada
-  episodio: marcar visto y elegir stream). Sin barras de desplazamiento. No hay menú de copiar link
-  / abrir en VLC en los streams.
-- Liviano siempre (`data-lite`) y desplazamiento de un salto: ver `docs/tizen.md`, "Rendimiento".
-- Reproductor: sin volumen (es el de la tele; además la barra se quedaba con las flechas) ni
-  pantalla completa. Los controles se esconden a los 5 s. Los carteles (trabado, error, terminó)
-  se llevan el foco; los menús de audio y velocidad también, y los paneles de streams y episodios
-  entran en el actual. Al elegir una velocidad o un audio el foco vuelve a su botón. Las teclas
-  multimedia andan también con un menú abierto. Con la vista previa al adelantar (docs/API.md), la
-  miniatura va encima del tiempo. Izquierda/derecha llevan el foco a la
-  barra de progreso, que con el foco se ve más gruesa, con el anillo del acento, un punto grande y el
-  tiempo encima (`components/SeekBar.svelte`). centro = play/pausa (tambien con el foco en la
-  barra); izquierda/derecha = -10/+10 s (manteniendo, el salto crece: 10, 30 y 60 s por paso; el
-  salto, de un toque o mantenido, se aplica una sola vez al soltar: un pedido al server);
-  arriba/abajo muestran los controles y se mueven entre ellos (subtitulos, audio, velocidad,
-  streams); abajo de todo los esconde; atras sale. Las teclas multimedia del control (play/pausa,
-  adelantar, retroceder) tambien andan; adelantar/retroceder mantenidas crecen igual aunque el
-  control no las repita (la Samsung no lo hace: un reloj hasta el keyup). Mientras carga, play/pausa
-  no pausa (quedaba "Cargando 99%" para siempre, sin nada que dijera que estaba en pausa). Con el
-  server caido no aparece "probar otro stream": espera con la barra de arriba y al volver sigue
-  solo.
+- Arrows: focus goes to the nearest pressable thing in that direction, looking at where it's drawn
+  (poster rows, hero, sidebar, detail, streams, Settings, menus, dialogs). Sideways it only goes to
+  what's at the same height; up/down doesn't jump between the sidebar and the content; if there's
+  nothing, the page scrolls (and rows that load when approached appear). The row scrolls on its own
+  so the focused item is visible.
+- Poster rows (home, search, "Similares" ("More like this")): each focused row keeps its top edge
+  always at the same height (`ROW_TOP`, 40 px) and up/down move to the adjacent row in order, even
+  if it hasn't loaded yet: the row goes to its place and focus enters when its cards arrive (holding
+  the arrow keeps going row by row). Below the last one it does nothing (home has space below so the
+  last one can also sit at the top). A row's "see all" title isn't a stop. Skeletons measure the
+  same as the cards: nothing shifts on load. Everything else keeps a margin (56 px top, 96 px
+  bottom) to see what comes next; a Settings section that opens goes to the top of the screen.
+- Center (Enter): presses the focused item. On a text field it opens the system keyboard (passing
+  over it doesn't open it: `inputmode="none"` while navigating). Search opens it on its own when
+  entered from the sidebar; when coming back with back (from a result) it doesn't, and focus returns
+  to the card (`route.pop` from `lib/router.svelte.ts`).
+- On entering a view focus goes to the main thing: what's marked with `data-autofocus` or,
+  otherwise, the first thing on the page among the selected one (current tab or option) and the
+  primary button (on a series' detail page, Play and not the "Temporada 1" ("Season 1") tab).
+- Back: the usual Esc (closes menus and dialogs, exits the player, goes back to the previous view)
+  and on return focus lands on the card you left from. When a drawer closes focus returns to what
+  opened it; if the focused item disappears (a button that gets disabled while saving), the next
+  arrow continues from where it was.
+- Remote's menu key: the element's context menu (the right-click / long-press one).
+- Things with their own button inside (the X on "Continue watching", `data-nav-inner`): with focus
+  on the card it's visible, and up focuses it.
+- Samsung: the on-screen keyboard's "Done" moves to the next field of the form and on the last one
+  submits it (login: username → password → sign in); in a dialog with one field (Admin: rename,
+  password) it confirms.
+- Dropdowns (`components/Select.svelte`) have no search box on TV: the arrows belong to the list
+  and focusing it opened the keyboard, which shrank the page and closed the list.
+- Settings: no "Atajos de teclado" ("Keyboard shortcuts") (they're useless with the remote and the
+  player's arrows do something else).
+- Trailer (YouTube): center = play/pause, left/right = -10/+10 s (and the media keys), back closes
+  it; a hint at the bottom says so. The iframe doesn't receive focus: it's driven through the
+  YouTube player's `postMessage` API (`lib/trailer.ts`). If the owner doesn't allow watching it
+  outside YouTube (errors 101/150), our own notice instead of the "Watch on YouTube" that can't be
+  pressed.
+- Focus: 3 px ring separated from the edge, in the `--focus` color (`styles/themes.css`): on TV the
+  text color, which contrasts with the background in every palette (the accent doesn't: Poolsuite
+  Sunset/Mint Pool and Default Paper stayed below 3:1); in light Poolsuite the accent (everything
+  has a black border); over the video and the home featured item, white (`--on-media`). Cards grow
+  a bit (with "reduce motion", without animating) and their ring goes with a gap of background. The
+  outer ring is only for focus: the selected item (theme, palette) is marked inside, otherwise from
+  3 m away you can't tell where you are. In Athanor the focused item loses the staircase (the
+  `clip-path` cropped the ring).
+- No mouse: what appears on hover on the PC appears with focus (each episode's buttons: mark
+  watched and pick stream). No scrollbars. No copy link / open in VLC menu on streams.
+- Always lite (`data-lite`) and single-jump scrolling: see `docs/tizen.md`, "Performance".
+- Player: no volume (the TV's is used; also the bar kept the arrows) and no fullscreen. Controls hide
+  after 5 s. Notices (stalled, error, finished) take focus; so do the audio and speed menus, and the
+  streams and episodes panels enter at the current one. After choosing a speed or an audio track,
+  focus returns to its button. Media keys also work with a menu open. With the seek preview
+  (docs/API.md), the thumbnail goes above the time. Left/right bring focus to the
+  progress bar, which with focus looks thicker, with the accent ring, a big dot and the time above
+  it (`components/SeekBar.svelte`). center = play/pause (also with focus on the bar); left/right =
+  -10/+10 s (holding, the jump grows: 10, 30 and 60 s per step; the jump, tapped or held, is applied
+  only once on release: one request to the server); up/down show the controls and move between
+  them (subtitles, audio, speed, streams); below everything hides them; back exits. The remote's
+  media keys (play/pause, fast-forward, rewind) also work; fast-forward/rewind held grow the same
+  even if the remote doesn't repeat them (the Samsung one doesn't: a timer until keyup). While
+  loading, play/pause doesn't pause (it stayed at "Cargando 99%" ("Buffering 99%") forever, with
+  nothing saying it was paused). With the server down "try another stream" doesn't appear: it waits
+  with the top bar and continues on its own when it comes back.
 
-**Perfiles.** En la TV cada cuenta queda guardada como un perfil (`lib/profiles.svelte.ts`): se
-entra una sola vez con la contraseña y la sesion no vence (`persistent`, `docs/API.md`). Al abrir,
-con mas de un perfil, "Who's watching?" (el ultimo usado ya elegido); el avatar de la barra lateral
-lo vuelve a abrir (atras lo cierra sin cambiar de perfil). "Add profile" suma otra cuenta; "Manage
-profiles" abre cada perfil para elegirle el avatar (con la sesion de ese perfil, sin entrar) o
-quitarlo (cierra su sesion en el server). Si alguien revoca esa sesion desde Settings → Signed-in
-devices o el admin desde Admin → Users → "Signed-in devices", el perfil se borra solo y vuelve el
-selector. Cambiar de perfil recarga la pagina (ninguna cache queda de la cuenta anterior). El
-tema, el idioma y los subtitulos son de cada cuenta: el perfil guarda la ultima copia de sus
-preferencias y, al elegirlo, se aplican antes de recargar (la pagina arranca ya con su tema;
-despues llegan las del server). "Who's watching?" y el login se ven con el tema del ultimo perfil
-que entro (`lib/prefs.svelte.ts`). Solo
-en TV: en el celular y la PC "Switch account" sigue siendo salir y entrar.
+**Profiles.** On the TV each account is saved as a profile (`lib/profiles.svelte.ts`): you sign in
+only once with the password and the session never expires (`persistent`, `docs/API.md`). On open,
+with more than one profile, "Who's watching?" (the last used one already selected); the sidebar
+avatar opens it again (back closes it without switching profile). "Add profile" adds another
+account; "Manage profiles" opens each profile to choose its avatar (with that profile's session,
+without entering) or remove it (closes its session on the server). If someone revokes that session
+from Settings → Signed-in devices or the admin from Admin → Users → "Signed-in devices", the profile
+is deleted on its own and the picker comes back. Switching profiles reloads the page (no cache from
+the previous account remains). Theme, language and subtitles belong to each account: the profile
+keeps the latest copy of its preferences and, when chosen, they're applied before reloading (the
+page starts with its theme already; the server's arrive afterwards). "Who's watching?" and the
+login use the theme of the last profile that signed in (`lib/prefs.svelte.ts`). Only
+on TV: on the phone and the PC "Switch account" is still signing out and in.
 
-**WebView minimo: Chromium 111.** La interfaz usa `color-mix()` en casi todos los colores (111),
-`:has()` (105) y `AbortSignal.timeout` (103). Muchos TV box traen un Android System WebView viejo
-(el X96 Mini, 66 de 2018): con eso el modulo de la app ni compila. Por eso `index.html` tiene un
-script ES5 que mira la version de Chrome/Chromium del userAgent antes de cargar nada: si es menor
-a 111 no carga la app (el plugin `gate` de `vite.config.ts` saca el `<script type="module">` del
-HTML y lo carga `mythosBoot` solo si alcanza) y muestra "Update Android System WebView" con los
-pasos, las dos versiones y, como alternativa, abrir la direccion del server en Firefox (ver "En el
-navegador"). En un navegador de PC viejo basado en Chromium dice "Update your browser"; Firefox
-pide la 121 (`:has()`; si no, "Update Firefox") y Safari pasa siempre. Para verla en la PC:
-`http://localhost:5173/?webviewTest=66`.
+**Minimum WebView: Chromium 111.** The interface uses `color-mix()` in almost every color (111),
+`:has()` (105) and `AbortSignal.timeout` (103). Many TV boxes ship an old Android System WebView
+(the X96 Mini, 66 from 2018): with that the app module doesn't even compile. That's why
+`index.html` has an ES5 script that checks the Chrome/Chromium version from the userAgent before
+loading anything: if it's below 111 it doesn't load the app (the `gate` plugin in `vite.config.ts`
+removes the `<script type="module">` from the HTML and `mythosBoot` loads it only if it's enough)
+and shows "Update Android System WebView" with the steps, both versions and, as an alternative,
+opening the server address in Firefox (see "In the browser"). On an old Chromium-based PC browser it
+says "Update your browser"; Firefox requires 121 (`:has()`; otherwise, "Update Firefox") and Safari
+always passes. To see it on the PC: `http://localhost:5173/?webviewTest=66`.
 
-Como actualizar el WebView de un TV box: desde Google Play ("Android System WebView" → Update) o,
-sin Play Store, instalando el APK de Android System WebView de la ABI del box (armeabi-v7a o
-arm64-v8a) con Downloader o un pendrive y eligiendolo en Developer options → WebView
-implementation. Ojo: algunos firmwares traen un WebView de AOSP (`com.android.webview`) firmado
-por el fabricante que no se puede reemplazar sin root (y no muestran "WebView implementation");
-ahi la app no anda y queda Firefox. Ojo tambien con el minSdk del APK del WebView: un box con
-Android 8-9 (API 26-28, aunque diga 10 o 13) no instala uno que pida API 29.
+How to update a TV box's WebView: from Google Play ("Android System WebView" → Update) or, without
+Play Store, installing the Android System WebView APK for the box's ABI (armeabi-v7a or
+arm64-v8a) with Downloader or a USB stick and selecting it in Developer options → WebView
+implementation. Careful: some firmwares ship an AOSP WebView (`com.android.webview`) signed by the
+manufacturer that can't be replaced without root (and don't show "WebView implementation"); there
+the app doesn't work and Firefox is what's left. Also careful with the WebView APK's minSdk: a box
+with Android 8-9 (API 26-28, even if it says 10 or 13) won't install one that requires API 29.
 
-**Android del APK.** `minSdk` 24 (Android 7.0): anda en los box de Android 8-9. Lo que solo
-existe en versiones nuevas del plugin tiene su chequeo (`canRequestPackageInstalls` desde 26,
-`setRequireUserAction` y `FLAG_MUTABLE` desde 31, `ACCESS_LOCAL_NETWORK` desde 37); los permisos
-que el sistema no conoce se ignoran.
+**APK Android version.** `minSdk` 24 (Android 7.0): it works on Android 8-9 boxes. What only exists
+in newer versions of the plugin has its check (`canRequestPackageInstalls` from 26,
+`setRequireUserAction` and `FLAG_MUTABLE` from 31, `ACCESS_LOCAL_NETWORK` from 37); permissions the
+system doesn't know are ignored.
 
-**Probar en la PC** (sin el box): `npm run dev:mock` y `http://localhost:5173/?tv=1` (o el switch
-de Settings → Appearance; `?tv=auto` vuelve a automatico), con flechas, Enter y Esc (Esc hace de
-atras). El navegador de escritorio ignora el ancho del meta viewport: para ver la escala, una
-ventana (o un iframe) de 960x540.
+**Testing on the PC** (without the box): `npm run dev:mock` and `http://localhost:5173/?tv=1` (or
+the Settings → Appearance switch; `?tv=auto` goes back to automatic), with arrows, Enter and Esc
+(Esc acts as back). The desktop browser ignores the meta viewport width: to see the scale, a
+960x540 window (or iframe).
 
-Sin probar en el aparato real todavia: la deteccion (`device`) y el viewport de 960 px dependen del
-WebView del box.
+Not yet tested on the real device: detection (`device`) and the 960 px viewport depend on the box's
+WebView.
 
-## Actualizaciones del APK
+## APK updates
 
-Igual que Haze: al rato de abrir y cada seis horas se fija si el último Release de
-`MartinSchubert04/Mythos` trae una versión más nueva en `latest-android.json`, la baja de fondo y
-verifica el sha256. La firma la verifica Android: un APK firmado con otra clave no se instala encima.
+Same as Haze: a while after opening and every six hours it checks whether the latest Release of
+`MartinSchubert04/Mythos` has a newer version in `latest-android.json`, downloads it in the
+background and verifies the sha256. Android verifies the signature: an APK signed with another key
+doesn't install over it.
 
-Se instala sola al salir de la app sin nada reproduciéndose, si Android deja hacerlo sin preguntar:
-Android 12 o más nuevo, con "Instalar apps desconocidas" y Mythos como quien instaló la versión
-actual (`setRequireUserAction(USER_ACTION_NOT_REQUIRED)`, que además necesita el permiso
-`UPDATE_PACKAGES_WITHOUT_USER_ACTION`; sin él Android pide confirmar igual). Si no, queda "Update
-now" en Settings → App: la primera vez abre el ajuste del permiso y después el diálogo del sistema.
-Al abrir la versión nueva la interfaz vuelve a la misma pantalla (y el reproductor al mismo
-segundo, con `?resume=1`). El APK bajado se borra al arrancar la siguiente vez.
+It installs itself when you leave the app with nothing playing, if Android allows doing it without
+asking: Android 12 or newer, with "Install unknown apps" and Mythos as the installer of the current
+version (`setRequireUserAction(USER_ACTION_NOT_REQUIRED)`, which also needs the
+`UPDATE_PACKAGES_WITHOUT_USER_ACTION` permission; without it Android asks for confirmation anyway).
+Otherwise, "Update now" stays in Settings → App: the first time it opens the permission setting and
+then the system dialog. On opening the new version the interface returns to the same screen (and the
+player to the same second, with `?resume=1`). The downloaded APK is deleted on the next startup.
 
-Probado en el emulador (Android 17): buscar, bajar y verificar desde un `latest-android.json` de
-prueba; "Update now" con el permiso y el diálogo; la instalación sola al salir (0.2.1 → 0.2.2 sin
-diálogo) y volver a la misma pantalla.
+Tested on the emulator (Android 17): check, download and verify from a test `latest-android.json`;
+"Update now" with the permission and the dialog; automatic install on exit (0.2.1 → 0.2.2 without a
+dialog) and returning to the same screen.
 
-Para probar sin publicar (solo en builds de debug): servir `latest-android.json` y el APK en la PC
-y apuntar la app ahí:
+To test without publishing (debug builds only): serve `latest-android.json` and the APK on the PC
+and point the app there:
 
 ```
 adb shell run-as dev.mrtn.mythos sh -c 'echo http://10.0.2.2:8000/latest-android.json > files/update-url.txt'
 ```
 
-## Compilar
+## Building
 
-Hace falta el SDK y el NDK de Android, Java 21 y los targets de Rust
-(`rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android`). La CLI
-de Tauri lee:
+You need the Android SDK and NDK, Java 21 and the Rust targets
+(`rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android`). The Tauri
+CLI reads:
 
 ```
 ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk
@@ -326,18 +321,18 @@ JAVA_HOME=C:\Program Files\Java\jdk-21
 
 ```
 cd apps/mobile
-npm run build:emulator     # APK de debug x86_64 para el emulador
-npm run build:debug        # APK de debug arm64 + armv7 (celular o TV box)
-npm run build              # APK de release arm64 + armv7 (el que se publica)
+npm run build:emulator     # x86_64 debug APK for the emulator
+npm run build:debug        # arm64 + armv7 debug APK (phone or TV box)
+npm run build              # arm64 + armv7 release APK (the one that gets published)
 adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
 ```
 
-En Windows `tauri android build` necesita el modo de desarrollador (crea un enlace simbólico del
-`.so` en `jniLibs`). Sin eso falla después de compilar Rust; se puede seguir a mano: copiar
-`src-tauri/target/x86_64-linux-android/debug/libmythos_mobile_lib.so` a
-`gen/android/app/src/main/jniLibs/x86_64/` y correr en `gen/android`
+On Windows `tauri android build` needs developer mode (it creates a symlink of the `.so` in
+`jniLibs`). Without it, it fails after compiling Rust; you can continue by hand: copy
+`src-tauri/target/x86_64-linux-android/debug/libmythos_mobile_lib.so` to
+`gen/android/app/src/main/jniLibs/x86_64/` and run in `gen/android`
 `gradlew assembleUniversalDebug -PabiList=x86_64 -ParchList=x86_64 -PtargetList=x86_64 -x rustBuildUniversalDebug -x rustBuildX86_64Debug`.
-Con dos ABIs (el release), lo mismo para cada una:
+With two ABIs (the release), the same for each one:
 
 ```
 copy src-tauri\target\aarch64-linux-android\release\libmythos_mobile_lib.so gen\android\app\src\main\jniLibs\arm64-v8a\
@@ -346,36 +341,38 @@ cd src-tauri\gen\android
 gradlew.bat assembleUniversalRelease -PabiList=arm64-v8a,armeabi-v7a -ParchList=arm64,arm -PtargetList=aarch64,armv7 -x rustBuildUniversalRelease -x rustBuildArm64Release -x rustBuildArmRelease
 ```
 
-El CI corre en Linux y no tiene el problema (compila las dos y verifica que el APK las traiga).
+CI runs on Linux and doesn't have the problem (it compiles both and verifies the APK carries them).
 
-Los registros nativos salen en `adb logcat` (filtrar por `mythos` o `Tauri`). En debug el WebView
-se inspecciona desde `chrome://inspect`.
+Native logs come out in `adb logcat` (filter by `mythos` or `Tauri`). In debug the WebView is
+inspected from `chrome://inspect`.
 
-## Publicar
+## Publishing
 
-Escritorio y Android salen juntos con la misma versión: el tag `vX.Y.Z` dispara `desktop.yml` y
-`android.yml`, y los dos suben al mismo Release con `.github/scripts/release.sh` (el primero lo
-crea, marcado como último). Android sube `Mythos-X.Y.Z-android.apk` y `latest-android.json`.
+Desktop and Android ship together with the same version: the `vX.Y.Z` tag triggers `desktop.yml`
+and `android.yml`, and both upload to the same Release with `.github/scripts/release.sh` (the first
+one creates it, marked as latest). Android uploads `Mythos-X.Y.Z-android.apk` and
+`latest-android.json`.
 
-La firma sale de cuatro secrets del repo (Settings → Secrets and variables → Actions). Para
-crearlos, una sola vez:
+The signing comes from four repo secrets (Settings → Secrets and variables → Actions). To create
+them, just once:
 
 ```
 keytool -genkeypair -keystore mythos.jks -alias mythos -keyalg RSA -keysize 4096 -validity 36500
-base64 -w0 mythos.jks   # en Windows: certutil -encode mythos.jks mythos.b64 (sin las lineas BEGIN/END)
+base64 -w0 mythos.jks   # on Windows: certutil -encode mythos.jks mythos.b64 (without the BEGIN/END lines)
 ```
 
-| Secret | Valor |
+| Secret | Value |
 |---|---|
-| `ANDROID_KEYSTORE` | `mythos.jks` en base64 |
-| `ANDROID_KEYSTORE_PASSWORD` | la contraseña de la keystore |
+| `ANDROID_KEYSTORE` | `mythos.jks` in base64 |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
 | `ANDROID_KEY_ALIAS` | `mythos` |
-| `ANDROID_KEY_PASSWORD` | la de la clave (si es la misma, se puede omitir) |
+| `ANDROID_KEY_PASSWORD` | the key's password (if it's the same, it can be omitted) |
 
-Todas las versiones se firman con la misma keystore. Si se pierde, nadie puede actualizar sin
-desinstalar: guardala en dos lugares, fuera del repo. Sin `keystore.properties` el release local
-sale firmado con la clave de debug (sirve para probar, no para publicar; el CI falla si faltan los
-secrets). Para un APK firmado en la PC, crear `apps/mobile/src-tauri/gen/android/keystore.properties`
-(está en el `.gitignore`) con `storeFile`, `storePassword`, `keyAlias` y `keyPassword`.
+All versions are signed with the same keystore. If it's lost, nobody can update without
+uninstalling: keep it in two places, outside the repo. Without `keystore.properties` the local
+release is signed with the debug key (good for testing, not for publishing; CI fails if the secrets
+are missing). For an APK signed on the PC, create
+`apps/mobile/src-tauri/gen/android/keystore.properties` (it's in `.gitignore`) with `storeFile`,
+`storePassword`, `keyAlias` and `keyPassword`.
 
-Los workflows (`.github/`) necesitan un token con el scope `workflow` para pushearse.
+The workflows (`.github/`) need a token with the `workflow` scope to be pushed.

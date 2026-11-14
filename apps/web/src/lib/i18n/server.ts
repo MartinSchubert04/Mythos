@@ -1,5 +1,5 @@
 // Errores del server en el idioma de la interfaz. El server manda `{"error": "...", "code": "...",
-// "params": {...}}` (docs/API.md, "Errores"): se traduce por `code` (la clave es "srv." + el codigo
+// "params": {...}}` (docs/API.md, "Errors"): se traduce por `code` (la clave es "srv." + el codigo
 // en camelCase: `bad_login` -> "srv.badLogin") con `params` para los datos ({n}, {status}, {e}).
 // Si no hay codigo, o es uno que esta UI no conoce, se reconoce el texto (los servers anteriores a
 // los codigos solo mandan el texto); si tampoco, se muestra tal cual vino.
