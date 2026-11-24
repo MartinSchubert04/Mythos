@@ -1,6 +1,7 @@
 <script lang="ts">
   // Arriba lo ultimo visto (fila horizontal, terminados incluidos) y abajo los favoritos en
-  // grilla. El filtro por tipo vale para las dos.
+  // grilla. El filtro por tipo vale para las dos y vive en la URL (#/library?type=movie): al abrir
+  // un titulo y volver con atras sigue el mismo (antes se montaba de nuevo en "Todo").
   import { Heart } from "@lucide/svelte";
   import ContinueCard from "../components/ContinueCard.svelte";
   import PosterCard from "../components/PosterCard.svelte";
@@ -10,13 +11,18 @@
   import { t } from "../lib/i18n.svelte";
   import { rise } from "../lib/motion";
   import { uniq } from "../lib/format";
-  import { go } from "../lib/router.svelte";
+  import { go, route, setQuery } from "../lib/router.svelte";
   import { keepScroll } from "../lib/scroll";
   import type { MetaPreview, Progress } from "../lib/types";
 
   let items = $state<MetaPreview[] | null>(null);
   let error = $state("");
-  let kind = $state<"all" | "movie" | "series">("all");
+  type Kind = "all" | "movie" | "series";
+  const kind = $derived.by<Kind>(() => {
+    const k = route.query.get("type");
+    return k === "movie" || k === "series" ? k : "all";
+  });
+  const setKind = (k: Kind) => setQuery(k === "all" ? {} : { type: k });
 
   api
     .library()
@@ -40,7 +46,8 @@
     <div class="grow"></div>
     {#if items?.length || recent?.length}
       <Seg
-        bind:value={kind}
+        value={kind}
+        onchange={setKind}
         options={[
           { value: "all", label: t("browse.filter.all") },
           { value: "movie", label: t("browse.filter.movies") },
