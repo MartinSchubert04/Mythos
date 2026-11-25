@@ -453,3 +453,51 @@ async fn recent_includes_finished_one_per_series() {
     remote.shutdown().await.unwrap();
     let _ = std::fs::remove_dir_all(&rdir);
 }
+
+/// Caché desde Admin: el tope se cambia en caliente, se valida, sobrevive a un reinicio (manda
+/// sobre la configuración) y "vaciar" responde cuántos borró. Solo el admin.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn admin_cache_limit_and_clear() {
+    let rdir = tmp("admin-cache");
+    let remote = remote_server(&rdir).await;
+    let r = Api::new(&remote);
+    let admin = r.call("POST", "/api/auth/login", None, Some(json!({"username": "ana", "password": "secret123"}))).await.1["token"].as_str().unwrap().to_string();
+    r.call("POST", "/api/admin/users", Some(&admin), Some(json!({"username": "bob", "password": "hunter22"}))).await;
+    let bob = r.call("POST", "/api/auth/login", None, Some(json!({"username": "bob", "password": "hunter22"}))).await.1["token"].as_str().unwrap().to_string();
+    const GB: u64 = 1_000_000_000;
+
+    assert_eq!(r.call("GET", "/api/admin/stats", Some(&admin), None).await.1["cache_limit_bytes"], GB);
+    assert_eq!(r.call("PUT", "/api/admin/cache", Some(&bob), Some(json!({"limit_gb": 5}))).await.0, 403);
+    assert_eq!(r.call("DELETE", "/api/admin/cache", Some(&bob), None).await.0, 403);
+    for bad in [json!(-1), json!(0.5), json!(1e9)] {
+        assert_eq!(r.call("PUT", "/api/admin/cache", Some(&admin), Some(json!({"limit_gb": bad}))).await.0, 400, "{bad}");
+    }
+    let (st, v) = r.call("PUT", "/api/admin/cache", Some(&admin), Some(json!({"limit_gb": 250}))).await;
+    assert_eq!(st, 200, "{v}");
+    assert_eq!(v["cache_limit_bytes"], 250 * GB);
+    assert_eq!(r.call("GET", "/api/admin/stats", Some(&admin), None).await.1["cache_limit_bytes"], 250 * GB);
+
+    let (st, v) = r.call("DELETE", "/api/admin/cache", Some(&admin), None).await;
+    assert_eq!(st, 200, "{v}");
+    assert_eq!(v, json!({"removed": 0, "skipped": 0, "freed_bytes": 0}));
+    let mut audit = Value::Null;
+    for _ in 0..40 {
+        audit = r.call("GET", "/api/admin/audit?event=cache_limit", Some(&admin), None).await.1;
+        if audit["items"].as_array().is_some_and(|a| !a.is_empty()) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(audit["items"][0]["detail"], "250 GB", "{audit}");
+
+    // Reinicio con la misma base: sigue en 250 GB aunque la configuración diga 1; 0 = sin tope.
+    remote.shutdown().await.unwrap();
+    let remote = remote_server(&rdir).await;
+    let r = Api::new(&remote);
+    let admin = r.call("POST", "/api/auth/login", None, Some(json!({"username": "ana", "password": "secret123"}))).await.1["token"].as_str().unwrap().to_string();
+    assert_eq!(r.call("GET", "/api/admin/stats", Some(&admin), None).await.1["cache_limit_bytes"], 250 * GB);
+    assert_eq!(r.call("PUT", "/api/admin/cache", Some(&admin), Some(json!({"limit_gb": 0}))).await.1["cache_limit_bytes"], 0);
+
+    remote.shutdown().await.unwrap();
+    let _ = std::fs::remove_dir_all(&rdir);
+}

@@ -148,7 +148,7 @@ impl Handle {
 
 /// Arranca el server con `cfg`: abre/migra la base, el motor de media, las tareas de fondo y
 /// empieza a escuchar. Vuelve en cuanto escucha (con `Handle::addr` real).
-pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
+pub async fn run(mut cfg: Config) -> anyhow::Result<Handle> {
     std::fs::create_dir_all(&cfg.data_dir).with_context(|| format!("no se pudo crear {}", cfg.data_dir.display()))?;
     let db = Db::open(&cfg.data_dir.join("mythos.db"))?;
     if cfg.mode == Mode::Server {
@@ -158,6 +158,13 @@ pub async fn run(cfg: Config) -> anyhow::Result<Handle> {
             Ok(0) => {}
             Ok(n) => tracing::info!("galería de avatares: {n} de fábrica agregados"),
             Err(e) => tracing::warn!("no se pudieron agregar los avatares de fábrica: {}", e.message),
+        }
+    }
+
+    // El tope de caché que puso el admin desde la interfaz manda sobre el de la configuración.
+    if cfg.mode == Mode::Server {
+        if let Some(gb) = db.saved_cache_gb()? {
+            cfg.cache_gb = gb;
         }
     }
 

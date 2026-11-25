@@ -247,6 +247,14 @@ impl Db {
         Ok(c.query_row("SELECT value FROM server_meta WHERE key = 'server_id'", [], |r| r.get(0))?)
     }
 
+    /// Tope de la caché que eligió el admin (GB; 0 = sin tope), si alguna vez lo cambió. Manda
+    /// sobre `MYTHOS_CACHE_GB`.
+    pub fn saved_cache_gb(&self) -> anyhow::Result<Option<f64>> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let v = c.query_row("SELECT value FROM server_meta WHERE key = 'cache_gb'", [], |r| r.get::<_, String>(0)).optional()?;
+        Ok(v.and_then(|v| v.parse::<f64>().ok()).filter(|g| g.is_finite() && *g >= 0.0))
+    }
+
     /// Corre `f` con la conexión en un hilo bloqueante.
     pub async fn call<T, F>(&self, f: F) -> ApiResult<T>
     where

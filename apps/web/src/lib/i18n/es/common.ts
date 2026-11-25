@@ -96,6 +96,7 @@ export default {
   "srv.selfDelete": "No podés borrar tu propia cuenta",
   "srv.lastAdmin": "No se puede borrar el último admin",
   "srv.needAdmin": "Tiene que quedar al menos un admin activo",
+  "srv.badCacheLimit": "El tope de la caché va de 1 a 100000 GB (0 = sin tope)",
   "srv.rdInvalid": "La clave de Real-Debrid no es válida",
   "srv.rdMissing": "No hay una clave de Real-Debrid",
   "srv.onlyTorrentio": "Solo se pueden reproducir links de Torrentio o Real-Debrid",

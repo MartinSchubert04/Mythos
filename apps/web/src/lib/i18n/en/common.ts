@@ -94,6 +94,7 @@ export default {
   "srv.selfDelete": "You can't delete your own account",
   "srv.lastAdmin": "You can't delete the last admin",
   "srv.needAdmin": "There must be at least one active admin",
+  "srv.badCacheLimit": "The cache limit goes from 1 to 100000 GB (0 = no limit)",
   "srv.rdInvalid": "Invalid Real-Debrid API key",
   "srv.rdMissing": "Real-Debrid key is not set",
   "srv.onlyTorrentio": "Only Torrentio / Real-Debrid links can be played",

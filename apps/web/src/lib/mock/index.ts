@@ -230,6 +230,8 @@ function vtt(lang: string): string {
   return lines.join("\n");
 }
 
+/** Admin: caché usada y tope (PUT /api/admin/cache lo cambia, DELETE la vacía). */
+const mockCache = { used: 182e9, limit: 300e9 };
 const torrents: TorrentStat[] = [
   {
     info_hash: "a".repeat(40),
@@ -580,10 +582,22 @@ async function route(req: Request): Promise<Response> {
     if (i >= 0) torrents.splice(i, 1);
     return none();
   }
+  if (path === "/api/admin/cache" && m === "PUT") {
+    const gb = Number((await body<{ limit_gb?: number }>()).limit_gb);
+    if (!isFinite(gb) || gb < 0 || (gb > 0 && gb < 1) || gb > 100000) return err(400, "limit_gb must be 0 (no limit) or between 1 and 100000");
+    mockCache.limit = gb * 1e9;
+    return json({ cache_limit_bytes: mockCache.limit });
+  }
+  if (path === "/api/admin/cache" && m === "DELETE") {
+    const r = { removed: torrents.length, skipped: 0, freed_bytes: torrents.reduce((n, t) => n + t.downloaded_bytes, 0) };
+    torrents.splice(0);
+    mockCache.used = 0;
+    return json(r);
+  }
   if (path === "/api/admin/stats") {
     const s: AdminStats = {
-      cache_bytes: 182e9,
-      cache_limit_bytes: 300e9,
+      cache_bytes: mockCache.used,
+      cache_limit_bytes: mockCache.limit,
       disk_free_bytes: 640e9,
       active_sessions: sessions.size,
       users: db.users.length,

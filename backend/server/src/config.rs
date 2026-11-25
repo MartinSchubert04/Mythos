@@ -117,15 +117,21 @@ impl Config {
 
     /// 0 = sin tope.
     pub fn cache_limit_bytes(&self) -> u64 {
-        if self.cache_gb <= 0.0 {
-            return 0;
-        }
-        (self.cache_gb.max(1.0) * 1024.0 * 1024.0 * 1024.0) as u64
+        gb_to_bytes(self.cache_gb)
     }
 
     pub fn is_local(&self) -> bool {
         self.mode == Mode::Local
     }
+}
+
+/// GB del tope de caché a bytes. 0 o menos = sin tope (0); si no, al menos 1 GB. GB decimales
+/// (10⁹), los mismos que muestra la interfaz: si el admin pone 250, Admin dice "de 250 GB".
+pub fn gb_to_bytes(gb: f64) -> u64 {
+    if gb <= 0.0 {
+        return 0;
+    }
+    (gb.max(1.0) * 1e9) as u64
 }
 
 #[cfg(test)]

@@ -9,6 +9,7 @@ import { read, write } from "./store";
 import type {
   Avatar,
   AdminStats,
+  CacheCleared,
   AuditRow,
   ClientCaps,
   ExternalSub,
@@ -402,6 +403,10 @@ export const api = {
   torrents: () => req<TorrentStat[]>("GET", "/api/admin/torrents"),
   deleteTorrent: (hash: string, files: boolean) => req<void>("DELETE", `/api/admin/torrents/${hash}${q({ files: files ? "true" : undefined })}`),
   stats: () => req<AdminStats>("GET", "/api/admin/stats"),
+  /** Admin: tope de la caché en GB (0 = sin tope); si baja, el server borra lo que sobra. */
+  setCacheLimit: (limit_gb: number) => req<{ cache_limit_bytes: number }>("PUT", "/api/admin/cache", { limit_gb }),
+  /** Admin: borra todos los torrents de la caché, menos los que se están viendo. */
+  clearCache: () => req<CacheCleared>("DELETE", "/api/admin/cache"),
   metrics: (range: MetricsRange, signal?: AbortSignal) => req<Metrics>("GET", `/api/admin/metrics${q({ range })}`, undefined, { signal }),
   logs: (f: LogFilters & { before?: number; limit?: number }, signal?: AbortSignal) =>
     req<Page<LogRow>>("GET", `/api/admin/logs${q(f)}`, undefined, { signal }),

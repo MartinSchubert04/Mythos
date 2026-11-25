@@ -80,6 +80,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime};
 use tracing::{info, warn};
@@ -166,6 +167,9 @@ pub struct Engine {
     /// Trackers nuevos de los refrescos: se suman a cada torrent que se agrega.
     trackers_new: Mutex<Vec<String>>,
     started_unix: u64,
+    /// Tope de la caché en bytes (0 = sin tope). Arranca en `cfg.cache_limit_bytes` y el admin lo
+    /// cambia en caliente (`set_cache_limit`).
+    cache_limit: AtomicU64,
     pub hls_dir: PathBuf,
     pub subs_dir: PathBuf,
     meta_dir: PathBuf,
@@ -215,6 +219,7 @@ impl Engine {
             trackers_boot: trackers.into_iter().collect(),
             trackers_new: Mutex::new(Vec::new()),
             started_unix: now_unix(),
+            cache_limit: AtomicU64::new(cfg.cache_limit_bytes),
             tuning,
             hls_dir,
             subs_dir,
@@ -706,7 +711,7 @@ impl Engine {
         let cache_bytes: u64 = self.rq.with_torrents(|it| it.map(|(_, h)| h.stats().progress_bytes).sum());
         MediaStats {
             cache_bytes,
-            cache_limit_bytes: self.cfg.cache_limit_bytes,
+            cache_limit_bytes: self.cache_limit.load(Ordering::Relaxed),
             disk_free_bytes: self.disk_free(),
             active_sessions: self.sessions.lock().unwrap().len() as u32,
         }
@@ -754,7 +759,8 @@ impl Engine {
                 .collect()
         };
         let total: u64 = entries.iter().map(|e| e.bytes).sum();
-        let mut limit = if self.cfg.cache_limit_bytes == 0 { u64::MAX / 2 } else { self.cfg.cache_limit_bytes };
+        let cap = self.cache_limit.load(Ordering::Relaxed);
+        let mut limit = if cap == 0 { u64::MAX / 2 } else { cap };
         if low_disk {
             // Lo que falta para tener `want_free` libres sale de la caché.
             limit = limit.min(total.saturating_sub(want_free - free) + extra_needed);
@@ -765,6 +771,40 @@ impl Engine {
                 warn!(%hash, "could not evict: {e:#}");
             }
         }
+    }
+
+    /// Cambia el tope de la caché en caliente (0 = sin tope) y, si bajó, borra lo que sobra
+    /// (LRU, nunca lo que está en uso).
+    pub async fn set_cache_limit(&self, bytes: u64) {
+        self.cache_limit.store(bytes, Ordering::Relaxed);
+        self.evict_lru(0).await;
+    }
+
+    /// Vacía la caché: borra todos los torrents con sus archivos, menos los que están en uso
+    /// (una sesión abierta o una precarga), para no cortarle la película a nadie.
+    pub async fn clear_cache(&self) -> crate::CacheCleared {
+        let handles: Vec<ManagedTorrentHandle> = self.rq.with_torrents(|it| it.map(|(_, h)| h.clone()).collect());
+        let mut out = crate::CacheCleared::default();
+        for h in handles {
+            let hash = h.info_hash().as_string();
+            let bytes = h.stats().progress_bytes;
+            if self.in_use(&hash) {
+                out.skipped += 1;
+                continue;
+            }
+            match self.remove_torrent(&hash, true).await {
+                Ok(()) => {
+                    out.removed += 1;
+                    out.freed_bytes += bytes;
+                }
+                Err(e) => {
+                    warn!(%hash, "could not remove torrent while clearing cache: {e:#}");
+                    out.skipped += 1;
+                }
+            }
+        }
+        info!(removed = out.removed, skipped = out.skipped, freed = out.freed_bytes, "cache cleared");
+        out
     }
 
     /// Borra los torrents sin usar hace `cache_max_age_secs` (nunca los en uso). Corre al arrancar,

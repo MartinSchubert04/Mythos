@@ -152,7 +152,10 @@ Everything lives in `deploy/data/`:
   backing up (with `sqlite3` on the host: `sqlite3 data/mythos.db ".backup mythos-backup.db"`, even while the container is running).
 - `torrents/`: the download cache. It cleans itself up: whatever hasn't been watched in 3 days is deleted
   (`MYTHOS_CACHE_HOURS`, default 72; 0 = never expires) and, when going over `MYTHOS_CACHE_GB`, whatever was used
-  longest ago. Never what's being watched. It can be deleted entirely with the container stopped.
+  longest ago. Never what's being watched. From the interface, Admin → Resumen (Overview) → Caché has
+  "Tope" (Limit: changes the maximum size live and saves it in the database, so from then on it wins
+  over `MYTHOS_CACHE_GB`) and "Vaciar" (Clear: deletes everything except what's being watched). It
+  can also be deleted entirely with the container stopped.
 - `hls/`: ffmpeg temporary files.
 
 ### Optional: bigger UDP buffers

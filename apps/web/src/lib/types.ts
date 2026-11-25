@@ -209,6 +209,9 @@ export type TorrentStat = {
   last_used_at: string;
 };
 
+/** DELETE /api/admin/cache: los que se borraron y los que quedaron porque se estan viendo. */
+export type CacheCleared = { removed: number; skipped: number; freed_bytes: number };
+
 export type AdminStats = {
   cache_bytes: number;
   cache_limit_bytes: number;
@@ -280,7 +283,9 @@ export type AuditEvent =
   | "user_created"
   | "user_updated"
   | "user_disabled"
-  | "user_deleted";
+  | "user_deleted"
+  | "cache_limit"
+  | "cache_cleared";
 
 export type AuditRow = {
   id: number;

@@ -2,7 +2,7 @@
 use axum::{
     extract::State,
     http::StatusCode,
-    routing::{delete, get, patch},
+    routing::{delete, get, patch, put},
     Router,
 };
 use rusqlite::{params, Connection, OptionalExtension};
@@ -27,6 +27,7 @@ pub fn routes() -> Router<AppState> {
         .route("/admin/torrents", get(torrents))
         .route("/admin/torrents/{info_hash}", delete(remove_torrent))
         .route("/admin/stats", get(stats))
+        .route("/admin/cache", put(set_cache_limit).delete(clear_cache))
 }
 
 /// Las sesiones abiertas de un usuario (las de la TV, que no vencen, incluidas). `current`: la del
@@ -271,4 +272,55 @@ async fn stats(State(st): State<AppState>, _a: AdminUser) -> ApiResult<Json<Stat
         users,
         watching,
     }))
+}
+
+/// Tope de la caché más alto que se acepta (GB): 100 TB, para que un número absurdo no pase.
+const MAX_CACHE_GB: f64 = 100_000.0;
+
+#[derive(Deserialize)]
+struct CacheLimit {
+    /// GB (10⁹ bytes). 0 = sin tope (siguen el vencimiento y el piso de disco libre); si no,
+    /// al menos 1.
+    limit_gb: f64,
+}
+
+#[derive(Serialize)]
+struct CacheLimitOut {
+    cache_limit_bytes: u64,
+}
+
+/// Cambia el tope de la caché en caliente y lo guarda en la base (manda sobre `MYTHOS_CACHE_GB`
+/// en los próximos arranques). Si baja, se borra en el momento lo que sobra.
+async fn set_cache_limit(State(st): State<AppState>, ClientIp(ip): ClientIp, a: AdminUser, Json(b): Json<CacheLimit>) -> ApiResult<Json<CacheLimitOut>> {
+    let gb = b.limit_gb;
+    if !gb.is_finite() || gb < 0.0 || (gb > 0.0 && gb < 1.0) || gb > MAX_CACHE_GB {
+        return Err(ApiError::bad_request("limit_gb must be 0 (no limit) or between 1 and 100000").with_code("bad_cache_limit"));
+    }
+    let gb = (gb * 10.0).round() / 10.0;
+    st.db
+        .call(move |c| {
+            c.execute("INSERT INTO server_meta (key, value) VALUES ('cache_gb', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [gb.to_string()])?;
+            Ok(())
+        })
+        .await?;
+    let bytes = crate::config::gb_to_bytes(gb);
+    st.media.set_cache_limit(bytes).await;
+    tracing::info!(by = %a.0.user.username, gb, "tope de caché cambiado");
+    let detail = if gb == 0.0 { "no limit".to_string() } else { format!("{gb} GB") };
+    st.recorder.audit("cache_limit", Some(a.0.user.id), Some(&a.0.user.username), Some(ip), Some(detail));
+    Ok(Json(CacheLimitOut { cache_limit_bytes: bytes }))
+}
+
+/// Borra todos los torrents de la caché con sus archivos, menos los que alguien está viendo.
+async fn clear_cache(State(st): State<AppState>, ClientIp(ip): ClientIp, a: AdminUser) -> Json<mythos_media::CacheCleared> {
+    let r = st.media.clear_cache().await;
+    tracing::info!(by = %a.0.user.username, removed = r.removed, skipped = r.skipped, freed = r.freed_bytes, "caché vaciada");
+    st.recorder.audit(
+        "cache_cleared",
+        Some(a.0.user.id),
+        Some(&a.0.user.username),
+        Some(ip),
+        Some(format!("{} removed, {} in use, {} bytes freed", r.removed, r.skipped, r.freed_bytes)),
+    );
+    Json(r)
 }

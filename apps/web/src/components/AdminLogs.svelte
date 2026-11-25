@@ -2,7 +2,7 @@
   // Admin → Logs: los requests uno por uno (filtros por usuario, IP, estado y ruta) y la
   // actividad de las cuentas (auditoria: logins, cambios de usuarios). Pagina con `before`:
   // "Load more" o solo al llegar al final de la lista.
-  import { KeyRound, LogIn, LogOut, MonitorOff, RefreshCw, ShieldX, Trash2, UserCog, UserPlus, UserX, X } from "@lucide/svelte";
+  import { HardDrive, KeyRound, LogIn, LogOut, MonitorOff, RefreshCw, ShieldX, Trash2, UserCog, UserPlus, UserX, X } from "@lucide/svelte";
   import { onDestroy } from "svelte";
   import { api, errText } from "../lib/api";
   import { bytes } from "../lib/format";
@@ -129,6 +129,8 @@
     { value: "user_updated", get label() { return t("admin.logs.ev.user_updated"); } },
     { value: "user_disabled", get label() { return t("admin.logs.ev.user_disabled"); } },
     { value: "user_deleted", get label() { return t("admin.logs.ev.user_deleted"); } },
+    { value: "cache_limit", get label() { return t("admin.logs.ev.cache_limit"); } },
+    { value: "cache_cleared", get label() { return t("admin.logs.ev.cache_cleared"); } },
   ];
   type Ev = { icon: typeof LogIn; text: string; tone?: "bad" | "warn" | "ok" };
   function describe(a: AuditRow): Ev {
@@ -158,6 +160,10 @@
         return { icon: UserCog, text: t("admin.logs.d.avatar_added", { u }) };
       case "avatar_removed":
         return { icon: UserCog, text: t("admin.logs.d.avatar_removed", { u }) };
+      case "cache_limit":
+        return { icon: HardDrive, text: t("admin.logs.d.cache_limit", { u }) };
+      case "cache_cleared":
+        return { icon: Trash2, text: t("admin.logs.d.cache_cleared", { u }), tone: "warn" };
       default:
         return { icon: UserCog, text: `${u}: ${a.event}` };
     }

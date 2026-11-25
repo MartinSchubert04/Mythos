@@ -66,7 +66,8 @@ it changes here first.
     `too_many_logins` (`n`: minutes), `no_token`, `expired`, `bad_token`, `admin_only`,
     `admin_local`, `user_exists`, `user_not_found`, `bad_username`, `pw_short`, `pw_long`,
     `pw_wrong`, `pw_on_server`, `rename_on_server`, `other_account`, `session_not_found`.
-  - Admin: `self_admin`, `self_disable`, `self_delete`, `last_admin`, `need_admin`; avatars:
+  - Admin: `self_admin`, `self_disable`, `self_delete`, `last_admin`, `need_admin`,
+    `bad_cache_limit`; avatars:
     `avatar_not_found`, `avatar_too_big`, `avatar_type`, `gallery_full` (`n`).
   - External services: `torrentio_down`, `torrentio_bad`, `torrentio_status` (`status`),
     `cinemeta_down`, `cinemeta_bad`, `cinemeta_status` (`status`), `title_not_found`,
@@ -307,6 +308,8 @@ type SyncPush = { applied: number; ignored: number; rejected: number };
 | DELETE | `/api/admin/avatars/{id}` | | 204 (deletes the file; whoever had it is left without an avatar) |
 | GET | `/api/admin/torrents` | | `TorrentStat[]` |
 | DELETE | `/api/admin/torrents/{info_hash}` | `?files=true` | 204 |
+| PUT | `/api/admin/cache` | `{limit_gb: number}` (decimal GB, 10⁹ bytes; 0 = no limit, otherwise 1 to 100000) | `{cache_limit_bytes}`. Applies right away (if it went down, the least used torrents not in use are deleted on the spot), saved in the database (`server_meta.cache_gb`): it wins over `MYTHOS_CACHE_GB` on later starts. 400 `bad_cache_limit`. Audit `cache_limit` ("250 GB" / "no limit") |
+| DELETE | `/api/admin/cache` | | `{removed, skipped, freed_bytes}`: deletes every torrent with its files, except those in use (an open session or a prefetch), which count as `skipped`. Audit `cache_cleared` |
 | GET | `/api/admin/stats` | | `{cache_bytes, cache_limit_bytes, disk_free_bytes, active_sessions, users, watching: {username, meta_id, stream_key, session_id, started_at}[]}` (`started_at` in unix s; each user's last play in the last 6 h) |
 | GET | `/api/admin/metrics` | `?range=24h\|7d\|30d\|90d` (default 24h) | `Metrics` (below) |
 | GET | `/api/admin/logs` | `?limit=` (≤ 1000, default 100) `&before=<id>&user=<name or id>&ip=&status=404\|5xx&route=<part of the template>` | `{items: LogRow[], next_before: number \| null}` (newest to oldest; `next_before` → `before` of the next page) |
@@ -344,7 +347,7 @@ type LogRow = { id; ts_ms; ip?; tailscale_login?; user_id?; username?; method; r
 type AuditRow = { id; ts_ms; event; user_id?; username?; ip?; detail? };
 // event: login_ok, login_fail (username = the name tried), logout, session_revoked,
 // password_changed, user_created, user_updated, user_disabled, user_deleted, user_renamed ("old → new"),
-// avatar_added, avatar_removed. In the admin ones,
+// avatar_added, avatar_removed, cache_limit ("250 GB" / "no limit"), cache_cleared. In the admin ones,
 // user_id/username are those of the admin who did it and `detail` says to whom and what changed.
 ```
 
@@ -659,6 +662,8 @@ impl Media {
     pub async fn torrents(&self) -> Vec<TorrentStat>;
     pub async fn remove_torrent(&self, info_hash: &str, delete_files: bool) -> anyhow::Result<()>;
     pub async fn stats(&self) -> MediaStats;       // cache_bytes, cache_limit_bytes, disk_free_bytes, active_sessions
+    pub async fn set_cache_limit(&self, bytes: u64); // live; 0 = no limit; if lower, evicts LRU now
+    pub async fn clear_cache(&self) -> CacheCleared; // {removed, skipped (in use), freed_bytes}
     pub async fn prefetch(&self, src: Source) -> anyhow::Result<()>; // non-blocking: fires and returns
     // Next-episode prefetch tied to the session being watched (rules in "Next-episode
     // prefetch"); non-blocking; error if the session doesn't exist. `next_status`: state (diagnostics).

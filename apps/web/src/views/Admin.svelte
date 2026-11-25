@@ -2,7 +2,7 @@
   // Admin, en pestañas: Overview (cache, disco, que se esta viendo y torrents en vivo), Traffic
   // (cuanto se le pega al server, por IP y por usuario), Logs (requests y actividad de las
   // cuentas) y Users. La pestaña va en la URL (#/admin?tab=logs).
-  import { HardDrive, KeyRound, MonitorSmartphone, PencilLine, Plus, RefreshCw, ShieldCheck, Trash2, UserPlus, Users } from "@lucide/svelte";
+  import { Eraser, Gauge, HardDrive, KeyRound, MonitorSmartphone, PencilLine, Plus, RefreshCw, ShieldCheck, Trash2, UserPlus, Users } from "@lucide/svelte";
   import { onDestroy } from "svelte";
   import AdminAvatars from "../components/AdminAvatars.svelte";
   import AdminLogs from "../components/AdminLogs.svelte";
@@ -158,6 +158,42 @@
       torrents = torrents?.filter((x) => x.info_hash !== t.info_hash) ?? null;
   }
 
+  /** Tope de la caché en GB (0 = sin tope): el server lo guarda y, si baja, borra lo que sobra. */
+  async function setLimit() {
+    const cur = stats ? Math.round(stats.cache_limit_bytes / 1e9) : 0;
+    const v = await prompt({ title: tr("admin.cache.limitTitle"), placeholder: tr("admin.cache.limitPlaceholder"), value: String(cur), confirm: tr("common.save") });
+    if (v === null) return;
+    const gb = Number(v.trim().replace(",", ".").replace(/\s*gb$/i, ""));
+    if (!v.trim() || !isFinite(gb) || gb < 0) return toast(tr("admin.cache.limitBad"), true);
+    try {
+      const r = await api.setCacheLimit(gb);
+      if (stats) stats = { ...stats, cache_limit_bytes: r.cache_limit_bytes };
+      toast(r.cache_limit_bytes ? tr("admin.cache.limitSet", { size: bytes(r.cache_limit_bytes) }) : tr("admin.cache.limitOff"));
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  }
+
+  let clearing = $state(false);
+  /** Borra todos los torrents de la caché (lo que alguien esta viendo queda). */
+  async function clearCache() {
+    const ok = await ask({ title: tr("admin.cache.clearTitle"), body: tr("admin.cache.clearBody"), confirm: tr("admin.cache.clear"), danger: true });
+    if (!ok) return;
+    clearing = true;
+    try {
+      const r = await api.clearCache();
+      const done = r.removed ? tr("admin.cache.cleared", { n: r.removed, size: bytes(r.freed_bytes) }) : tr("admin.cache.clearedNone");
+      toast(r.skipped ? `${done}. ${tr("admin.cache.kept", { n: r.skipped })}` : done);
+      const [t, s] = await Promise.allSettled([api.torrents(), api.stats()]);
+      if (t.status === "fulfilled") torrents = t.value;
+      if (s.status === "fulfilled") stats = s.value;
+    } catch (e) {
+      toast(errText(e), true);
+    } finally {
+      clearing = false;
+    }
+  }
+
   // Nombres de lo que se esta viendo (el server manda solo el id).
   let names = $state<Record<string, string>>({});
   $effect(() => {
@@ -203,9 +239,14 @@
   <!-- Uso de cache y disco -->
   <div class="stats-grid">
     <div class="card stat">
-      <div class="stat-head"><HardDrive size={15} />{tr("admin.cache")}</div>
+      <div class="stat-head">
+        <HardDrive size={15} />{tr("admin.cache")}
+        <div class="grow"></div>
+        <button class="btn sm" title={tr("admin.cache.limitTip")} disabled={!stats} onclick={setLimit}><Gauge size={14} />{tr("admin.cache.limit")}</button>
+        <button class="btn sm danger-hover" title={tr("admin.cache.clearTip")} disabled={clearing || !torrents?.length} onclick={clearCache}><Eraser size={14} />{tr("admin.cache.clear")}</button>
+      </div>
       {#if stats}
-        <div class="stat-n">{bytes(stats.cache_bytes)} <span class="faint">{tr("admin.cacheOf", { size: bytes(stats.cache_limit_bytes) })}</span></div>
+        <div class="stat-n">{bytes(stats.cache_bytes)} <span class="faint">{stats.cache_limit_bytes ? tr("admin.cacheOf", { size: bytes(stats.cache_limit_bytes) }) : tr("admin.cacheNoLimit")}</span></div>
         <div class="progress big"><div class="progress-fill bar-fill" class:warn={cachePct > 85} style="width: {cachePct}%"></div></div>
         <div class="faint small">{tr("admin.diskFree", { size: bytes(stats.disk_free_bytes) })}</div>
       {:else}
@@ -372,8 +413,15 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
-  .stat-head :global(svg) {
+  .stat-head > :global(svg) {
     color: var(--accent);
+  }
+  .stat-head .btn {
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .danger-hover:hover:not(:disabled) {
+    color: var(--danger);
   }
   .stat-n {
     font-size: 22px;

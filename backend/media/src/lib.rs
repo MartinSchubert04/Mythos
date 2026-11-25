@@ -208,6 +208,16 @@ pub struct TorrentStat {
     pub last_used_at: String,
 }
 
+/// Lo que hizo `Media::clear_cache`.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CacheCleared {
+    /// Torrents borrados (con sus archivos).
+    pub removed: u32,
+    /// Los que quedaron porque están en uso (alguien los está viendo o se precargan).
+    pub skipped: u32,
+    pub freed_bytes: u64,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MediaStats {
     pub cache_bytes: u64,
@@ -378,6 +388,17 @@ impl Media {
 
     pub async fn stats(&self) -> MediaStats {
         self.inner.stats()
+    }
+
+    /// Extra: cambia el tope de la caché en caliente (bytes; 0 = sin tope). Si bajó, borra en el
+    /// momento lo que sobra (los menos usados, nunca los que están en uso).
+    pub async fn set_cache_limit(&self, bytes: u64) {
+        self.inner.set_cache_limit(bytes).await
+    }
+
+    /// Extra: borra todos los torrents de la caché con sus archivos, menos los que están en uso.
+    pub async fn clear_cache(&self) -> CacheCleared {
+        self.inner.clear_cache().await
     }
 
     /// No bloquea: dispara la precarga (principio y final del archivo) y vuelve.
